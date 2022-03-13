@@ -75,7 +75,7 @@ class block_blog_tags extends block_base {
             }
             return $this->content;
 
-        } else if (empty($CFG->usetags)) {
+        } else if (!core_tag_tag::is_enabled('core', 'post')) {
             $this->content = new stdClass();
             $this->content->text = '';
             if ($this->page->user_is_editing()) {
@@ -121,11 +121,12 @@ class block_blog_tags extends block_base {
             $type = " AND (p.publishstate = 'site' or p.publishstate='public')";
         }
 
-        $sql  = "SELECT t.id, t.tagtype, t.rawname, t.name, COUNT(DISTINCT ti.id) AS ct
+        $sql  = "SELECT t.id, t.isstandard, t.rawname, t.name, COUNT(DISTINCT ti.id) AS ct
                    FROM {tag} t, {tag_instance} ti, {post} p, {blog_association} ba
                   WHERE t.id = ti.tagid AND p.id = ti.itemid
                         $type
                         AND ti.itemtype = 'post'
+                        AND ti.component = 'core'
                         AND ti.timemodified > $timewithin";
 
         if ($context->contextlevel == CONTEXT_MODULE) {
@@ -135,7 +136,7 @@ class block_blog_tags extends block_base {
         }
 
         $sql .= "
-               GROUP BY t.id, t.tagtype, t.name, t.rawname
+               GROUP BY t.id, t.isstandard, t.name, t.rawname
                ORDER BY ct DESC, t.name ASC";
 
         if ($tags = $DB->get_records_sql($sql, null, 0, $this->config->numberoftags)) {
@@ -164,7 +165,7 @@ class block_blog_tags extends block_base {
                     $size = 20 - ( (int)((($currenttag - 1) / $totaltags) * 20) );
                 }
 
-                $tag->class = "$tag->tagtype s$size";
+                $tag->class = ($tag->isstandard ? "standardtag " : "") . "s$size";
                 $etags[] = $tag;
 
             }
@@ -195,13 +196,43 @@ class block_blog_tags extends block_base {
                 }
 
                 $blogurl->param('tagid', $tag->id);
-                $link = html_writer::link($blogurl, tag_display_name($tag), array('class'=>$tag->class, 'title'=>get_string('numberofentries','blog',$tag->ct)));
+                $link = html_writer::link($blogurl, core_tag_tag::make_display_name($tag),
+                        array('class' => $tag->class,
+                            'title' => get_string('numberofentries', 'blog', $tag->ct)));
                 $this->content->text .= '<li>' . $link . '</li> ';
             }
             $this->content->text .= "\n</ul>\n";
 
         }
         return $this->content;
+    }
+
+    /**
+     * Return the plugin config settings for external functions.
+     *
+     * @return stdClass the configs for both the block instance and plugin
+     * @since Moodle 3.8
+     */
+    public function get_config_for_external() {
+        // Return all settings for all users since it is safe (no private keys, etc..).
+        $configs = !empty($this->config) ? $this->config : new stdClass();
+
+        return (object) [
+            'instance' => $configs,
+            'plugin' => new stdClass(),
+        ];
+    }
+
+    /**
+     * This block shouldn't be added to a page if the blogs and the tags advanced features are disabled.
+     *
+     * @param moodle_page $page
+     * @return bool
+     */
+    public function can_block_be_added(moodle_page $page): bool {
+        global $CFG;
+
+        return $CFG->enableblogs && $CFG->usetags;
     }
 }
 
@@ -215,12 +246,10 @@ function block_blog_tags_sort($a, $b) {
     }
 
     if (is_numeric($a->$tagsort)) {
-        return ($a->$tagsort == $b->$tagsort) ? 0 : ($a->$tagsort > $b->$tagsort) ? 1 : -1;
+        return (($a->$tagsort == $b->$tagsort) ? 0 : ($a->$tagsort > $b->$tagsort)) ? 1 : -1;
     } elseif (is_string($a->$tagsort)) {
         return strcmp($a->$tagsort, $b->$tagsort); //TODO: this is not compatible with UTF-8!!
     } else {
         return 0;
     }
 }
-
-

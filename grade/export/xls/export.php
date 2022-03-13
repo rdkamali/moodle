@@ -23,7 +23,7 @@ $id                = required_param('id', PARAM_INT); // course id
 $PAGE->set_url('/grade/export/xls/export.php', array('id'=>$id));
 
 if (!$course = $DB->get_record('course', array('id'=>$id))) {
-    print_error('nocourseid');
+    print_error('invalidcourseid');
 }
 
 require_login($course);
@@ -37,7 +37,10 @@ require_capability('gradeexport/xls:view', $context);
 // If you use this method without this check, will break the direct grade exporting (without publishing).
 $key = optional_param('key', '', PARAM_RAW);
 if (!empty($CFG->gradepublishing) && !empty($key)) {
-    print_grade_page_head($COURSE->id, 'export', 'xls', get_string('exportto', 'grades') . ' ' . get_string('pluginname', 'gradeexport_xls'));
+    $actionbar = new \core_grades\output\export_publish_action_bar($context, 'xls');
+    print_grade_page_head($COURSE->id, 'export', 'xls',
+        get_string('exportto', 'grades') . ' ' . get_string('pluginname', 'gradeexport_xls'),
+        false, false, true, null, null, null, $actionbar);
 }
 
 if (groups_get_course_groupmode($COURSE) == SEPARATEGROUPS and !has_capability('moodle/site:accessallgroups', $context)) {
@@ -55,6 +58,8 @@ if (!empty($CFG->gradepublishing) && !empty($key)) {
     echo $export->get_grade_publishing_url();
     echo $OUTPUT->footer();
 } else {
+    $event = \gradeexport_xls\event\grade_exported::create(array('context' => $context));
+    $event->trigger();
     $export->print_grades();
 }
 

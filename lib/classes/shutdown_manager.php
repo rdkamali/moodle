@@ -33,7 +33,9 @@ defined('MOODLE_INTERNAL') || die();
  */
 class core_shutdown_manager {
     /** @var array list of custom callbacks */
-    protected static $callbacks = array();
+    protected static $callbacks = [];
+    /** @var array list of custom signal callbacks */
+    protected static $signalcallbacks = [];
     /** @var bool is this manager already registered? */
     protected static $registered = false;
 
@@ -48,6 +50,82 @@ class core_shutdown_manager {
         }
         self::$registered = true;
         register_shutdown_function(array('core_shutdown_manager', 'shutdown_handler'));
+
+        // Signal handlers should only be used when dealing with a CLI script.
+        // In the case of PHP called in a web server the server is the owning process and should handle the signal chain
+        // properly itself.
+        // The 'pcntl' extension is optional and not available on Windows.
+        if (CLI_SCRIPT && extension_loaded('pcntl') && function_exists('pcntl_async_signals')) {
+            // We capture and handle SIGINT (Ctrl+C) and SIGTERM (termination requested).
+            pcntl_async_signals(true);
+            pcntl_signal(SIGINT, ['core_shutdown_manager', 'signal_handler']);
+            pcntl_signal(SIGTERM, ['core_shutdown_manager', 'signal_handler']);
+        }
+    }
+
+    /**
+     * Signal handler for SIGINT, and SIGTERM.
+     *
+     * @param   int     $signo The signal being handled
+     */
+    public static function signal_handler(int $signo) {
+        // Note: There is no need to manually call the shutdown handler.
+        // The fact that we are calling exit() in this script means that the standard shutdown handling is performed
+        // anyway.
+        switch ($signo) {
+            case SIGTERM:
+                // Replicate native behaviour.
+                echo "Terminated: {$signo}\n";
+
+                // The standard exit code for SIGTERM is 143.
+                $exitcode = 143;
+                break;
+            case SIGINT:
+                // Replicate native behaviour.
+                echo "\n";
+
+                // The standard exit code for SIGINT (Ctrl+C) is 130.
+                $exitcode = 130;
+                break;
+            default:
+                // The signal handler was called with a signal it was not expecting.
+                // We should exit and complain.
+                echo "Warning: \core_shutdown_manager::signal_handler() was called with an unexpected signal ({$signo}).\n";
+                $exitcode = 1;
+        }
+
+        // Normally we should exit unless a callback tells us to wait.
+        $shouldexit = true;
+        foreach (self::$signalcallbacks as $data) {
+            list($callback, $params) = $data;
+            try {
+                array_unshift($params, $signo);
+                $shouldexit = call_user_func_array($callback, $params) && $shouldexit;
+            } catch (Throwable $e) {
+                // phpcs:ignore
+                error_log('Exception ignored in signal function ' . get_callable_name($callback) . ': ' . $e->getMessage());
+            }
+        }
+
+        if ($shouldexit) {
+            exit ($exitcode);
+        }
+    }
+
+    /**
+     * Register custom signal handler function.
+     *
+     * If a handler returns false the signal will be ignored.
+     *
+     * @param callable $callback
+     * @param array $params
+     * @return void
+     */
+    public static function register_signal_handler($callback, array $params = null): void {
+        if (!is_callable($callback)) {
+            error_log('Invalid custom signal function detected ' . var_export($callback, true)); // phpcs:ignore
+        }
+        self::$signalcallbacks[] = [$callback, $params ?? []];
     }
 
     /**
@@ -55,9 +133,13 @@ class core_shutdown_manager {
      *
      * @param callable $callback
      * @param array $params
+     * @return void
      */
-    public static function register_function($callback, array $params = null) {
-        self::$callbacks[] = array($callback, $params);
+    public static function register_function($callback, array $params = null): void {
+        if (!is_callable($callback)) {
+            error_log('Invalid custom shutdown function detected '.var_export($callback, true)); // phpcs:ignore
+        }
+        self::$callbacks[] = [$callback, $params ? array_values($params) : []];
     }
 
     /**
@@ -70,17 +152,10 @@ class core_shutdown_manager {
         foreach (self::$callbacks as $data) {
             list($callback, $params) = $data;
             try {
-                if (!is_callable($callback)) {
-                    error_log('Invalid custom shutdown function detected '.var_export($callback, true));
-                    continue;
-                }
-                if ($params === null) {
-                    call_user_func($callback);
-                } else {
-                    call_user_func_array($callback, $params);
-                }
-            } catch (Exception $e) {
-                error_log('Exception ignored in shutdown function '.var_export($callback, true).':'.$e->getMessage());
+                call_user_func_array($callback, $params);
+            } catch (Throwable $e) {
+                // phpcs:ignore
+                error_log('Exception ignored in shutdown function '.get_callable_name($callback).': '.$e->getMessage());
             }
         }
 

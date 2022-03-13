@@ -134,22 +134,6 @@ $overridestable->read_submitted_permissions();
 if (optional_param('savechanges', false, PARAM_BOOL) && confirm_sesskey()) {
     $overridestable->save_changes();
     $rolename = $overridableroles[$roleid];
-    // Trigger event.
-    $event = \core\event\role_capabilities_updated::create(
-        array(
-            'context' => $context,
-            'objectid' => $roleid,
-        )
-    );
-
-    $event->set_legacy_logdata(
-        array(
-            $course->id, 'role', 'override', 'admin/roles/override.php?contextid=' . $context->id . '&roleid=' . $roleid,
-            $rolename, '', $USER->id
-        )
-    );
-    $event->add_record_snapshot('role', $role);
-    $event->trigger();
 
     redirect($returnurl);
 }
@@ -177,8 +161,11 @@ if (!empty($capabilities)) {
     }
 
     echo html_writer::start_tag('div', array('class'=>'submit_buttons'));
-    echo html_writer::empty_tag('input', array('type'=>'submit', 'name'=>'savechanges', 'value'=>get_string('savechanges')));
-    echo html_writer::empty_tag('input', array('type'=>'submit', 'name'=>'cancel', 'value'=>get_string('cancel')));
+    $attrs = array('type'=>'submit', 'name'=>'savechanges', 'value'=>get_string('savechanges'), 'class'=>'btn btn-primary');
+    echo html_writer::empty_tag('input', $attrs);
+    $attrs = array('type' => 'submit', 'name' => 'cancel', 'value' => get_string('cancel'),
+        'class' => 'btn btn-secondary ml-1');
+    echo html_writer::empty_tag('input', $attrs);
     echo html_writer::end_tag('div');
     echo html_writer::end_tag('div');
     echo html_writer::end_tag('form');

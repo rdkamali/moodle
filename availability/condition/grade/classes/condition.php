@@ -142,8 +142,27 @@ class condition extends \core_availability\condition {
                 $string = 'notgeneral';
             }
         }
-        $name = self::get_cached_grade_name($course->id, $this->gradeitemid);
+        // We cannot get the name at this point because it requires format_string which is not
+        // allowed here. Instead, get it later with the callback function below.
+        $name = $this->description_callback([$this->gradeitemid]);
         return get_string('requires_' . $string, 'availability_grade', $name);
+    }
+
+    /**
+     * Gets the grade name at display time.
+     *
+     * @param \course_modinfo $modinfo Modinfo
+     * @param \context $context Context
+     * @param string[] $params Parameters (just grade item id)
+     * @return string Text value
+     */
+    public static function get_description_callback_value(
+            \course_modinfo $modinfo, \context $context, array $params): string {
+        if (count($params) !== 1 || !is_number($params[0])) {
+            return '<!-- Invalid grade description callback -->';
+        }
+        $gradeitemid = (int)$params[0];
+        return self::get_cached_grade_name($modinfo->get_course_id(), $gradeitemid);
     }
 
     protected function get_debug_string() {
@@ -228,7 +247,9 @@ class condition extends \core_availability\condition {
                         WHERE
                             gi.courseid = ?', array($userid, $courseid));
                 foreach ($rs as $record) {
-                    if (is_null($record->finalgrade)) {
+                    // This function produces division by zero error warnings when rawgrademax and rawgrademin
+                    // are equal. Below change does not affect function behavior, just avoids the warning.
+                    if (is_null($record->finalgrade) || $record->rawgrademax == $record->rawgrademin) {
                         // No grade = false.
                         $cachedgrades[$record->id] = false;
                     } else {
@@ -249,7 +270,9 @@ class condition extends \core_availability\condition {
                 // Just get current grade.
                 $record = $DB->get_record('grade_grades', array(
                     'userid' => $userid, 'itemid' => $gradeitemid));
-                if ($record && !is_null($record->finalgrade)) {
+                // This function produces division by zero error warnings when rawgrademax and rawgrademin
+                // are equal. Below change does not affect function behavior, just avoids the warning.
+                if ($record && !is_null($record->finalgrade) && $record->rawgrademax != $record->rawgrademin) {
                     $score = (($record->finalgrade - $record->rawgrademin) * 100) /
                         ($record->rawgrademax - $record->rawgrademin);
                 } else {

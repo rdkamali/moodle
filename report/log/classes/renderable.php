@@ -84,6 +84,9 @@ class report_log_renderable implements renderable {
     /** @var string order to sort */
     public $order;
 
+    /** @var string origin to filter event origin */
+    public $origin;
+
     /** @var int group id */
     public $groupid;
 
@@ -113,7 +116,7 @@ class report_log_renderable implements renderable {
      */
     public function __construct($logreader = "", $course = 0, $userid = 0, $modid = 0, $action = "", $groupid = 0, $edulevel = -1,
             $showcourses = false, $showusers = false, $showreport = true, $showselectorform = true, $url = "", $date = 0,
-            $logformat='showashtml', $page = 0, $perpage = 100, $order = "timecreated ASC") {
+            $logformat='showashtml', $page = 0, $perpage = 100, $order = "timecreated ASC", $origin ='') {
 
         global $PAGE;
 
@@ -157,6 +160,7 @@ class report_log_renderable implements renderable {
         $this->showreport = $showreport;
         $this->showselectorform = $showselectorform;
         $this->logformat = $logformat;
+        $this->origin = $origin;
     }
 
     /**
@@ -199,7 +203,8 @@ class report_log_renderable implements renderable {
             $section = 0;
             $thissection = array();
             foreach ($modinfo->cms as $cm) {
-                if (!$cm->uservisible || !$cm->has_view()) {
+                // Exclude activities that aren't visible or have no view link (e.g. label). Account for folders displayed inline.
+                if (!$cm->uservisible || (!$cm->has_view() && strcmp($cm->modname, 'folder') !== 0)) {
                     continue;
                 }
                 if ($cm->sectionnum > 0 and $section <> $cm->sectionnum) {
@@ -282,7 +287,7 @@ class report_log_renderable implements renderable {
                 'r' => get_string('view'),
                 'u' => get_string('update'),
                 'd' => get_string('delete'),
-                '' => get_string('allchanges')
+                'cud' => get_string('allchanges')
                 );
         return $actions;
     }
@@ -294,7 +299,14 @@ class report_log_renderable implements renderable {
      */
     public function get_selected_user_fullname() {
         $user = core_user::get_user($this->userid);
-        return fullname($user);
+        if (empty($this->course)) {
+            // We are in system context.
+            $context = context_system::instance();
+        } else {
+            // We are in course context.
+            $context = context_course::instance($this->course->id);
+        }
+        return fullname($user, has_capability('moodle/site:viewfullnames', $context));
     }
 
     /**
@@ -372,7 +384,9 @@ class report_log_renderable implements renderable {
         $context = context_course::instance($courseid);
         $limitfrom = empty($this->showusers) ? 0 : '';
         $limitnum  = empty($this->showusers) ? COURSE_MAX_USERS_PER_DROPDOWN + 1 : '';
-        $courseusers = get_enrolled_users($context, '', $this->groupid, 'u.id, ' . get_all_user_name_fields(true, 'u'),
+        $userfieldsapi = \core_user\fields::for_name();
+        $courseusers = get_enrolled_users($context, '', $this->groupid, 'u.id, ' .
+                $userfieldsapi->get_sql('u', false, '', '', false)->selects,
                 null, $limitfrom, $limitnum);
 
         if (count($courseusers) < COURSE_MAX_USERS_PER_DROPDOWN && !$this->showusers) {
@@ -433,6 +447,22 @@ class report_log_renderable implements renderable {
     }
 
     /**
+     * Return list of components to show in selector.
+     *
+     * @return array list of origins.
+     */
+    public function get_origin_options() {
+        $ret = array();
+        $ret[''] = get_string('allsources', 'report_log');
+        $ret['cli'] = get_string('cli', 'report_log');
+        $ret['restore'] = get_string('restore', 'report_log');
+        $ret['web'] = get_string('web', 'report_log');
+        $ret['ws'] = get_string('ws', 'report_log');
+        $ret['---'] = get_string('other', 'report_log');
+        return $ret;
+    }
+
+    /**
      * Return list of edulevel.
      *
      * @todo MDL-44528 Get list from log_store.
@@ -469,7 +499,7 @@ class report_log_renderable implements renderable {
         $filter->action = $this->action;
         $filter->date = $this->date;
         $filter->orderby = $this->order;
-
+        $filter->origin = $this->origin;
         // If showing site_errors.
         if ('site_errors' === $this->modid) {
             $filter->siteerrors = true;
@@ -487,6 +517,12 @@ class report_log_renderable implements renderable {
      */
     public function download() {
         $filename = 'logs_' . userdate(time(), get_string('backupnameformat', 'langconfig'), 99, false);
+        if ($this->course->id !== SITEID) {
+            $courseshortname = format_string($this->course->shortname, true,
+                    array('context' => context_course::instance($this->course->id)));
+            $filename = clean_filename('logs_' . $courseshortname . '_' . userdate(time(),
+                    get_string('backupnameformat', 'langconfig'), 99, false));
+        }
         $this->tablelog->is_downloading($this->logformat, $filename);
         $this->tablelog->out($this->perpage, false);
     }

@@ -26,6 +26,8 @@
 
 defined('MOODLE_INTERNAL') || die();
 
+require_once($CFG->dirroot . '/question/type/questionbase.php');
+
 /**
  * Represents a numerical question.
  *
@@ -42,7 +44,8 @@ class qtype_numerical_question extends question_graded_automatically {
     public $unitgradingtype;
     /** @var number the penalty for a missing or unrecognised unit. */
     public $unitpenalty;
-
+    /** @var boolean whether the units come before or after the number */
+    public $unitsleft;
     /** @var qtype_numerical_answer_processor */
     public $ap;
 
@@ -81,6 +84,20 @@ class qtype_numerical_question extends question_graded_automatically {
         }
 
         return $resp;
+    }
+
+    public function un_summarise_response(string $summary) {
+        if ($this->has_separate_unit_field()) {
+            throw new coding_exception('Sorry, but at the moment un_summarise_response cannot handle the
+                has_separate_unit_field case for numerical questions.
+                    If you need this, you will have to implement it yourself.');
+        }
+
+        if (!empty($summary)) {
+            return ['answer' => $summary];
+        } else {
+            return [];
+        }
     }
 
     public function is_gradable_response(array $response) {
@@ -302,6 +319,26 @@ class qtype_numerical_question extends question_graded_automatically {
                     $args, $forcedownload);
         }
     }
+
+    /**
+     * Return the question settings that define this question as structured data.
+     *
+     * @param question_attempt $qa the current attempt for which we are exporting the settings.
+     * @param question_display_options $options the question display options which say which aspects of the question
+     * should be visible.
+     * @return mixed structure representing the question settings. In web services, this will be JSON-encoded.
+     */
+    public function get_question_definition_for_external_rendering(question_attempt $qa, question_display_options $options) {
+        // This is a partial implementation, returning only the most relevant question settings for now,
+        // ideally, we should return as much as settings as possible (depending on the state and display options).
+
+        return [
+            'unitgradingtype' => $this->unitgradingtype,
+            'unitpenalty' => $this->unitpenalty,
+            'unitdisplay' => $this->unitdisplay,
+            'unitsleft' => $this->unitsleft,
+        ];
+    }
 }
 
 
@@ -320,7 +357,7 @@ class qtype_numerical_answer extends question_answer {
 
     public function __construct($id, $answer, $fraction, $feedback, $feedbackformat, $tolerance) {
         parent::__construct($id, $answer, $fraction, $feedback, $feedbackformat);
-        $this->tolerance = abs($tolerance);
+        $this->tolerance = abs((float)$tolerance);
     }
 
     public function get_tolerance_interval() {

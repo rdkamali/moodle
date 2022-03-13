@@ -30,8 +30,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 global $CFG;
-require_once(dirname(__FILE__) . '/../lib.php');
-require_once(dirname(__FILE__) . '/helpers.php');
+require_once(__DIR__ . '/../lib.php');
+require_once(__DIR__ . '/helpers.php');
 
 
 /**
@@ -43,18 +43,21 @@ require_once(dirname(__FILE__) . '/helpers.php');
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class question_attempt_testcase extends advanced_testcase {
+    /** @var question_definition a question that can be used in the tests. */
     private $question;
+    /** @var int fake question_usage id used in some tests. */
     private $usageid;
+    /** @var question_attempt a question attempt that can be used in the tests. */
     private $qa;
 
-    protected function setUp() {
+    protected function setUp(): void {
         $this->question = test_question_maker::make_question('description');
         $this->question->defaultmark = 3;
         $this->usageid = 13;
         $this->qa = new question_attempt($this->question, $this->usageid);
     }
 
-    protected function tearDown() {
+    protected function tearDown(): void {
         $this->question = null;
         $this->useageid = null;
         $this->qa = null;
@@ -62,7 +65,7 @@ class question_attempt_testcase extends advanced_testcase {
 
     public function test_constructor_sets_maxmark() {
         $qa = new question_attempt($this->question, $this->usageid);
-        $this->assertSame($this->question, $qa->get_question());
+        $this->assertSame($this->question, $qa->get_question(false));
         $this->assertEquals(3, $qa->get_max_mark());
     }
 
@@ -87,56 +90,26 @@ class question_attempt_testcase extends advanced_testcase {
 
     public function test_get_qt_field_name() {
         $name = $this->qa->get_qt_field_name('test');
-        $this->assertRegExp('/^' . preg_quote($this->qa->get_field_prefix(), '/') . '/', $name);
-        $this->assertRegExp('/_test$/', $name);
+        $this->assertMatchesRegularExpression('/^' . preg_quote($this->qa->get_field_prefix(), '/') . '/', $name);
+        $this->assertMatchesRegularExpression('/_test$/', $name);
     }
 
     public function test_get_behaviour_field_name() {
         $name = $this->qa->get_behaviour_field_name('test');
-        $this->assertRegExp('/^' . preg_quote($this->qa->get_field_prefix(), '/') . '/', $name);
-        $this->assertRegExp('/_-test$/', $name);
+        $this->assertMatchesRegularExpression('/^' . preg_quote($this->qa->get_field_prefix(), '/') . '/', $name);
+        $this->assertMatchesRegularExpression('/_-test$/', $name);
     }
 
     public function test_get_field_prefix() {
         $this->qa->set_slot(7);
         $name = $this->qa->get_field_prefix();
-        $this->assertRegExp('/' . preg_quote($this->usageid, '/') . '/', $name);
-        $this->assertRegExp('/' . preg_quote($this->qa->get_slot(), '/') . '/', $name);
+        $this->assertMatchesRegularExpression('/' . preg_quote($this->usageid, '/') . '/', $name);
+        $this->assertMatchesRegularExpression('/' . preg_quote($this->qa->get_slot(), '/') . '/', $name);
     }
 
     public function test_get_submitted_var_not_present_var_returns_null() {
         $this->assertNull($this->qa->get_submitted_var(
                 'reallyunlikelyvariablename', PARAM_BOOL));
-    }
-
-    public function test_get_submitted_var_param_mark_not_present() {
-        $this->assertNull($this->qa->get_submitted_var(
-                'name', question_attempt::PARAM_MARK, array()));
-    }
-
-    public function test_get_submitted_var_param_mark_blank() {
-        $this->assertSame('', $this->qa->get_submitted_var(
-                'name', question_attempt::PARAM_MARK, array('name' => '')));
-    }
-
-    public function test_get_submitted_var_param_mark_number() {
-        $this->assertSame(123.0, $this->qa->get_submitted_var(
-                'name', question_attempt::PARAM_MARK, array('name' => '123')));
-    }
-
-    public function test_get_submitted_var_param_mark_number_uk_decimal() {
-        $this->assertSame(123.45, $this->qa->get_submitted_var(
-                'name', question_attempt::PARAM_MARK, array('name' => '123.45')));
-    }
-
-    public function test_get_submitted_var_param_mark_number_eu_decimal() {
-        $this->assertSame(123.45, $this->qa->get_submitted_var(
-                'name', question_attempt::PARAM_MARK, array('name' => '123,45')));
-    }
-
-    public function test_get_submitted_var_param_mark_invalid() {
-        $this->assertSame(0.0, $this->qa->get_submitted_var(
-                'name', question_attempt::PARAM_MARK, array('name' => 'frog')));
     }
 
     public function test_get_all_submitted_qt_vars() {

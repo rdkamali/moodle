@@ -1,6 +1,5 @@
 <?php
-
-// This file is part of Moodle - http://moodle.org/
+// This file is part of Moodle - https://moodle.org/
 //
 // Moodle is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -13,7 +12,7 @@
 // GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License
-// along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+// along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 /**
  * Automatically generated strings for Moodle installer
@@ -40,3 +39,4 @@ $string['cliunknowoption'] = 'ངོས་འཛིན་འབད་མ་ཚ�
 $string['cliyesnoprompt'] = 'y ཟེར་འབྲི་བ་ཅིན་ཨིནཟེརཝ་དང་ n ཟེར་འབྲི་བ་ཅིན་མིན་)';
 $string['environmentrequireinstall'] = 'གཞི་བཙུགས་འབད་དི་ལྕོགས་ཅན་བཟོ་དགོ།';
 $string['environmentrequireversion'] = 'ཐོན་རིམ་  {$a->needed}དགོས་མཁོ་ཡོདཔ་ལས་ ཁྱོད་ཀྱི་ {$a->current}གཡོག་བཀོལ་བའི་བསྒང་ཡོད།';
+$string['upgradekeyset'] = 'ལྡེ་མིག་ཡར་བསྐྱེད་གཏང་། (གཞི་སྒྲིག་མི་འགྱོ་ནི་གི་དོན་ལུ་སྟོངམ་སྦེ་བཞག)';

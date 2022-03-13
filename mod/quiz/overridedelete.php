@@ -23,7 +23,7 @@
  */
 
 
-require_once(dirname(__FILE__) . '/../../config.php');
+require_once(__DIR__ . '/../../config.php');
 require_once($CFG->dirroot.'/mod/quiz/lib.php');
 require_once($CFG->dirroot.'/mod/quiz/locallib.php');
 require_once($CFG->dirroot.'/mod/quiz/override_form.php');
@@ -48,6 +48,16 @@ require_login($course, false, $cm);
 
 // Check the user has the required capabilities to modify an override.
 require_capability('mod/quiz:manageoverrides', $context);
+
+if ($override->groupid) {
+    if (!groups_group_visible($override->groupid, $course, $cm)) {
+        print_error('invalidoverrideid', 'quiz');
+    }
+} else {
+    if (!groups_user_groups_visible($course, $override->userid, $cm)) {
+        print_error('invalidoverrideid', 'quiz');
+    }
+}
 
 $url = new moodle_url('/mod/quiz/overridedelete.php', array('id'=>$override->id));
 $confirmurl = new moodle_url($url, array('id'=>$override->id, 'confirm'=>1));
@@ -77,18 +87,23 @@ $PAGE->set_pagelayout('admin');
 $PAGE->navbar->add($title);
 $PAGE->set_title($title);
 $PAGE->set_heading($course->fullname);
-
+$PAGE->activityheader->set_attrs([
+    "title" => format_string($quiz->name, true, ['context' => $context]),
+    "description" => "",
+    "hidecompletion" => true
+]);
 echo $OUTPUT->header();
-echo $OUTPUT->heading(format_string($quiz->name, true, array('context' => $context)));
 
 if ($override->groupid) {
-    $group = $DB->get_record('groups', array('id' => $override->groupid), 'id, name');
+    $group = $DB->get_record('groups', ['id' => $override->groupid], 'id, name');
     $confirmstr = get_string("overridedeletegroupsure", "quiz", $group->name);
 } else {
-    $namefields = get_all_user_name_fields(true);
-    $user = $DB->get_record('user', array('id' => $override->userid),
-            'id, ' . $namefields);
-    $confirmstr = get_string("overridedeleteusersure", "quiz", fullname($user));
+    $user = $DB->get_record('user', ['id' => $override->userid]);
+    profile_load_custom_fields($user);
+
+    $confirmstr = get_string('overridedeleteusersure', 'quiz',
+            quiz_override_form::display_user_name($user,
+                    \core_user\fields::get_identity_fields($context)));
 }
 
 echo $OUTPUT->confirm($confirmstr, $confirmurl, $cancelurl);

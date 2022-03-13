@@ -24,12 +24,13 @@
  */
 
 
-require_once(dirname(__FILE__) . '/../../config.php');
+require_once(__DIR__ . '/../../config.php');
 require_once('locallib.php');
 
 $attemptid = required_param('attempt', PARAM_INT);
 $slot = required_param('slot', PARAM_INT);
 $seq = optional_param('step', null, PARAM_INT);
+$cmid = optional_param('cmid', null, PARAM_INT);
 
 $baseurl = new moodle_url('/mod/quiz/reviewquestion.php',
         array('attempt' => $attemptid, 'slot' => $slot));
@@ -39,26 +40,32 @@ if (!is_null($seq)) {
 }
 $PAGE->set_url($currenturl);
 
-$attemptobj = quiz_attempt::create($attemptid);
+$attemptobj = quiz_create_attempt_handling_errors($attemptid, $cmid);
+$attemptobj->preload_all_attempt_step_users();
 
 // Check login.
 require_login($attemptobj->get_course(), false, $attemptobj->get_cm());
 $attemptobj->check_review_capability();
+$student = $DB->get_record('user', array('id' => $attemptobj->get_userid()));
 
 $accessmanager = $attemptobj->get_access_manager(time());
 $options = $attemptobj->get_display_options(true);
 
 $PAGE->set_pagelayout('popup');
+$PAGE->set_title(get_string('reviewofquestion', 'quiz', array(
+        'question' => format_string($attemptobj->get_question_name($slot)),
+        'quiz' => format_string($attemptobj->get_quiz_name()), 'user' => fullname($student))));
 $PAGE->set_heading($attemptobj->get_course()->fullname);
 $output = $PAGE->get_renderer('mod_quiz');
 
-// Check permissions.
+// Check permissions - warning there is similar code in review.php and
+// quiz_attempt::check_file_access. If you change on, change them all.
 if ($attemptobj->is_own_attempt()) {
     if (!$attemptobj->is_finished()) {
-        echo $output->review_question_not_allowed(get_string('cannotreviewopen', 'quiz'));
+        echo $output->review_question_not_allowed($attemptobj, get_string('cannotreviewopen', 'quiz'));
         die();
     } else if (!$options->attempt) {
-        echo $output->review_question_not_allowed(
+        echo $output->review_question_not_allowed($attemptobj,
                 $attemptobj->cannot_review_message());
         die();
     }
@@ -69,6 +76,16 @@ if ($attemptobj->is_own_attempt()) {
 
 // Prepare summary informat about this question attempt.
 $summarydata = array();
+
+// Student name.
+$userpicture = new user_picture($student);
+$userpicture->courseid = $attemptobj->get_courseid();
+$summarydata['user'] = array(
+    'title'   => $userpicture,
+    'content' => new action_link(new moodle_url('/user/view.php', array(
+            'id' => $student->id, 'course' => $attemptobj->get_courseid())),
+            fullname($student, true)),
+);
 
 // Quiz name.
 $summarydata['quizname'] = array(

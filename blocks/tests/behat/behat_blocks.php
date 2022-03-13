@@ -25,9 +25,9 @@
 
 // NOTE: no MOODLE_INTERNAL test here, this file may be required by behat before including /config.php.
 
-require_once(__DIR__ . '/../../../lib/behat/behat_base.php');
+use Behat\Mink\Exception\ElementNotFoundException as ElementNotFoundException;
 
-use Behat\Behat\Context\Step\Given as Given;
+require_once(__DIR__ . '/../../../lib/behat/behat_base.php');
 
 /**
  * Blocks management steps definitions.
@@ -46,30 +46,28 @@ class behat_blocks extends behat_base {
      * @param string $blockname
      */
     public function i_add_the_block($blockname) {
-        $steps = new Given('I set the field "bui_addblock" to "' . $this->escape($blockname) . '"');
+        $addblock = get_string('addblock');
+        $this->execute('behat_general::i_click_on_in_the', [$addblock, 'link_exact', '.add_block_button', 'css_element']);
 
-        // If we are running without javascript we need to submit the form.
         if (!$this->running_javascript()) {
-            $steps = array(
-                $steps,
-                new Given('I click on "' . get_string('go') . '" "button" in the "#add_block" "css_element"')
-            );
+            $this->execute('behat_general::i_click_on_in_the', [$blockname, 'link_exact', '#region-main', 'css_element']);
+        } else {
+            $this->execute('behat_general::i_click_on_in_the', [$blockname, 'link_exact', $addblock, 'dialogue']);
         }
-        return $steps;
     }
 
     /**
-     * Docks a block. Editing mode should be previously enabled.
+     * Adds the selected block if it is not already present. Editing mode must be previously enabled.
      *
-     * @Given /^I dock "(?P<block_name_string>(?:[^"]|\\")*)" block$/
+     * @Given /^I add the "(?P<block_name_string>(?:[^"]|\\")*)" block if not present$/
      * @param string $blockname
-     * @return Given
      */
-    public function i_dock_block($blockname) {
-
-        // Looking for both title and alt.
-        $xpath = "//input[@type='image'][@title='" . get_string('dockblock', 'block', $blockname) . "' or @alt='" . get_string('addtodock', 'block') . "']";
-        return new Given('I click on " ' . $xpath . '" "xpath_element" in the "' . $this->escape($blockname) . '" "block"');
+    public function i_add_the_block_if_not_present($blockname) {
+        try {
+            $this->get_text_selector_node('block', $blockname);
+        } catch (ElementNotFoundException $e) {
+            $this->execute('behat_blocks::i_add_the_block', [$blockname]);
+        }
     }
 
     /**
@@ -78,7 +76,6 @@ class behat_blocks extends behat_base {
      * @Given /^I open the "(?P<block_name_string>(?:[^"]|\\")*)" blocks action menu$/
      * @throws DriverException The step is not available when Javascript is disabled
      * @param string $blockname
-     * @return Given
      */
     public function i_open_the_blocks_action_menu($blockname) {
 
@@ -93,7 +90,9 @@ class behat_blocks extends behat_base {
             return;
         }
 
-        return new Given('I click on "a[role=\'menuitem\']" "css_element" in the "' . $this->escape($blockname) . '" "block"');
+        $this->execute('behat_general::i_click_on_in_the',
+                array("a[data-toggle='dropdown']", "css_element", $this->escape($blockname), "block")
+        );
     }
 
     /**
@@ -106,9 +105,53 @@ class behat_blocks extends behat_base {
      */
     public function i_configure_the_block($blockname) {
         // Note that since $blockname may be either block name or CSS class, we can not use the exact label of "Configure" link.
-        return array(
-            new Given('I open the "'.$this->escape($blockname).'" blocks action menu'),
-            new Given('I click on "Configure" "link" in the "'.$this->escape($blockname).'" "block"')
+
+        $this->execute("behat_blocks::i_open_the_blocks_action_menu", $this->escape($blockname));
+
+        $this->execute('behat_general::i_click_on_in_the',
+            array("Configure", "link", $this->escape($blockname), "block")
         );
+    }
+
+    /**
+     * Ensures that block can be added to the page but does not actually add it.
+     *
+     * @Then /^the add block selector should contain "(?P<block_name_string>(?:[^"]|\\")*)" block$/
+     * @param string $blockname
+     */
+    public function the_add_block_selector_should_contain_block($blockname) {
+        $addblock = get_string('addblock');
+        $this->execute('behat_general::i_click_on', [$addblock, 'link_exact']);
+
+
+        $cancelstr = get_string('cancel');
+        if (!$this->running_javascript()) {
+            $this->execute('behat_general::should_exist_in_the', [$blockname, 'link_exact', '#region-main', 'css_element']);
+            $this->execute('behat_general::i_click_on_in_the', [$cancelstr, 'link_exact', '#region-main', 'css_element']);
+        } else {
+            $this->execute('behat_general::should_exist_in_the', [$blockname, 'link_exact', $addblock, 'dialogue']);
+            $this->execute('behat_general::i_click_on_in_the', [$cancelstr, 'button', $addblock, 'dialogue']);
+        }
+    }
+
+    /**
+     * Ensures that block can not be added to the page.
+     *
+     * @Then /^the add block selector should not contain "(?P<block_name_string>(?:[^"]|\\")*)" block$/
+     * @param string $blockname
+     */
+    public function the_add_block_selector_should_not_contain_block($blockname) {
+        $addblock = get_string('addblock');
+        $this->execute('behat_general::i_click_on', [$addblock, 'link_exact']);
+
+
+        $cancelstr = get_string('cancel');
+        if (!$this->running_javascript()) {
+            $this->execute('behat_general::should_not_exist_in_the', [$blockname, 'link_exact', '#region-main', 'css_element']);
+            $this->execute('behat_general::i_click_on_in_the', [$cancelstr, 'link_exact', '#region-main', 'css_element']);
+        } else {
+            $this->execute('behat_general::should_not_exist_in_the', [$blockname, 'link_exact', $addblock, 'dialogue']);
+            $this->execute('behat_general::i_click_on_in_the', [$cancelstr, 'button', $addblock, 'dialogue']);
+        }
     }
 }

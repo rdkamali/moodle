@@ -69,13 +69,20 @@ class mod_glossary_entry_form extends moodleform {
 
             $mform->addElement('checkbox', 'casesensitive', get_string('casesensitive', 'glossary'));
             $mform->addHelpButton('casesensitive', 'casesensitive', 'glossary');
-            $mform->disabledIf('casesensitive', 'usedynalink');
+            $mform->hideIf('casesensitive', 'usedynalink');
             $mform->setDefault('casesensitive', $CFG->glossary_casesensitive);
 
             $mform->addElement('checkbox', 'fullmatch', get_string('fullmatch', 'glossary'));
             $mform->addHelpButton('fullmatch', 'fullmatch', 'glossary');
-            $mform->disabledIf('fullmatch', 'usedynalink');
+            $mform->hideIf('fullmatch', 'usedynalink');
             $mform->setDefault('fullmatch', $CFG->glossary_fullmatch);
+        }
+
+        if (core_tag_tag::is_enabled('mod_glossary', 'glossary_entries')) {
+            $mform->addElement('header', 'tagshdr', get_string('tags', 'tag'));
+
+            $mform->addElement('tags', 'tags', get_string('tags'),
+                array('itemtype' => 'glossary_entries', 'component' => 'mod_glossary'));
         }
 
         $mform->addElement('hidden', 'id');
@@ -126,10 +133,7 @@ class mod_glossary_entry_form extends moodleform {
 
         } else {
             if (!$glossary->allowduplicatedentries) {
-                if ($DB->record_exists_select('glossary_entries',
-                        'glossaryid = :glossaryid AND LOWER(concept) = :concept', array(
-                            'glossaryid' => $glossary->id,
-                            'concept'    => core_text::strtolower($data['concept'])))) {
+                if (glossary_concept_exists($glossary, $data['concept'])) {
                     $errors['concept'] = get_string('errconceptalreadyexists', 'glossary');
                 }
             }

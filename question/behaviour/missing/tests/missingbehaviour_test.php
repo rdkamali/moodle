@@ -27,9 +27,9 @@
 defined('MOODLE_INTERNAL') || die();
 
 global $CFG;
-require_once(dirname(__FILE__) . '/../../../engine/lib.php');
-require_once(dirname(__FILE__) . '/../../../engine/tests/helpers.php');
-require_once(dirname(__FILE__) . '/../behaviour.php');
+require_once(__DIR__ . '/../../../engine/lib.php');
+require_once(__DIR__ . '/../../../engine/tests/helpers.php');
+require_once(__DIR__ . '/../behaviour.php');
 
 
 /**
@@ -39,31 +39,32 @@ require_once(dirname(__FILE__) . '/../behaviour.php');
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class qbehaviour_missing_test extends advanced_testcase {
+
     public function test_missing_cannot_start() {
         $qa = new question_attempt(test_question_maker::make_question('truefalse', 'true'), 0);
         $behaviour = new qbehaviour_missing($qa, 'deferredfeedback');
-        $this->setExpectedException('moodle_exception');
+        $this->expectException(moodle_exception::class);
         $behaviour->init_first_step(new question_attempt_step(array()), 1);
     }
 
     public function test_missing_cannot_process() {
         $qa = new question_attempt(test_question_maker::make_question('truefalse', 'true'), 0);
         $behaviour = new qbehaviour_missing($qa, 'deferredfeedback');
-        $this->setExpectedException('moodle_exception');
+        $this->expectException(moodle_exception::class);
         $behaviour->process_action(new question_attempt_pending_step(array()));
     }
 
     public function test_missing_cannot_get_min_fraction() {
         $qa = new question_attempt(test_question_maker::make_question('truefalse', 'true'), 0);
         $behaviour = new qbehaviour_missing($qa, 'deferredfeedback');
-        $this->setExpectedException('moodle_exception');
+        $this->expectException(moodle_exception::class);
         $behaviour->get_min_fraction();
     }
 
     public function test_missing_cannot_get_max_fraction() {
         $qa = new question_attempt(test_question_maker::make_question('truefalse', 'true'), 0);
         $behaviour = new qbehaviour_missing($qa, 'deferredfeedback');
-        $this->setExpectedException('moodle_exception');
+        $this->expectException(moodle_exception::class);
         $behaviour->get_max_fraction();
     }
 
@@ -108,8 +109,8 @@ class qbehaviour_missing_test extends advanced_testcase {
         $this->assertEquals(array('-submit' => '1', 'choice0' => '1'), $step->get_all_data());
 
         $output = $qa->render(new question_display_options(), '1');
-        $this->assertRegExp('/' . preg_quote($qa->get_question()->questiontext, '/') . '/', $output);
-        $this->assertRegExp('/' . preg_quote(
+        $this->assertMatchesRegularExpression('/' . preg_quote($qa->get_question(false)->questiontext, '/') . '/', $output);
+        $this->assertMatchesRegularExpression('/' . preg_quote(
                 get_string('questionusedunknownmodel', 'qbehaviour_missing'), '/') . '/', $output);
         $this->assertTag(array('tag'=>'div', 'attributes'=>array('class'=>'warning')), $output);
     }

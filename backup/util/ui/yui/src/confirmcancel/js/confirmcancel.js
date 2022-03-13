@@ -62,12 +62,21 @@ M.core_backup.confirmcancel = {
         var confirm = new M.core.confirm(this.config);
 
         // If the user clicks yes.
-        confirm.on('complete-yes', function(){
+        confirm.on('complete-yes', function() {
             // Detach the listeners for the confirm box so they don't fire again.
             new Y.EventHandle(M.core_backup.confirmcancel.listeners).detach();
 
+            // The currentTarget is a div surrounding the form elements. Simulating a click on the div is
+            // not going to submit a form so we need to find the form element to click.
+            var element = e.currentTarget.one('input, select, button');
+
             // Simulate the original cancel button click.
-            e.currentTarget.simulate('click');
+            if (element) {
+                element.simulate('click');
+            } else {
+                // Backwards compatibility only.
+                e.currentTarget.simulate('click');
+            }
         }, this);
 
 

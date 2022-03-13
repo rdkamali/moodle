@@ -25,13 +25,13 @@
  */
 
 
-require_once(dirname(__FILE__) . '/../config.php');
+require_once(__DIR__ . '/../config.php');
 require_once($CFG->libdir . '/questionlib.php');
 require_once($CFG->libdir . '/adminlib.php');
 require_once($CFG->libdir . '/tablelib.php');
 
 // Check permissions.
-require_login();
+require_login(null, false);
 $systemcontext = context_system::instance();
 require_capability('moodle/question:config', $systemcontext);
 
@@ -88,10 +88,9 @@ if (($disable = optional_param('disable', '', PARAM_PLUGIN)) && confirm_sesskey(
     }
 
     if (array_search($disable, $disabledbehaviours) === false) {
-        $disabledbehaviours[] = $disable;
-        set_config('disabledbehaviours', implode(',', $disabledbehaviours), 'question');
+        $class = \core_plugin_manager::resolve_plugininfo_class('qbehaviour');
+        $class::enable_plugin($disable, false);
     }
-    core_plugin_manager::reset_caches();
     redirect($thispageurl);
 }
 
@@ -106,10 +105,9 @@ if (($enable = optional_param('enable', '', PARAM_PLUGIN)) && confirm_sesskey())
     }
 
     if (($key = array_search($enable, $disabledbehaviours)) !== false) {
-        unset($disabledbehaviours[$key]);
-        set_config('disabledbehaviours', implode(',', $disabledbehaviours), 'question');
+        $class = \core_plugin_manager::resolve_plugininfo_class('qbehaviour');
+        $class::enable_plugin($enable, true);
     }
-    core_plugin_manager::reset_caches();
     redirect($thispageurl);
 }
 
@@ -170,7 +168,7 @@ foreach ($sortedbehaviours as $behaviour => $behaviourname) {
     if ($version) {
         $row[] = $version;
     } else {
-        $row[] = html_writer::tag('span', get_string('nodatabase', 'admin'), array('class' => 'disabled'));
+        $row[] = html_writer::tag('span', get_string('nodatabase', 'admin'), array('class' => 'text-muted'));
     }
 
     // Other question types required by this one.
@@ -238,4 +236,3 @@ function question_behaviour_icon_html($action, $behaviour, $icon, $alt, $tip) {
             new pix_icon($icon, $alt, 'moodle', array('title' => '', 'class' => 'iconsmall')),
             null, array('title' => $tip));
 }
-

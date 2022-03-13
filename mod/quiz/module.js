@@ -12,6 +12,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+/* eslint camelcase: off */
 
 /**
  * JavaScript library for the quiz module.
@@ -27,7 +28,9 @@ M.mod_quiz = M.mod_quiz || {};
 M.mod_quiz.init_attempt_form = function(Y) {
     M.core_question_engine.init_form(Y, '#responseform');
     Y.on('submit', M.mod_quiz.timer.stop, '#responseform');
-    M.core_formchangechecker.init({formid: 'responseform'});
+    require(['core_form/changechecker'], function(FormChangeChecker) {
+        FormChangeChecker.watchFormById('responseform');
+    });
 };
 
 M.mod_quiz.init_review_form = function(Y) {
@@ -37,7 +40,7 @@ M.mod_quiz.init_review_form = function(Y) {
 
 M.mod_quiz.init_comment_popup = function(Y) {
     // Add a close button to the window.
-    var closebutton = Y.Node.create('<input type="button" />');
+    var closebutton = Y.Node.create('<input type="button" class="btn btn-secondary" />');
     closebutton.set('value', M.util.get_string('cancel', 'moodle'));
     Y.one('#id_submitbutton').ancestor().append(closebutton);
     Y.on('click', function() { window.close() }, closebutton);
@@ -58,6 +61,9 @@ M.mod_quiz.timer = {
     // so we can cancel.
     timeoutid: null,
 
+    // Threshold for updating time remaining, in milliseconds.
+    threshold: 3000,
+
     /**
      * @param Y the YUI object
      * @param start, the timer starting time, in seconds.
@@ -68,7 +74,10 @@ M.mod_quiz.timer = {
         M.mod_quiz.timer.endtime = M.pageloadstarttime.getTime() + start*1000;
         M.mod_quiz.timer.preview = preview;
         M.mod_quiz.timer.update();
-        Y.one('#quiz-timer').setStyle('display', 'block');
+        Y.one('#quiz-timer-wrapper').setStyle('display', 'flex');
+        require(['core_form/changechecker'], function(FormChangeChecker) {
+            M.mod_quiz.timer.FormChangeChecker = FormChangeChecker;
+        });
     },
 
     /**
@@ -106,7 +115,7 @@ M.mod_quiz.timer = {
             if (form.one('input[name=finishattempt]')) {
                 form.one('input[name=finishattempt]').set('value', 0);
             }
-            M.core_formchangechecker.set_form_submitted();
+            M.mod_quiz.timer.FormChangeChecker.markFormSubmitted(input.getDOMNode());
             form.submit();
             return;
         }
@@ -130,6 +139,44 @@ M.mod_quiz.timer = {
 
         // Arrange for this method to be called again soon.
         M.mod_quiz.timer.timeoutid = setTimeout(M.mod_quiz.timer.update, 100);
+    },
+
+    // Allow the end time of the quiz to be updated.
+    updateEndTime: function(timeleft) {
+        var newtimeleft = new Date().getTime() + timeleft * 1000;
+
+        // Only update if change is greater than the threshold, so the
+        // time doesn't bounce around unnecessarily.
+        if (Math.abs(newtimeleft - M.mod_quiz.timer.endtime) > M.mod_quiz.timer.threshold) {
+            M.mod_quiz.timer.endtime = newtimeleft;
+            M.mod_quiz.timer.update();
+        }
+    }
+};
+
+M.mod_quiz.filesUpload = {
+    /**
+     * YUI object.
+     */
+    Y: null,
+
+    /**
+     * Number of files uploading.
+     */
+    numberFilesUploading: 0,
+
+    /**
+     * Disable navigation block when uploading and enable navigation block when all files are uploaded.
+     */
+    disableNavPanel: function() {
+        var quizNavigationBlock = document.getElementById('mod_quiz_navblock');
+        if (quizNavigationBlock) {
+            if (M.mod_quiz.filesUpload.numberFilesUploading) {
+                quizNavigationBlock.classList.add('nav-disabled');
+            } else {
+                quizNavigationBlock.classList.remove('nav-disabled');
+            }
+        }
     }
 };
 
@@ -154,25 +201,12 @@ M.mod_quiz.nav.init = function(Y) {
 
     var form = Y.one('#responseform');
     if (form) {
-        function find_enabled_submit() {
-            // This is rather inelegant, but the CSS3 selector
-            //     return form.one('input[type=submit]:enabled');
-            // does not work in IE7, 8 or 9 for me.
-            var enabledsubmit = null;
-            form.all('input[type=submit]').each(function(submit) {
-                if (!enabledsubmit && !submit.get('disabled')) {
-                    enabledsubmit = submit;
-                }
-            });
-            return enabledsubmit;
-        }
-
         function nav_to_page(pageno) {
             Y.one('#followingpage').set('value', pageno);
 
             // Automatically submit the form. We do it this strange way because just
             // calling form.submit() does not run the form's submit event handlers.
-            var submit = find_enabled_submit();
+            var submit = form.one('input[name="next"]');
             submit.set('name', '');
             submit.getDOMNode().click();
         };
@@ -192,9 +226,9 @@ M.mod_quiz.nav.init = function(Y) {
                 pageno = 0;
             }
 
-            var questionidmatch = this.get('href').match(/#q(\d+)/);
+            var questionidmatch = this.get('href').match(/#question-(\d+)-(\d+)/);
             if (questionidmatch) {
-                form.set('action', form.get('action') + '#q' + questionidmatch[1]);
+                form.set('action', form.get('action') + questionidmatch[0]);
             }
 
             nav_to_page(pageno);
@@ -207,6 +241,19 @@ M.mod_quiz.nav.init = function(Y) {
             nav_to_page(-1);
         }, 'a.endtestlink');
     }
+
+    // Navigation buttons should be disabled when the files are uploading.
+    require(['core_form/events'], function(formEvent) {
+        document.addEventListener(formEvent.eventTypes.uploadStarted, function() {
+            M.mod_quiz.filesUpload.numberFilesUploading++;
+            M.mod_quiz.filesUpload.disableNavPanel();
+        });
+
+        document.addEventListener(formEvent.eventTypes.uploadCompleted, function() {
+            M.mod_quiz.filesUpload.numberFilesUploading--;
+            M.mod_quiz.filesUpload.disableNavPanel();
+        });
+    });
 
     if (M.core_question_flags) {
         M.core_question_flags.add_listener(M.mod_quiz.nav.update_flag_state);
@@ -226,7 +273,6 @@ M.mod_quiz.secure_window = {
         Y.delegate('cut',         M.mod_quiz.secure_window.prevent, document, '*');
         Y.delegate('copy',        M.mod_quiz.secure_window.prevent, document, '*');
         Y.delegate('paste',       M.mod_quiz.secure_window.prevent, document, '*');
-        M.mod_quiz.secure_window.clear_status;
         Y.on('beforeprint', function() {
             Y.one(document.body).setStyle('display', 'none');
         }, window);
@@ -239,11 +285,6 @@ M.mod_quiz.secure_window = {
         Y.on('key', M.mod_quiz.secure_window.prevent, '*', 'press:67,86,88+meta');
         Y.on('key', M.mod_quiz.secure_window.prevent, '*', 'up:67,86,88+meta');
         Y.on('key', M.mod_quiz.secure_window.prevent, '*', 'down:67,86,88+meta');
-    },
-
-    clear_status: function() {
-        window.status = '';
-        setTimeout(M.mod_quiz.secure_window.clear_status, 10);
     },
 
     is_content_editable: function(n) {
@@ -278,30 +319,13 @@ M.mod_quiz.secure_window = {
         e.halt();
     },
 
-    /**
-     * Event handler for the quiz start attempt button.
-     */
-    start_attempt_action: function(e, args) {
-        if (args.startattemptwarning == '') {
-            openpopup(e, args);
-        } else {
-            M.util.show_confirm_dialog(e, {
-                message: args.startattemptwarning,
-                callback: function() {
-                    openpopup(e, args);
-                },
-                continuelabel: M.util.get_string('startattempt', 'quiz')
-            });
-        }
-    },
-
     init_close_button: function(Y, url) {
         Y.on('click', function(e) {
             M.mod_quiz.secure_window.close(url, 0)
         }, '#secureclosebutton');
     },
 
-    close: function(Y, url, delay) {
+    close: function(url, delay) {
         setTimeout(function() {
             if (window.opener) {
                 window.opener.document.location.reload();

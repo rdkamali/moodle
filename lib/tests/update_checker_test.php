@@ -17,17 +17,19 @@
 /**
  * Unit tests for the update checker.
  *
- * @package   core
- * @category  phpunit
- * @copyright 2012 David Mudrak <david@moodle.com>
+ * @package   core_plugin
+ * @category  test
+ * @copyright 2012, 2015 David Mudrak <david@moodle.com>
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 defined('MOODLE_INTERNAL') || die();
 
-global $CFG;
-require_once(__DIR__.'/update_deployer_test.php');
+use core\update\testable_checker;
+use core\update\testable_checker_cron_executed;
 
+global $CFG;
+require_once(__DIR__.'/fixtures/testable_update_checker.php');
 
 /**
  * Tests of the basic API of the available update checker.
@@ -35,7 +37,7 @@ require_once(__DIR__.'/update_deployer_test.php');
 class core_update_checker_testcase extends advanced_testcase {
 
     public function test_core_available_update() {
-        $provider = testable_available_update_checker::instance();
+        $provider = testable_checker::instance();
         $this->assertInstanceOf('\core\update\checker', $provider);
 
         $provider->fake_current_environment(2012060102.00, '2.3.2 (Build: 20121012)', '2.3', array());
@@ -55,10 +57,10 @@ class core_update_checker_testcase extends advanced_testcase {
      * If there are no fetched data yet, the first cron should fetch them.
      */
     public function test_cron_initial_fetch() {
-        $provider = testable_available_update_checker::instance();
+        $provider = testable_checker::instance();
         $provider->fakerecentfetch = null;
         $provider->fakecurrenttimestamp = -1;
-        $this->setExpectedException('testable_available_update_checker_cron_executed');
+        $this->expectException(\core\update\testable_checker_cron_executed::class);
         $provider->cron();
     }
 
@@ -66,7 +68,7 @@ class core_update_checker_testcase extends advanced_testcase {
      * If there is a fresh fetch available, no cron execution is expected.
      */
     public function test_cron_has_fresh_fetch() {
-        $provider = testable_available_update_checker::instance();
+        $provider = testable_checker::instance();
         $provider->fakerecentfetch = time() - 23 * HOURSECS; // Fetched 23 hours ago.
         $provider->fakecurrenttimestamp = -1;
         $provider->cron();
@@ -77,20 +79,20 @@ class core_update_checker_testcase extends advanced_testcase {
      * If there is an outdated fetch, the cron execution is expected.
      */
     public function test_cron_has_outdated_fetch() {
-        $provider = testable_available_update_checker::instance();
+        $provider = testable_checker::instance();
         $provider->fakerecentfetch = time() - 49 * HOURSECS; // Fetched 49 hours ago.
         $provider->fakecurrenttimestamp = -1;
-        $this->setExpectedException('testable_available_update_checker_cron_executed');
+        $this->expectException(\core\update\testable_checker_cron_executed::class);
         $provider->cron();
     }
 
     /**
      * The first cron after 01:42 AM today should fetch the data.
      *
-     * @see testable_available_update_checker::cron_execution_offset()
+     * @see testable_checker::cron_execution_offset()
      */
     public function test_cron_offset_execution_not_yet() {
-        $provider = testable_available_update_checker::instance();
+        $provider = testable_checker::instance();
         $provider->fakecurrenttimestamp = mktime(1, 40, 02); // 01:40:02 AM today
         $provider->fakerecentfetch = $provider->fakecurrenttimestamp - 24 * HOURSECS;
         $provider->cron();
@@ -101,10 +103,10 @@ class core_update_checker_testcase extends advanced_testcase {
      * The first cron after 01:42 AM today should fetch the data and then
      * it is supposed to wait next 24 hours.
      *
-     * @see testable_available_update_checker::cron_execution_offset()
+     * @see testable_checker::cron_execution_offset()
      */
     public function test_cron_offset_execution() {
-        $provider = testable_available_update_checker::instance();
+        $provider = testable_checker::instance();
 
         // The cron at 01:45 should fetch the data.
         $provider->fakecurrenttimestamp = mktime(1, 45, 02); // 01:45:02 AM today
@@ -112,7 +114,7 @@ class core_update_checker_testcase extends advanced_testcase {
         $executed = false;
         try {
             $provider->cron();
-        } catch (testable_available_update_checker_cron_executed $e) {
+        } catch (testable_checker_cron_executed $e) {
             $executed = true;
         }
         $this->assertTrue($executed, 'Cron should be executed at 01:45:02 but it was not.');
@@ -123,7 +125,7 @@ class core_update_checker_testcase extends advanced_testcase {
         $executed = false;
         try {
             $provider->cron();
-        } catch (testable_available_update_checker_cron_executed $e) {
+        } catch (testable_checker_cron_executed $e) {
             $executed = true;
         }
         $this->assertFalse($executed, 'Cron should not be executed at 06:45:03 but it was.');
@@ -133,23 +135,23 @@ class core_update_checker_testcase extends advanced_testcase {
         $executed = false;
         try {
             $provider->cron();
-        } catch (testable_available_update_checker_cron_executed $e) {
+        } catch (testable_checker_cron_executed $e) {
             $executed = true;
         }
         $this->assertTrue($executed, 'Cron should be executed the next night but it was not.');
     }
 
     public function test_compare_responses_both_empty() {
-        $provider = testable_available_update_checker::instance();
+        $provider = testable_checker::instance();
         $old = array();
         $new = array();
         $cmp = $provider->compare_responses($old, $new);
-        $this->assertInternalType('array', $cmp);
+        $this->assertIsArray($cmp);
         $this->assertEmpty($cmp);
     }
 
     public function test_compare_responses_old_empty() {
-        $provider = testable_available_update_checker::instance();
+        $provider = testable_checker::instance();
         $old = array();
         $new = array(
             'updates' => array(
@@ -161,14 +163,14 @@ class core_update_checker_testcase extends advanced_testcase {
             )
         );
         $cmp = $provider->compare_responses($old, $new);
-        $this->assertInternalType('array', $cmp);
+        $this->assertIsArray($cmp);
         $this->assertNotEmpty($cmp);
         $this->assertTrue(isset($cmp['core'][0]['version']));
         $this->assertEquals(2012060103, $cmp['core'][0]['version']);
     }
 
     public function test_compare_responses_no_change() {
-        $provider = testable_available_update_checker::instance();
+        $provider = testable_checker::instance();
         $old = $new = array(
             'updates' => array(
                 'core' => array(
@@ -187,12 +189,12 @@ class core_update_checker_testcase extends advanced_testcase {
             )
         );
         $cmp = $provider->compare_responses($old, $new);
-        $this->assertInternalType('array', $cmp);
+        $this->assertIsArray($cmp);
         $this->assertEmpty($cmp);
     }
 
     public function test_compare_responses_new_and_missing_update() {
-        $provider = testable_available_update_checker::instance();
+        $provider = testable_checker::instance();
         $old = array(
             'updates' => array(
                 'core' => array(
@@ -220,7 +222,7 @@ class core_update_checker_testcase extends advanced_testcase {
             )
         );
         $cmp = $provider->compare_responses($old, $new);
-        $this->assertInternalType('array', $cmp);
+        $this->assertIsArray($cmp);
         $this->assertNotEmpty($cmp);
         $this->assertCount(1, $cmp);
         $this->assertCount(1, $cmp['core']);
@@ -228,7 +230,7 @@ class core_update_checker_testcase extends advanced_testcase {
     }
 
     public function test_compare_responses_modified_update() {
-        $provider = testable_available_update_checker::instance();
+        $provider = testable_checker::instance();
         $old = array(
             'updates' => array(
                 'mod_foo' => array(
@@ -248,7 +250,7 @@ class core_update_checker_testcase extends advanced_testcase {
             )
         );
         $cmp = $provider->compare_responses($old, $new);
-        $this->assertInternalType('array', $cmp);
+        $this->assertIsArray($cmp);
         $this->assertNotEmpty($cmp);
         $this->assertCount(1, $cmp);
         $this->assertCount(1, $cmp['mod_foo']);
@@ -256,16 +258,16 @@ class core_update_checker_testcase extends advanced_testcase {
     }
 
     public function test_compare_responses_invalid_format() {
-        $provider = testable_available_update_checker::instance();
+        $provider = testable_checker::instance();
         $broken = array(
             'status' => 'ERROR' // No 'updates' key here.
         );
-        $this->setExpectedException('\core\update\checker_exception');
+        $this->expectException(\core\update\checker_exception::class);
         $cmp = $provider->compare_responses($broken, $broken);
     }
 
     public function test_is_same_release_explicit() {
-        $provider = testable_available_update_checker::instance();
+        $provider = testable_checker::instance();
         $this->assertTrue($provider->is_same_release('2.3dev (Build: 20120323)', '2.3dev (Build: 20120323)'));
         $this->assertTrue($provider->is_same_release('2.3dev (Build: 20120323)', '2.3dev (Build: 20120330)'));
         $this->assertFalse($provider->is_same_release('2.3dev (Build: 20120529)', '2.3 (Build: 20120601)'));
@@ -279,7 +281,7 @@ class core_update_checker_testcase extends advanced_testcase {
     }
 
     public function test_is_same_release_implicit() {
-        $provider = testable_available_update_checker::instance();
+        $provider = testable_checker::instance();
         $provider->fake_current_environment(2012060102.00, '2.3.2 (Build: 20121012)', '2.3', array());
         $this->assertTrue($provider->is_same_release('2.3.2'));
         $this->assertTrue($provider->is_same_release('2.3.2+'));

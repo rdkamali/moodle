@@ -10,16 +10,16 @@ Feature: tool_monitor_rule
       | Course 1 | C1        |
     And the following "users" exist:
       | username | firstname | lastname | email |
-      | teacher1 | Teacher | 1 | teacher1@asd.com |
+      | teacher1 | Teacher | 1 | teacher1@example.com |
     And the following "course enrolments" exist:
       | user | course | role |
       | teacher1 | C1 | editingteacher |
     And I log in as "admin"
-    And I navigate to "Event monitoring rules" node in "Site administration > Reports"
+    And I navigate to "Reports > Event monitoring rules" in site administration
     And I click on "Enable" "link"
-    And I am on homepage
-    And I follow "Course 1"
-    And I navigate to "Event monitoring rules" node in "Course administration > Reports"
+    And I am on "Course 1" course homepage
+    And I navigate to "Reports" in current page administration
+    And I select "Event monitoring rules" from the "Report type" singleselect
     And I press "Add a new rule"
     And I set the following fields to these values:
       | name                 | New rule course level                             |
@@ -30,7 +30,7 @@ Feature: tool_monitor_rule
       | minutes              | 1                                                 |
       | Notification message | The forum post was created. {modulelink}          |
     And I press "Save changes"
-    And I navigate to "Event monitoring rules" node in "Site administration > Reports"
+    And I navigate to "Reports > Event monitoring rules" in site administration
     And I press "Add a new rule"
     And I set the following fields to these values:
       | name                 | New rule site level                               |
@@ -45,9 +45,9 @@ Feature: tool_monitor_rule
 
   Scenario: Add a rule on course level
     Given I log in as "teacher1"
-    And I am on homepage
-    And I follow "Course 1"
-    And I navigate to "Event monitoring rules" node in "Course administration > Reports"
+    And I am on "Course 1" course homepage
+    And I navigate to "Reports" in current page administration
+    And I select "Event monitoring rules" from the "Report type" singleselect
     When I press "Add a new rule"
     And I set the following fields to these values:
       | name                 | New rule                                          |
@@ -66,8 +66,9 @@ Feature: tool_monitor_rule
 
   Scenario: Delete a rule on course level
     Given I log in as "teacher1"
-    And I follow "Course 1"
-    And I navigate to "Event monitoring rules" node in "Course administration > Reports"
+    And I am on "Course 1" course homepage
+    And I navigate to "Reports" in current page administration
+    And I select "Event monitoring rules" from the "Report type" singleselect
     When I click on "Delete rule" "link"
     Then I should see "Are you sure you want to delete the rule \"New rule course level\"?"
     And I press "Continue"
@@ -76,8 +77,9 @@ Feature: tool_monitor_rule
 
   Scenario: Edit a rule on course level
     Given I log in as "teacher1"
-    And I follow "Course 1"
-    And I navigate to "Event monitoring rules" node in "Course administration > Reports"
+    And I am on "Course 1" course homepage
+    And I navigate to "Reports" in current page administration
+    And I select "Event monitoring rules" from the "Report type" singleselect
     When I click on "Edit rule" "link"
     And I set the following fields to these values:
       | name                 | New rule quiz                                  |
@@ -95,8 +97,9 @@ Feature: tool_monitor_rule
 
   Scenario: Duplicate a rule on course level
     Given I log in as "teacher1"
-    And I follow "Course 1"
-    And I navigate to "Event monitoring rules" node in "Course administration > Reports"
+    And I am on "Course 1" course homepage
+    And I navigate to "Reports" in current page administration
+    And I select "Event monitoring rules" from the "Report type" singleselect
     When I click on "Duplicate rule" "link" in the "New rule course level" "table_row"
     Then I should see "Rule successfully duplicated"
     And "#toolmonitorrules_r1" "css_element" should appear before "#toolmonitorrules_r2" "css_element"
@@ -108,7 +111,7 @@ Feature: tool_monitor_rule
 
   Scenario: Add a rule on site level
     Given I log in as "admin"
-    And I navigate to "Event monitoring rules" node in "Site administration > Reports"
+    And I navigate to "Reports > Event monitoring rules" in site administration
     When I press "Add a new rule"
     And I set the following fields to these values:
       | name                 | New rule                                          |
@@ -127,7 +130,7 @@ Feature: tool_monitor_rule
 
   Scenario: Delete a rule on site level
     Given I log in as "admin"
-    And I navigate to "Event monitoring rules" node in "Site administration > Reports"
+    And I navigate to "Reports > Event monitoring rules" in site administration
     When I click on "Delete rule" "link"
     Then I should see "Are you sure you want to delete the rule \"New rule site level\"?"
     And I press "Continue"
@@ -136,7 +139,7 @@ Feature: tool_monitor_rule
 
   Scenario: Edit a rule on site level
     Given I log in as "admin"
-    And I navigate to "Event monitoring rules" node in "Site administration > Reports"
+    And I navigate to "Reports > Event monitoring rules" in site administration
     When I click on "Edit rule" "link"
     And I set the following fields to these values:
       | name                 | New Rule Quiz                                  |
@@ -154,8 +157,9 @@ Feature: tool_monitor_rule
 
   Scenario: Duplicate a rule on site level
     Given I log in as "teacher1"
-    And I follow "Course 1"
-    And I navigate to "Event monitoring rules" node in "Course administration > Reports"
+    And I am on "Course 1" course homepage
+    And I navigate to "Reports" in current page administration
+    And I select "Event monitoring rules" from the "Report type" singleselect
     When I click on "Duplicate rule" "link" in the "New rule site level" "table_row"
     Then I should see "Rule successfully duplicated"
     And "#toolmonitorrules_r2" "css_element" should appear after "#toolmonitorrules_r1" "css_element"

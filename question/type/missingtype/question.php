@@ -26,6 +26,7 @@
 
 defined('MOODLE_INTERNAL') || die();
 
+require_once($CFG->dirroot . '/question/type/questionbase.php');
 
 /**
  * This question definition class is used when the actual question type of this
@@ -70,6 +71,10 @@ class qtype_missingtype_question extends question_definition
 
     public function summarise_response(array $response) {
         return null;
+    }
+
+    public function un_summarise_response(string $response) {
+        return [];
     }
 
     public function classify_response(array $response) {

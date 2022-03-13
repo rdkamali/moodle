@@ -98,6 +98,15 @@ abstract class restore_block_task extends restore_task {
             $this->add_step(new restore_comments_structure_step('block_comments', 'comments.xml'));
         }
 
+        // Search reindexing (if enabled).
+        if (\core_search\manager::is_indexing_enabled()) {
+            $wholecourse = $this->get_target() == backup::TARGET_NEW_COURSE;
+            $wholecourse = $wholecourse || $this->setting_exists('overwrite_conf') && $this->get_setting_value('overwrite_conf');
+            if (!$wholecourse) {
+                $this->add_step(new restore_block_search_index('block_search_index'));
+            }
+        }
+
         // At the end, mark it as built
         $this->built = true;
     }
@@ -152,6 +161,16 @@ abstract class restore_block_task extends restore_task {
      * that need to be decoded
      */
     abstract public function get_configdata_encoded_attributes();
+
+    /**
+     * Helper method to safely unserialize block configuration during restore
+     *
+     * @param string $configdata The original base64 encoded block config, as retrieved from the block_instances table
+     * @return stdClass
+     */
+    protected function decode_configdata(string $configdata): stdClass {
+        return unserialize_object(base64_decode($configdata));
+    }
 
     /**
      * Define the contents in the activity that must be

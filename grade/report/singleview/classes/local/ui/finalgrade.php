@@ -47,14 +47,7 @@ class finalgrade extends grade_attribute_format implements unique_value, be_disa
     public function get_value() {
         $this->label = $this->grade->grade_item->itemname;
 
-        $isoverridden = $this->grade->is_overridden();
-        // If the grade is overridden or the grade type is not an activity then use finalgrade.
-        if (!empty($isoverridden) || $this->grade->grade_item->itemtype != 'mod') {
-            $val = $this->grade->finalgrade;
-        } else {
-            $val = $this->grade->rawgrade;
-        }
-
+        $val = $this->grade->finalgrade;
         if ($this->grade->grade_item->scaleid) {
             return $val ? (int)$val : -1;
         } else {
@@ -148,6 +141,7 @@ class finalgrade extends grade_attribute_format implements unique_value, be_disa
         $feedback = false;
         $feedbackformat = false;
         if ($gradeitem->gradetype == GRADE_TYPE_SCALE) {
+            $value = (int)unformat_float($value);
             if ($value == -1) {
                 $finalgrade = null;
             } else {
@@ -168,18 +162,21 @@ class finalgrade extends grade_attribute_format implements unique_value, be_disa
         }
 
         if ($errorstr) {
-            $user = $DB->get_record('user', array('id' => $userid), 'id, firstname, alternatename, lastname');
+            $user = get_complete_user_data('id', $userid);
             $gradestr = new stdClass;
-            if (!empty($user->alternatename)) {
-                $gradestr->username = $user->alternatename . ' (' . $user->firstname . ') ' . $user->lastname;
+            if (has_capability('moodle/site:viewfullnames', \context_course::instance($gradeitem->courseid))) {
+                $gradestr->username = fullname($user, true);
             } else {
-                $gradestr->username = $user->firstname . ' ' . $user->lastname;
+                $gradestr->username = fullname($user);
             }
             $gradestr->itemname = $this->grade->grade_item->get_name();
             $errorstr = get_string($errorstr, 'grades', $gradestr);
+            return $errorstr;
         }
 
-        $gradeitem->update_final_grade($userid, $finalgrade, 'singleview', $feedback, FORMAT_MOODLE);
-        return $errorstr;
+        // Only update grades if there are no errors.
+        $gradeitem->update_final_grade($userid, $finalgrade, 'singleview', $feedback, FORMAT_MOODLE,
+            null, null, true);
+        return '';
     }
 }

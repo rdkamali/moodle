@@ -55,7 +55,13 @@ if ($popup) {
     $PAGE->set_pagelayout('popup');
 }
 
-if (!has_capability('moodle/rating:view', $context)) {
+$params = array('contextid' => $contextid,
+                'component' => $component,
+                'ratingarea' => $ratingarea,
+                'itemid' => $itemid,
+                'scaleid' => $scaleid);
+if (!has_capability('moodle/rating:view', $context) ||
+        !component_callback($component, 'rating_can_see_item_ratings', array($params), true)) {
     print_error('noviewrate', 'rating');
 }
 
@@ -120,7 +126,7 @@ if (!$ratings) {
             continue;
         }
 
-        // Undo the aliasing of the user id column from user_picture::fields().
+        // Undo the aliasing of the user id column from fields::get_sql().
         // We could clone the rating object or preserve the rating id if we needed it again
         // but we don't.
         $rating->id = $rating->userid;

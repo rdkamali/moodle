@@ -124,30 +124,30 @@ class lesson_page_type_truefalse extends lesson_page {
             $cells = array();
             if ($this->lesson->custom && $answer->score > 0) {
                 // if the score is > 0, then it is correct
-                $cells[] = '<span class="labelcorrect">'.get_string("answer", "lesson")." $i</span>: \n";
+                $cells[] = '<label class="correct">' . get_string('answer', 'lesson') . " {$i}</label>: \n";
             } else if ($this->lesson->custom) {
-                $cells[] = '<span class="label">'.get_string("answer", "lesson")." $i</span>: \n";
+                $cells[] = '<label>' . get_string('answer', 'lesson') . " {$i}</label>: \n";
             } else if ($this->lesson->jumpto_is_correct($this->properties->id, $answer->jumpto)) {
                 // underline correct answers
-                $cells[] = '<span class="correct">'.get_string("answer", "lesson")." $i</span>: \n";
+                $cells[] = '<span class="correct">' . get_string('answer', 'lesson') . " {$i}</span>: \n";
             } else {
-                $cells[] = '<span class="labelcorrect">'.get_string("answer", "lesson")." $i</span>: \n";
+                $cells[] = '<label class="correct">' . get_string('answer', 'lesson') . " {$i}</label>: \n";
             }
             $cells[] = format_text($answer->answer, $answer->answerformat, $options);
             $table->data[] = new html_table_row($cells);
 
             $cells = array();
-            $cells[] = "<span class=\"label\">".get_string("response", "lesson")." $i</span>";
+            $cells[] = '<label>' . get_string('response', 'lesson') . ' ' . $i . '</label>:';
             $cells[] = format_text($answer->response, $answer->responseformat, $options);
             $table->data[] = new html_table_row($cells);
 
             $cells = array();
-            $cells[] = "<span class=\"label\">".get_string("score", "lesson").'</span>';
+            $cells[] = '<label>' . get_string('score', 'lesson') . '</label>:';
             $cells[] = $answer->score;
             $table->data[] = new html_table_row($cells);
 
             $cells = array();
-            $cells[] = "<span class=\"label\">".get_string("jump", "lesson").'</span>';
+            $cells[] = '<label>' . get_string('jump', 'lesson') . '</label>:';
             $cells[] = $this->get_jump_name($answer->jumpto);
             $table->data[] = new html_table_row($cells);
 
@@ -225,12 +225,7 @@ class lesson_page_type_truefalse extends lesson_page {
     }
 
     public function stats(array &$pagestats, $tries) {
-        if(count($tries) > $this->lesson->maxattempts) { // if there are more tries than the max that is allowed, grab the last "legal" attempt
-            $temp = $tries[$this->lesson->maxattempts - 1];
-        } else {
-            // else, user attempted the question less than the max, so grab the last one
-            $temp = end($tries);
-        }
+        $temp = $this->lesson->get_last_attempt($tries);
         if ($this->properties->qoption) {
             $userresponse = explode(",", $temp->useranswer);
             foreach ($userresponse as $response) {
@@ -264,6 +259,8 @@ class lesson_page_type_truefalse extends lesson_page {
 
         foreach ($answers as $answer) {
             $answer = parent::rewrite_answers_urls($answer);
+            $answertext = format_text($answer->answer, $answer->answerformat, $formattextdefoptions);
+            $correctresponsetext = html_writer::div(get_string('correctresponse', 'lesson'), 'badge badge-success');
             if ($this->properties->qoption) {
                 if ($useranswer == null) {
                     $userresponse = array();
@@ -272,7 +269,7 @@ class lesson_page_type_truefalse extends lesson_page {
                 }
                 if (in_array($answer->id, $userresponse)) {
                     // make checked
-                    $data = "<input  readonly=\"readonly\" disabled=\"disabled\" name=\"answer[$i]\" checked=\"checked\" type=\"checkbox\" value=\"1\" />";
+                    $checkboxelement = "<input readonly=\"readonly\" disabled=\"disabled\" name=\"answer[$i]\" checked=\"checked\" type=\"checkbox\" value=\"1\" />";
                     if (!isset($answerdata->response)) {
                         if ($answer->response == null) {
                             if ($useranswer->correct) {
@@ -295,17 +292,18 @@ class lesson_page_type_truefalse extends lesson_page {
                     }
                 } else {
                     // unchecked
-                    $data = "<input type=\"checkbox\" readonly=\"readonly\" name=\"answer[$i]\" value=\"0\" disabled=\"disabled\" />";
+                    $checkboxelement = "<input type=\"checkbox\" readonly=\"readonly\" name=\"answer[$i]\" value=\"0\" disabled=\"disabled\" />";
                 }
+                $answercontent = html_writer::label($checkboxelement . ' ' . $answertext, null);
                 if (($answer->score > 0 && $this->lesson->custom) || ($this->lesson->jumpto_is_correct($this->properties->id, $answer->jumpto) && !$this->lesson->custom)) {
-                    $data .= "<div class=highlight>".format_text($answer->answer, $answer->answerformat, $formattextdefoptions)."</div>";
+                    $data = html_writer::div($answercontent, 'text-success') . $correctresponsetext;
                 } else {
-                    $data .= format_text($answer->answer, $answer->answerformat, $formattextdefoptions);
+                    $data = $answercontent;
                 }
             } else {
                 if ($useranswer != null and $answer->id == $useranswer->answerid) {
                     // make checked
-                    $data = "<input  readonly=\"readonly\" disabled=\"disabled\" name=\"answer[$i]\" checked=\"checked\" type=\"checkbox\" value=\"1\" />";
+                    $checkboxelement = "<input  readonly=\"readonly\" disabled=\"disabled\" name=\"answer[$i]\" checked=\"checked\" type=\"checkbox\" value=\"1\" />";
                     if ($answer->response == null) {
                         if ($useranswer->correct) {
                             $answerdata->response = get_string("thatsthecorrectanswer", "lesson");
@@ -324,12 +322,13 @@ class lesson_page_type_truefalse extends lesson_page {
                     }
                 } else {
                     // unchecked
-                    $data = "<input type=\"checkbox\" readonly=\"readonly\" name=\"answer[$i]\" value=\"0\" disabled=\"disabled\" />";
+                    $checkboxelement = "<input type=\"checkbox\" readonly=\"readonly\" name=\"answer[$i]\" value=\"0\" disabled=\"disabled\" />";
                 }
+                $answercontent = html_writer::label($checkboxelement . ' ' . $answertext, null);
                 if (($answer->score > 0 && $this->lesson->custom) || ($this->lesson->jumpto_is_correct($this->properties->id, $answer->jumpto) && !$this->lesson->custom)) {
-                    $data .= "<div class=\"highlight\">".format_text($answer->answer, $answer->answerformat, $formattextdefoptions)."</div>";
+                    $data = html_writer::div($answercontent, 'text-success') . $correctresponsetext;
                 } else {
-                    $data .= format_text($answer->answer, $answer->answerformat, $formattextdefoptions);
+                    $data = $answercontent;
                 }
             }
             if (isset($pagestats[$this->properties->id][$answer->id])) {
@@ -351,16 +350,18 @@ class lesson_add_page_form_truefalse extends lesson_add_page_form_base {
 
     public $qtype = 'truefalse';
     public $qtypestring = 'truefalse';
+    protected $answerformat = LESSON_ANSWER_HTML;
+    protected $responseformat = LESSON_ANSWER_HTML;
 
     public function custom_definition() {
         $this->_form->addElement('header', 'answertitle0', get_string('correctresponse', 'lesson'));
-        $this->add_answer(0, null, true, LESSON_ANSWER_HTML);
+        $this->add_answer(0, null, true, $this->get_answer_format());
         $this->add_response(0);
         $this->add_jumpto(0, get_string('correctanswerjump', 'lesson'), LESSON_NEXTPAGE);
         $this->add_score(0, get_string('correctanswerscore', 'lesson'), 1);
 
         $this->_form->addElement('header', 'answertitle1', get_string('wrongresponse', 'lesson'));
-        $this->add_answer(1, null, true, LESSON_ANSWER_HTML);
+        $this->add_answer(1, null, true, $this->get_answer_format());
         $this->add_response(1);
         $this->add_jumpto(1, get_string('wronganswerjump', 'lesson'), LESSON_THISPAGE);
         $this->add_score(1, get_string('wronganswerscore', 'lesson'), 0);
@@ -407,23 +408,28 @@ class lesson_display_answer_form_truefalse extends moodleform {
         $mform->setType('pageid', PARAM_INT);
 
         $i = 0;
+        $radiobuttons = array();
         foreach ($answers as $answer) {
-            $mform->addElement('html', '<div class="answeroption">');
             $ansid = 'answerid';
             if ($hasattempt) {
                 $ansid = 'answer_id';
             }
 
-            $mform->addElement('radio', $ansid, null, format_text($answer->answer, $answer->answerformat, $options), $answer->id, $disabled);
+            $answer = lesson_page_type_truefalse::rewrite_answers_urls($answer);
+            $radiobuttons[] = $mform->createElement('radio', $ansid, null,
+                format_text($answer->answer, $answer->answerformat, $options), $answer->id, $disabled);
+
             $mform->setType($ansid, PARAM_INT);
             if ($hasattempt && $answer->id == $USER->modattempts[$lessonid]->answerid) {
                 $mform->setDefault($ansid, $attempt->answerid);
                 $mform->addElement('hidden', 'answerid', $answer->id);
                 $mform->setType('answerid', PARAM_INT);
             }
-            $mform->addElement('html', '</div>');
             $i++;
         }
+
+        $radiogroup = $mform->addGroup($radiobuttons, $ansid, '', array(''), false);
+        $radiogroup->setAttributes(array('class' => 'answeroptiongroup'));
 
         if ($hasattempt) {
             $this->add_action_buttons(null, get_string("nextpage", "lesson"));

@@ -99,6 +99,13 @@ class backup_root_task extends backup_task {
         $this->add_setting($roleassignments);
         $users->add_dependency($roleassignments);
 
+        // Define permission.
+        if ($this->plan->get_mode() == backup::MODE_IMPORT) {
+            $permissions = new backup_permissions_setting('permissions', base_setting::IS_BOOLEAN, false);
+            $permissions->set_ui(new backup_setting_ui_checkbox($permissions, get_string('rootsettingpermissions', 'backup')));
+            $this->add_setting($permissions);
+        }
+
         // Define activities
         $activities = new backup_activities_setting('activities', base_setting::IS_BOOLEAN, true);
         $activities->set_ui(new backup_setting_ui_checkbox($activities, get_string('rootsettingactivities', 'backup')));
@@ -109,6 +116,12 @@ class backup_root_task extends backup_task {
         $blocks->set_ui(new backup_setting_ui_checkbox($blocks, get_string('rootsettingblocks', 'backup')));
         $this->add_setting($blocks);
         $this->converter_deps($blocks, $converters);
+
+        // Define files.
+        $files = new backup_generic_setting('files', base_setting::IS_BOOLEAN, true);
+        $files->set_ui(new backup_setting_ui_checkbox($files, get_string('rootsettingfiles', 'backup')));
+        $this->add_setting($files);
+        $this->converter_deps($files, $converters);
 
         // Define filters
         $filters = new backup_generic_setting('filters', base_setting::IS_BOOLEAN, true);
@@ -163,5 +176,25 @@ class backup_root_task extends backup_task {
         $groups = new backup_groups_setting('groups', base_setting::IS_BOOLEAN, true);
         $groups->set_ui(new backup_setting_ui_checkbox($groups, get_string('rootsettinggroups', 'backup')));
         $this->add_setting($groups);
+
+        // Define competencies inclusion setting if competencies are enabled.
+        $competencies = new backup_competencies_setting();
+        $competencies->set_ui(new backup_setting_ui_checkbox($competencies, get_string('rootsettingcompetencies', 'backup')));
+        $this->add_setting($competencies);
+
+        // Define custom fields inclusion setting if custom fields are used.
+        $customfields = new backup_customfield_setting('customfield', base_setting::IS_BOOLEAN, true);
+        $customfields->set_ui(new backup_setting_ui_checkbox($customfields, get_string('rootsettingcustomfield', 'backup')));
+        $this->add_setting($customfields);
+
+        // Define content bank content inclusion setting.
+        $contentbank = new backup_contentbankcontent_setting('contentbankcontent', base_setting::IS_BOOLEAN, true);
+        $contentbank->set_ui(new backup_setting_ui_checkbox($contentbank, get_string('rootsettingcontentbankcontent', 'backup')));
+        $this->add_setting($contentbank);
+
+        // Define legacy file inclusion setting.
+        $legacyfiles = new backup_generic_setting('legacyfiles', base_setting::IS_BOOLEAN, true);
+        $legacyfiles->set_ui(new backup_setting_ui_checkbox($legacyfiles, get_string('rootsettinglegacyfiles', 'backup')));
+        $this->add_setting($legacyfiles);
     }
 }

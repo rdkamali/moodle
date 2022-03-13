@@ -23,6 +23,8 @@
  */
 namespace core\plugininfo;
 
+use admin_settingpage;
+
 defined('MOODLE_INTERNAL') || die();
 
 /**
@@ -54,6 +56,29 @@ class availability extends base {
         return $enabled;
     }
 
+    public static function enable_plugin(string $pluginname, int $enabled): bool {
+        $haschanged = false;
+
+        $plugin = 'availability_' . $pluginname;
+        $oldvalue = get_config($plugin, 'disabled');
+        $disabled = !$enabled;
+        // Only set value if there is no config setting or if the value is different from the previous one.
+        if ($oldvalue == false && $disabled) {
+            set_config('disabled', $disabled, $plugin);
+            $haschanged = true;
+        } else if ($oldvalue != false && !$disabled) {
+            unset_config('disabled', $plugin);
+            $haschanged = true;
+        }
+
+        if ($haschanged) {
+            add_to_config_log('disabled', $oldvalue, $disabled, $plugin);
+            \core_plugin_manager::reset_caches();
+        }
+
+        return $haschanged;
+    }
+
     /**
      * Defines if there should be a way to uninstall the plugin via the administration UI.
      *
@@ -61,5 +86,47 @@ class availability extends base {
      */
     public function is_uninstall_allowed() {
         return true;
+    }
+
+    /**
+     * Get the name for the settings section.
+     *
+     * @return string
+     */
+    public function get_settings_section_name() {
+        return 'availabilitysetting' . $this->name;
+    }
+
+    /**
+     * Load the global settings for a particular availability plugin (if there are any)
+     *
+     * @param \part_of_admin_tree $adminroot
+     * @param string $parentnodename
+     * @param bool $hassiteconfig
+     */
+    public function load_settings(\part_of_admin_tree $adminroot, $parentnodename, $hassiteconfig) {
+        global $CFG, $USER, $DB, $OUTPUT, $PAGE; // In case settings.php wants to refer to them.
+        $ADMIN = $adminroot; // May be used in settings.php.
+        $plugininfo = $this; // Also can be used inside settings.php
+        $availability = $this; // Also to be used inside settings.php.
+
+        if (!$this->is_installed_and_upgraded()) {
+            return;
+        }
+
+        if (!$hassiteconfig) {
+            return;
+        }
+
+        $section = $this->get_settings_section_name();
+
+        $settings = null;
+        if (file_exists($this->full_path('settings.php'))) {
+            $settings = new admin_settingpage($section, $this->displayname, 'moodle/site:config', $this->is_enabled() === false);
+            include($this->full_path('settings.php')); // This may also set $settings to null.
+        }
+        if ($settings) {
+            $ADMIN->add($parentnodename, $settings);
+        }
     }
 }

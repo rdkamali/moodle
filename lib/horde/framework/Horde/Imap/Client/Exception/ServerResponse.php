@@ -1,12 +1,12 @@
 <?php
 /**
- * Copyright 2012-2014 Horde LLC (http://www.horde.org/)
+ * Copyright 2012-2017 Horde LLC (http://www.horde.org/)
  *
- * See the enclosed file COPYING for license information (LGPL). If you
+ * See the enclosed file LICENSE for license information (LGPL). If you
  * did not receive this file, see http://www.horde.org/licenses/lgpl21.
  *
  * @category  Horde
- * @copyright 2012-2014 Horde LLC
+ * @copyright 2012-2017 Horde LLC
  * @license   http://www.horde.org/licenses/lgpl21 LGPL 2.1
  * @package   Imap_Client
  */
@@ -16,7 +16,7 @@
  *
  * @author    Michael Slusarz <slusarz@horde.org>
  * @category  Horde
- * @copyright 2012-2014 Horde LLC
+ * @copyright 2012-2017 Horde LLC
  * @license   http://www.horde.org/licenses/lgpl21 LGPL 2.1
  * @package   Imap_Client
  *
@@ -44,14 +44,14 @@ class Horde_Imap_Client_Exception_ServerResponse extends Horde_Imap_Client_Excep
     /**
      * Constructor.
      *
-     * @param string $msg                                       Error message.
+     * @param string|null $msg                                  Error message.
      * @param integer $code                                     Error code.
      * @param Horde_Imap_Client_Interaction_Server $server      Server ob.
      * @param Horde_Imap_Client_Interaction_Pipeline $pipeline  Pipeline ob.
      */
     public function __construct(
-        $msg = null,
-        $code = 0,
+        $msg,
+        $code,
         Horde_Imap_Client_Interaction_Server $server,
         Horde_Imap_Client_Interaction_Pipeline $pipeline
     )

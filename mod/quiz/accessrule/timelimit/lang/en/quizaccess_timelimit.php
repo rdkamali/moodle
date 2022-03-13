@@ -27,5 +27,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 
+$string['confirmstartheader'] = 'Time limit';
+$string['confirmstart'] = 'Your attempt will have a time limit of {$a}. When you start, the timer will begin to count down and cannot be paused. You must finish your attempt before it expires. Are you sure you wish to start now?';
 $string['pluginname'] = 'Time limit quiz access rule';
+$string['privacy:metadata'] = 'The Time limit quiz access rule plugin does not store any personal data.';
 $string['quiztimelimit'] = 'Time limit: {$a}';

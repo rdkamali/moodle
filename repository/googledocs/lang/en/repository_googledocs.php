@@ -22,13 +22,29 @@
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-$string['clientid'] = 'Client ID';
 $string['configplugin'] = 'Configure Google Drive plugin';
+$string['docsformat'] = 'Default document import format';
+$string['drawingformat'] = 'Default drawing import format';
 $string['googledocs:view'] = 'View Google Drive repository';
-$string['oauthinfo'] = '<p>To use this plugin, you must register your site with Google, as described in the documentation <a href="{$a->docsurl}">Google OAuth 2.0 setup</a>.</p><p>As part of the registration process, you will need to enter the following URL as \'Authorized Redirect URIs\':</p><p>{$a->callbackurl}</p><p>Once registered, you will be provided with a client ID and secret which can be used to configure all Google Drive and Picasa plugins.</p><p>Please also note that you will have to enable the service \'Drive API\'.</p>';
-$string['oauth2upgrade_message_subject'] = 'Important information regarding Google Drive repository plugin';
-$string['oauth2upgrade_message_content'] = 'As part of the upgrade to Moodle 2.3, the Google Drive portfolio plugin has been disabled. To re-enable it, your Moodle site needs to be registered with Google, as described in the documentation {$a->docsurl}, in order to obtain a client ID and secret. The client ID and secret can then be used to configure all Google Drive and Picasa plugins.';
-$string['oauth2upgrade_message_small'] = 'This plugin has been disabled, as it requires configuration as described in the documentation Google OAuth 2.0 setup.';
+$string['importformat'] = 'Configure the default import formats from Google';
+$string['mydrive'] = 'My Drive';
 $string['pluginname'] = 'Google Drive';
-$string['secret'] = 'Secret';
+$string['presentationformat'] = 'Default presentation import format';
+$string['shareddrives'] = 'Shared Drives';
+$string['spreadsheetformat'] = 'Default spreadsheet import format';
+$string['issuer'] = 'OAuth 2 service';
+$string['issuer_help'] = 'Select the OAuth 2 service that is configured to talk to the Google Drive API. If the service does not exist yet, you will need to create it.';
 $string['servicenotenabled'] = 'Access not configured. Make sure the service \'Drive API\' is enabled.';
+$string['oauth2serviceslink'] = '<a href="{$a}" title="Link to OAuth 2 services configuration">OAuth 2 services configuration</a>';
+$string['searchfor'] = 'Search results for:';
+$string['internal'] = 'Internal (files stored in Moodle)';
+$string['external'] = 'External (only links stored in Moodle)';
+$string['both'] = 'Internal and external';
+$string['supportedreturntypes'] = 'Supported files';
+$string['defaultreturntype'] = 'Default return type';
+$string['fileoptions'] = 'The types and defaults for returned files is configurable here. Note that all files linked externally will be updated so that the owner is the Moodle system account.';
+$string['owner'] = 'Owned by: {$a}';
+$string['cachedef_folder'] = 'Google file IDs for folders in the system account';
+$string['privacy:metadata:repository_googledocs'] = 'The Google Drive repository plugin does not store any personal data, but does transmit user data from Moodle to the remote system.';
+$string['privacy:metadata:repository_googledocs:email'] = 'The email of the Google Drive repository user.';
+$string['privacy:metadata:repository_googledocs:searchtext'] = 'The Google Drive repository user search text query.';

@@ -56,7 +56,7 @@ class mod_quiz_renderer extends plugin_renderer_base {
                 $this->questions($attemptobj, true, $slots, $page, $showall, $displayoptions),
                 $attemptobj);
 
-        $output .= $this->review_next_navigation($attemptobj, $page, $lastpage);
+        $output .= $this->review_next_navigation($attemptobj, $page, $lastpage, $showall);
         $output .= $this->footer();
         return $output;
     }
@@ -79,9 +79,9 @@ class mod_quiz_renderer extends plugin_renderer_base {
         $output .= $this->review_summary_table($summarydata, 0);
 
         if (!is_null($seq)) {
-            $output .= $attemptobj->render_question_at_step($slot, $seq, true);
+            $output .= $attemptobj->render_question_at_step($slot, $seq, true, $this);
         } else {
-            $output .= $attemptobj->render_question($slot, true);
+            $output .= $attemptobj->render_question($slot, true, $this);
         }
 
         $output .= $this->close_window_button();
@@ -92,10 +92,11 @@ class mod_quiz_renderer extends plugin_renderer_base {
     /**
      * Renders the review question pop-up.
      *
+     * @param quiz_attempt $attemptobj an instance of quiz_attempt.
      * @param string $message Why the review is not allowed.
      * @return string html to output.
      */
-    public function review_question_not_allowed($message) {
+    public function review_question_not_allowed(quiz_attempt $attemptobj, $message) {
         $output = '';
         $output .= $this->header();
         $output .= $this->heading(format_string($attemptobj->get_quiz_name(), true,
@@ -182,7 +183,7 @@ class mod_quiz_renderer extends plugin_renderer_base {
                               mod_quiz_display_options $displayoptions) {
         $output = '';
         foreach ($slots as $slot) {
-            $output .= $attemptobj->render_question($slot, $reviewing,
+            $output .= $attemptobj->render_question($slot, $reviewing, $this,
                     $attemptobj->review_url($slot, $page, $showall));
         }
         return $output;
@@ -215,7 +216,7 @@ class mod_quiz_renderer extends plugin_renderer_base {
                 'value' => sesskey()));
         $output .= html_writer::start_tag('div', array('class' => 'submitbtns'));
         $output .= html_writer::empty_tag('input', array('type' => 'submit',
-                'class' => 'questionflagsavebutton', 'name' => 'savingflags',
+                'class' => 'questionflagsavebutton btn btn-secondary', 'name' => 'savingflags',
                 'value' => get_string('saveflags', 'question')));
         $output .= html_writer::end_tag('div');
         $output .= html_writer::end_tag('div');
@@ -234,28 +235,43 @@ class mod_quiz_renderer extends plugin_renderer_base {
 
         if ($attemptobj->get_access_manager(time())->attempt_must_be_in_popup()) {
             $this->page->requires->js_init_call('M.mod_quiz.secure_window.init_close_button',
-                    array($url), quiz_get_js_module());
+                    array($url), false, quiz_get_js_module());
             return html_writer::empty_tag('input', array('type' => 'button',
                     'value' => get_string('finishreview', 'quiz'),
-                    'id' => 'secureclosebutton'));
+                    'id' => 'secureclosebutton',
+                    'class' => 'mod_quiz-next-nav btn btn-primary'));
 
         } else {
-            return html_writer::link($url, get_string('finishreview', 'quiz'));
+            return html_writer::link($url, get_string('finishreview', 'quiz'),
+                    array('class' => 'mod_quiz-next-nav'));
         }
     }
 
     /**
-     * Creates a next page arrow or the finishing link
+     * Creates the navigation links/buttons at the bottom of the reivew attempt page.
+     *
+     * Note, the name of this function is no longer accurate, but when the design
+     * changed, it was decided to keep the old name for backwards compatibility.
      *
      * @param quiz_attempt $attemptobj instance of quiz_attempt
      * @param int $page the current page
      * @param bool $lastpage if true current page is the last page
+     * @param bool|null $showall if true, the URL will be to review the entire attempt on one page,
+     *      and $page will be ignored. If null, a sensible default will be chosen.
+     *
+     * @return string HTML fragment.
      */
-    public function review_next_navigation(quiz_attempt $attemptobj, $page, $lastpage) {
+    public function review_next_navigation(quiz_attempt $attemptobj, $page, $lastpage, $showall = null) {
+        $nav = '';
+        if ($page > 0) {
+            $nav .= link_arrow_left(get_string('navigateprevious', 'quiz'),
+                    $attemptobj->review_url(null, $page - 1, $showall), false, 'mod_quiz-prev-nav');
+        }
         if ($lastpage) {
-            $nav = $this->finish_review_link($attemptobj);
+            $nav .= $this->finish_review_link($attemptobj);
         } else {
-            $nav = link_arrow_right(get_string('next'), $attemptobj->review_url(null, $page + 1));
+            $nav .= link_arrow_right(get_string('navigatenext', 'quiz'),
+                    $attemptobj->review_url(null, $page + 1, $showall), false, 'mod_quiz-next-nav');
         }
         return html_writer::tag('div', $nav, array('class' => 'submitbtns'));
     }
@@ -278,16 +294,14 @@ class mod_quiz_renderer extends plugin_renderer_base {
             $this->initialise_timer($timerstartvalue, $ispreview);
         }
 
-        return html_writer::tag('div', get_string('timeleft', 'quiz') . ' ' .
-                html_writer::tag('span', '', array('id' => 'quiz-time-left')),
-                array('id' => 'quiz-timer', 'role' => 'timer',
-                    'aria-atomic' => 'true', 'aria-relevant' => 'text'));
+
+        return $this->output->render_from_template('mod_quiz/timer', (object)[]);
     }
 
     /**
      * Create a preview link
      *
-     * @param $url contains a url to the given page
+     * @param moodle_url $url contains a url to the given page
      */
     public function restart_preview_button($url) {
         return $this->single_button($url, get_string('startnewpreview', 'quiz'));
@@ -313,7 +327,7 @@ class mod_quiz_renderer extends plugin_renderer_base {
         $output .= $panel->render_before_button_bits($this);
 
         $bcc = $panel->get_button_container_class();
-        $output .= html_writer::start_tag('div', array('class' => "qn_buttons $bcc"));
+        $output .= html_writer::start_tag('div', array('class' => "qn_buttons clearfix $bcc"));
         foreach ($panel->get_question_buttons() as $button) {
             $output .= $this->render($button);
         }
@@ -329,12 +343,13 @@ class mod_quiz_renderer extends plugin_renderer_base {
     }
 
     /**
-     * Returns the quizzes navigation button
+     * Display a quiz navigation button.
      *
      * @param quiz_nav_question_button $button
+     * @return string HTML fragment.
      */
     protected function render_quiz_nav_question_button(quiz_nav_question_button $button) {
-        $classes = array('qnbutton', $button->stateclass, $button->navmethod);
+        $classes = array('qnbutton', $button->stateclass, $button->navmethod, 'btn');
         $extrainfo = array();
 
         if ($button->currentpage) {
@@ -374,6 +389,23 @@ class mod_quiz_renderer extends plugin_renderer_base {
     }
 
     /**
+     * Display a quiz navigation heading.
+     *
+     * @param quiz_nav_section_heading $heading the heading.
+     * @return string HTML fragment.
+     */
+    protected function render_quiz_nav_section_heading(quiz_nav_section_heading $heading) {
+        if (empty($heading->heading)) {
+            $headingtext = get_string('sectionnoname', 'quiz');
+            $class = ' dimmed_text';
+        } else {
+            $headingtext = $heading->heading;
+            $class = '';
+        }
+        return $this->heading($headingtext, 3, 'mod_quiz-section-heading' . $class);
+    }
+
+    /**
      * outputs the link the other attempts.
      *
      * @param mod_quiz_links_to_other_attempts $links
@@ -382,10 +414,12 @@ class mod_quiz_renderer extends plugin_renderer_base {
             mod_quiz_links_to_other_attempts $links) {
         $attemptlinks = array();
         foreach ($links->links as $attempt => $url) {
-            if ($url) {
-                $attemptlinks[] = html_writer::link($url, $attempt);
-            } else {
+            if (!$url) {
                 $attemptlinks[] = html_writer::tag('strong', $attempt);
+            } else if ($url instanceof renderable) {
+                $attemptlinks[] = $this->render($url);
+            } else {
+                $attemptlinks[] = html_writer::link($url, $attempt);
             }
         }
         return implode(', ', $attemptlinks);
@@ -394,12 +428,11 @@ class mod_quiz_renderer extends plugin_renderer_base {
     public function start_attempt_page(quiz $quizobj, mod_quiz_preflight_check_form $mform) {
         $output = '';
         $output .= $this->header();
+        $output .= $this->during_attempt_tertiary_nav($quizobj->view_url());
         $output .= $this->heading(format_string($quizobj->get_quiz_name(), true,
                                   array("context" => $quizobj->get_context())));
         $output .= $this->quiz_intro($quizobj->get_quiz(), $quizobj->get_cm());
-        ob_start();
-        $mform->display();
-        $output .= ob_get_clean();
+        $output .= $mform->render();
         $output .= $this->footer();
         return $output;
     }
@@ -414,14 +447,36 @@ class mod_quiz_renderer extends plugin_renderer_base {
      * @param array $slots Contains an array of integers that relate to questions
      * @param int $id The ID of an attempt
      * @param int $nextpage The number of the next page
+     * @return string HTML to output.
      */
     public function attempt_page($attemptobj, $page, $accessmanager, $messages, $slots, $id,
             $nextpage) {
         $output = '';
         $output .= $this->header();
+        $output .= $this->during_attempt_tertiary_nav($attemptobj->view_url());
         $output .= $this->quiz_notices($messages);
+        $output .= $this->countdown_timer($attemptobj, time());
         $output .= $this->attempt_form($attemptobj, $page, $slots, $id, $nextpage);
         $output .= $this->footer();
+        return $output;
+    }
+
+    /**
+     * Render the tertiary navigation for pages during the attempt.
+     *
+     * @param string|moodle_url $quizviewurl url of the view.php page for this quiz.
+     * @return string HTML to output.
+     */
+    public function during_attempt_tertiary_nav($quizviewurl): string {
+        $output = '';
+        $output .= html_writer::start_div('container-fluid tertiary-navigation');
+        $output .= html_writer::start_div('row');
+        $output .= html_writer::start_div('navitem');
+        $output .= html_writer::link($quizviewurl, get_string('back'),
+                ['class' => 'btn btn-secondary']);
+        $output .= html_writer::end_div();
+        $output .= html_writer::end_div();
+        $output .= html_writer::end_div();
         return $output;
     }
 
@@ -452,21 +507,20 @@ class mod_quiz_renderer extends plugin_renderer_base {
 
         // Start the form.
         $output .= html_writer::start_tag('form',
-                array('action' => $attemptobj->processattempt_url(), 'method' => 'post',
+                array('action' => new moodle_url($attemptobj->processattempt_url(),
+                array('cmid' => $attemptobj->get_cmid())), 'method' => 'post',
                 'enctype' => 'multipart/form-data', 'accept-charset' => 'utf-8',
                 'id' => 'responseform'));
         $output .= html_writer::start_tag('div');
 
         // Print all the questions.
         foreach ($slots as $slot) {
-            $output .= $attemptobj->render_question($slot, false,
-                    $attemptobj->attempt_url($slot, $page));
+            $output .= $attemptobj->render_question($slot, false, $this,
+                    $attemptobj->attempt_url($slot, $page), $this);
         }
 
-        $output .= html_writer::start_tag('div', array('class' => 'submitbtns'));
-        $output .= html_writer::empty_tag('input', array('type' => 'submit', 'name' => 'next',
-                'value' => get_string('next')));
-        $output .= html_writer::end_tag('div');
+        $navmethod = $attemptobj->get_quiz()->navmethod;
+        $output .= $this->attempt_navigation_buttons($page, $attemptobj->is_last_page($page), $navmethod);
 
         // Some hidden fields to trach what is going on.
         $output .= html_writer::empty_tag('input', array('type' => 'hidden', 'name' => 'attempt',
@@ -486,7 +540,7 @@ class mod_quiz_renderer extends plugin_renderer_base {
         // if you navigate before the form has finished loading, it does not wipe all
         // the student's answers.
         $output .= html_writer::empty_tag('input', array('type' => 'hidden', 'name' => 'slots',
-                'value' => implode(',', $slots)));
+                'value' => implode(',', $attemptobj->get_active_slots($page))));
 
         // Finish the form.
         $output .= html_writer::end_tag('div');
@@ -495,6 +549,54 @@ class mod_quiz_renderer extends plugin_renderer_base {
         $output .= $this->connection_warning();
 
         return $output;
+    }
+
+    /**
+     * Display the prev/next buttons that go at the bottom of each page of the attempt.
+     *
+     * @param int $page the page number. Starts at 0 for the first page.
+     * @param bool $lastpage is this the last page in the quiz?
+     * @param string $navmethod Optional quiz attribute, 'free' (default) or 'sequential'
+     * @return string HTML fragment.
+     */
+    protected function attempt_navigation_buttons($page, $lastpage, $navmethod = 'free') {
+        $output = '';
+
+        $output .= html_writer::start_tag('div', array('class' => 'submitbtns'));
+        if ($page > 0 && $navmethod == 'free') {
+            $output .= html_writer::empty_tag('input', array('type' => 'submit', 'name' => 'previous',
+                    'value' => get_string('navigateprevious', 'quiz'), 'class' => 'mod_quiz-prev-nav btn btn-secondary',
+                    'id' => 'mod_quiz-prev-nav'));
+            $this->page->requires->js_call_amd('core_form/submit', 'init', ['mod_quiz-prev-nav']);
+        }
+        if ($lastpage) {
+            $nextlabel = get_string('endtest', 'quiz');
+        } else {
+            $nextlabel = get_string('navigatenext', 'quiz');
+        }
+        $output .= html_writer::empty_tag('input', array('type' => 'submit', 'name' => 'next',
+                'value' => $nextlabel, 'class' => 'mod_quiz-next-nav btn btn-primary', 'id' => 'mod_quiz-next-nav'));
+        $output .= html_writer::end_tag('div');
+        $this->page->requires->js_call_amd('core_form/submit', 'init', ['mod_quiz-next-nav']);
+
+        return $output;
+    }
+
+    /**
+     * Render a button which allows students to redo a question in the attempt.
+     *
+     * @param int $slot the number of the slot to generate the button for.
+     * @param bool $disabled if true, output the button disabled.
+     * @return string HTML fragment.
+     */
+    public function redo_question_button($slot, $disabled) {
+        $attributes = array('type' => 'submit',  'name' => 'redoslot' . $slot,
+            'value' => get_string('redoquestion', 'quiz'),
+            'class' => 'mod_quiz-redo_question_button btn btn-secondary');
+        if ($disabled) {
+            $attributes['disabled'] = 'disabled';
+        }
+        return html_writer::div(html_writer::empty_tag('input', $attributes));
     }
 
     /**
@@ -545,7 +647,7 @@ class mod_quiz_renderer extends plugin_renderer_base {
     public function access_messages($messages) {
         $output = '';
         foreach ($messages as $message) {
-            $output .= html_writer::tag('p', $message) . "\n";
+            $output .= html_writer::tag('p', $message, ['class' => 'text-left']);
         }
         return $output;
     }
@@ -562,6 +664,7 @@ class mod_quiz_renderer extends plugin_renderer_base {
     public function summary_page($attemptobj, $displayoptions) {
         $output = '';
         $output .= $this->header();
+        $output .= $this->during_attempt_tertiary_nav($attemptobj->view_url());
         $output .= $this->heading(format_string($attemptobj->get_quiz_name()));
         $output .= $this->heading(get_string('summaryofattempt', 'quiz'), 3);
         $output .= $this->summary_table($attemptobj, $displayoptions);
@@ -589,17 +692,42 @@ class mod_quiz_renderer extends plugin_renderer_base {
             $table->align[] = 'left';
             $table->size[] = '';
         }
+        $tablewidth = count($table->align);
         $table->data = array();
 
         // Get the summary info for each question.
         $slots = $attemptobj->get_slots();
         foreach ($slots as $slot) {
+            // Add a section headings if we need one here.
+            $heading = $attemptobj->get_heading_before_slot($slot);
+            if ($heading !== null) {
+                // There is a heading here.
+                $rowclasses = 'quizsummaryheading';
+                if ($heading) {
+                    $heading = format_string($heading);
+                } else if (count($attemptobj->get_quizobj()->get_sections()) > 1) {
+                    // If this is the start of an unnamed section, and the quiz has more
+                    // than one section, then add a default heading.
+                    $heading = get_string('sectionnoname', 'quiz');
+                    $rowclasses .= ' dimmed_text';
+                }
+                $cell = new html_table_cell(format_string($heading));
+                $cell->header = true;
+                $cell->colspan = $tablewidth;
+                $table->data[] = array($cell);
+                $table->rowclasses[] = $rowclasses;
+            }
+
+            // Don't display information items.
             if (!$attemptobj->is_real_question($slot)) {
                 continue;
             }
+
+            // Real question, show it.
             $flag = '';
             if ($attemptobj->is_question_flagged($slot)) {
-                $flag = html_writer::empty_tag('img', array('src' => $this->pix_url('i/flagged'),
+                // Quiz has custom JS manipulating these image tags - so we can't use the pix_icon method here.
+                $flag = html_writer::empty_tag('img', array('src' => $this->image_url('i/flagged'),
                         'alt' => get_string('flagged', 'question'), 'class' => 'questionflag icon-post'));
             }
             if ($attemptobj->can_navigate_to($slot)) {
@@ -647,6 +775,7 @@ class mod_quiz_renderer extends plugin_renderer_base {
             'finishattempt' => 1,
             'timeup' => 0,
             'slots' => '',
+            'cmid' => $attemptobj->get_cmid(),
             'sesskey' => sesskey(),
         );
 
@@ -658,6 +787,7 @@ class mod_quiz_renderer extends plugin_renderer_base {
             $button->add_action(new confirm_action(get_string('confirmclose', 'quiz'), null,
                     get_string('submitallandfinish', 'quiz')));
         }
+        $button->primary = true;
 
         $duedate = $attemptobj->get_due_date();
         $message = '';
@@ -681,19 +811,17 @@ class mod_quiz_renderer extends plugin_renderer_base {
     /**
      * Generates the view page
      *
-     * @param int $course The id of the course
-     * @param array $quiz Array conting quiz data
-     * @param int $cm Course Module ID
-     * @param int $context The page context ID
-     * @param array $infomessages information about this quiz
+     * @param stdClass $course the course settings row from the database.
+     * @param stdClass $quiz the quiz settings row from the database.
+     * @param stdClass $cm the course_module settings row from the database.
+     * @param context_module $context the quiz context.
      * @param mod_quiz_view_object $viewobj
-     * @param string $buttontext text for the start/continue attempt button, if
-     *      it should be shown.
-     * @param array $infomessages further information about why the student cannot
-     *      attempt this quiz now, if appicable this quiz
+     * @return string HTML to display
      */
     public function view_page($course, $quiz, $cm, $context, $viewobj) {
         $output = '';
+
+        $output .= $this->view_page_tertiary_nav($viewobj);
         $output .= $this->view_information($quiz, $cm, $context, $viewobj->infomessages);
         $output .= $this->view_table($quiz, $context, $viewobj);
         $output .= $this->view_result_info($quiz, $context, $cm, $viewobj);
@@ -702,28 +830,49 @@ class mod_quiz_renderer extends plugin_renderer_base {
     }
 
     /**
+     * Render the tertiary navigation for the view page.
+     *
+     * @param mod_quiz_view_object $viewobj the information required to display the view page.
+     * @return string HTML to output.
+     */
+    public function view_page_tertiary_nav(mod_quiz_view_object $viewobj): string {
+        $content = '';
+
+        if ($viewobj->buttontext) {
+            $attemptbtn = $this->start_attempt_button($viewobj->buttontext,
+                    $viewobj->startattempturl, $viewobj->preflightcheckform,
+                    $viewobj->popuprequired, $viewobj->popupoptions);
+            $content .= $attemptbtn;
+        }
+
+        if ($viewobj->canedit && !$viewobj->quizhasquestions) {
+            $content .= html_writer::link($viewobj->editurl, get_string('addquestion', 'quiz'),
+                    ['class' => 'btn btn-secondary']);
+        }
+
+        if ($content) {
+            return html_writer::div(html_writer::div($content, 'row'), 'container-fluid tertiary-navigation');
+        } else {
+            return '';
+        }
+    }
+
+    /**
      * Work out, and render, whatever buttons, and surrounding info, should appear
      * at the end of the review page.
-     * @param mod_quiz_view_object $viewobj the information required to display
-     * the view page.
+     *
+     * @param mod_quiz_view_object $viewobj the information required to display the view page.
      * @return string HTML to output.
      */
     public function view_page_buttons(mod_quiz_view_object $viewobj) {
-        global $CFG;
         $output = '';
 
         if (!$viewobj->quizhasquestions) {
-            $output .= $this->no_questions_message($viewobj->canedit, $viewobj->editurl);
+            $output .= html_writer::div(
+                    $this->notification(get_string('noquestions', 'quiz'), 'warning', false),
+                    'text-left mb-3');
         }
-
         $output .= $this->access_messages($viewobj->preventmessages);
-
-        if ($viewobj->buttontext) {
-            $output .= $this->start_attempt_button($viewobj->buttontext,
-                    $viewobj->startattempturl, $viewobj->startattemptwarning,
-                    $viewobj->popuprequired, $viewobj->popupoptions);
-
-        }
 
         if ($viewobj->showbacktocourse) {
             $output .= $this->single_button($viewobj->backtocourseurl,
@@ -737,59 +886,71 @@ class mod_quiz_renderer extends plugin_renderer_base {
     /**
      * Generates the view attempt button
      *
-     * @param int $course The course ID
-     * @param array $quiz Array containging quiz date
-     * @param int $cm The Course Module ID
-     * @param int $context The page Context ID
-     * @param mod_quiz_view_object $viewobj
-     * @param string $buttontext
+     * @param string $buttontext the label to display on the button.
+     * @param moodle_url $url The URL to POST to in order to start the attempt.
+     * @param mod_quiz_preflight_check_form $preflightcheckform deprecated.
+     * @param bool $popuprequired whether the attempt needs to be opened in a pop-up.
+     * @param array $popupoptions the options to use if we are opening a popup.
+     * @return string HTML fragment.
      */
     public function start_attempt_button($buttontext, moodle_url $url,
-            $startattemptwarning, $popuprequired, $popupoptions) {
+            mod_quiz_preflight_check_form $preflightcheckform = null,
+            $popuprequired = false, $popupoptions = null) {
 
-        $button = new single_button($url, $buttontext);
-        $button->class .= ' quizstartbuttondiv';
-
-        $warning = '';
-        if ($popuprequired) {
-            $this->page->requires->js_module(quiz_get_js_module());
-            $this->page->requires->js('/mod/quiz/module.js');
-            $popupaction = new popup_action('click', $url, 'quizpopup', $popupoptions);
-
-            $button->class .= ' quizsecuremoderequired';
-            $button->add_action(new component_action('click',
-                    'M.mod_quiz.secure_window.start_attempt_action', array(
-                        'url' => $url->out(false),
-                        'windowname' => 'quizpopup',
-                        'options' => $popupaction->get_js_options(),
-                        'fullscreen' => true,
-                        'startattemptwarning' => $startattemptwarning,
-                    )));
-
-            $warning = html_writer::tag('noscript', $this->heading(get_string('noscript', 'quiz')));
-
-        } else if ($startattemptwarning) {
-            $button->add_action(new confirm_action($startattemptwarning, null,
-                    get_string('startattempt', 'quiz')));
+        if (is_string($preflightcheckform)) {
+            // Calling code was not updated since the API change.
+            debugging('The third argument to start_attempt_button should now be the ' .
+                    'mod_quiz_preflight_check_form from ' .
+                    'quiz_access_manager::get_preflight_check_form, not a warning message string.');
         }
 
-        return $this->render($button) . $warning;
+        $button = new single_button($url, $buttontext, 'post', true);
+        $button->class .= ' quizstartbuttondiv';
+        if ($popuprequired) {
+            $button->class .= ' quizsecuremoderequired';
+        }
+
+        $popupjsoptions = null;
+        if ($popuprequired && $popupoptions) {
+            $action = new popup_action('click', $url, 'popup', $popupoptions);
+            $popupjsoptions = $action->get_js_options();
+        }
+
+        if ($preflightcheckform) {
+            $checkform = $preflightcheckform->render();
+        } else {
+            $checkform = null;
+        }
+
+        $this->page->requires->js_call_amd('mod_quiz/preflightcheck', 'init',
+                array('.quizstartbuttondiv [type=submit]', get_string('startattempt', 'quiz'),
+                       '#mod_quiz_preflight_form', $popupjsoptions));
+
+        return $this->render($button) . $checkform;
     }
 
     /**
      * Generate a message saying that this quiz has no questions, with a button to
      * go to the edit page, if the user has the right capability.
-     * @param object $quiz the quiz settings.
-     * @param object $cm the course_module object.
-     * @param object $context the quiz context.
+     *
+     * @param bool $canedit can the current user edit the quiz?
+     * @param moodle_url $editurl URL of the edit quiz page.
      * @return string HTML to output.
+     *
+     * @deprecated since Moodle 4.0 MDL-71915 - please do not use this function any more.
      */
     public function no_questions_message($canedit, $editurl) {
-        $output = '';
-        $output .= $this->notification(get_string('noquestions', 'quiz'));
+        debugging('no_questions_message() is deprecated, please use generate_no_questions_message() instead.', DEBUG_DEVELOPER);
+
+        $output = html_writer::start_tag('div', array('class' => 'card text-center mb-3'));
+        $output .= html_writer::start_tag('div', array('class' => 'card-body'));
+
+        $output .= $this->notification(get_string('noquestions', 'quiz'), 'warning', false);
         if ($canedit) {
             $output .= $this->single_button($editurl, get_string('editquiz', 'quiz'), 'get');
         }
+        $output .= html_writer::end_tag('div');
+        $output .= html_writer::end_tag('div');
 
         return $output;
     }
@@ -797,34 +958,38 @@ class mod_quiz_renderer extends plugin_renderer_base {
     /**
      * Outputs an error message for any guests accessing the quiz
      *
-     * @param int $course The course ID
-     * @param array $quiz Array contingin quiz data
-     * @param int $cm Course Module ID
-     * @param int $context The page contect ID
+     * @param stdClass $course the course settings row from the database.
+     * @param stdClass $quiz the quiz settings row from the database.
+     * @param stdClass $cm the course_module settings row from the database.
+     * @param context_module $context the quiz context.
      * @param array $messages Array containing any messages
+     * @param mod_quiz_view_object $viewobj
      */
-    public function view_page_guest($course, $quiz, $cm, $context, $messages) {
+    public function view_page_guest($course, $quiz, $cm, $context, $messages, $viewobj) {
         $output = '';
+        $output .= $this->view_page_tertiary_nav($viewobj);
         $output .= $this->view_information($quiz, $cm, $context, $messages);
         $guestno = html_writer::tag('p', get_string('guestsno', 'quiz'));
         $liketologin = html_writer::tag('p', get_string('liketologin'));
-        $output .= $this->confirm($guestno."\n\n".$liketologin."\n", get_login_url(),
-                get_referer(false));
+        $referer = get_local_referer(false);
+        $output .= $this->confirm($guestno."\n\n".$liketologin."\n", get_login_url(), $referer);
         return $output;
     }
 
     /**
      * Outputs and error message for anyone who is not enrolle don the course
      *
-     * @param int $course The course ID
-     * @param array $quiz Array contingin quiz data
-     * @param int $cm Course Module ID
-     * @param int $context The page contect ID
+     * @param stdClass $course the course settings row from the database.
+     * @param stdClass $quiz the quiz settings row from the database.
+     * @param stdClass $cm the course_module settings row from the database.
+     * @param context_module $context the quiz context.
      * @param array $messages Array containing any messages
+     * @param mod_quiz_view_object $viewobj
      */
-    public function view_page_notenrolled($course, $quiz, $cm, $context, $messages) {
+    public function view_page_notenrolled($course, $quiz, $cm, $context, $messages, $viewobj) {
         global $CFG;
         $output = '';
+        $output .= $this->view_page_tertiary_nav($viewobj);
         $output .= $this->view_information($quiz, $cm, $context, $messages);
         $youneedtoenrol = html_writer::tag('p', get_string('youneedtoenrol', 'quiz'));
         $button = html_writer::tag('p',
@@ -838,18 +1003,13 @@ class mod_quiz_renderer extends plugin_renderer_base {
      *
      * @param object $quiz the quiz settings.
      * @param object $cm the course_module object.
-     * @param object $context the quiz context.
+     * @param context $context the quiz context.
      * @param array $messages any access messages that should be described.
+     * @param bool $quizhasquestions does quiz has questions added.
      * @return string HTML to output.
      */
-    public function view_information($quiz, $cm, $context, $messages) {
-        global $CFG;
-
+    public function view_information($quiz, $cm, $context, $messages, bool $quizhasquestions = false) {
         $output = '';
-
-        // Print quiz name and description.
-        $output .= $this->heading(format_string($quiz->name));
-        $output .= $this->quiz_intro($quiz, $cm);
 
         // Output any access messages.
         if ($messages) {
@@ -864,6 +1024,13 @@ class mod_quiz_renderer extends plugin_renderer_base {
                         array('class' => 'quizattemptcounts'));
             }
         }
+
+        if (has_any_capability(['mod/quiz:manageoverrides', 'mod/quiz:viewoverrides'], $context)) {
+            if ($overrideinfo = $this->quiz_override_summary_links($quiz, $cm)) {
+                $output .= html_writer::tag('div', $overrideinfo, ['class' => 'quizattemptcounts']);
+            }
+        }
+
         return $output;
     }
 
@@ -921,7 +1088,7 @@ class mod_quiz_renderer extends plugin_renderer_base {
             $table->size[] = '';
         }
         if ($viewobj->gradecolumn) {
-            $table->head[] = get_string('grade') . ' / ' .
+            $table->head[] = get_string('gradenoun') . ' / ' .
                     quiz_format_grade($quiz, $quiz->grade);
             $table->align[] = 'center';
             $table->size[] = '';
@@ -1127,15 +1294,14 @@ class mod_quiz_renderer extends plugin_renderer_base {
      * Returns the same as {@link quiz_num_attempt_summary()} but wrapped in a link
      * to the quiz reports.
      *
-     * @param object $quiz the quiz object. Only $quiz->id is used at the moment.
-     * @param object $cm the cm object. Only $cm->course, $cm->groupmode and $cm->groupingid
+     * @param stdClass $quiz the quiz object. Only $quiz->id is used at the moment.
+     * @param stdClass $cm the cm object. Only $cm->course, $cm->groupmode and $cm->groupingid
      * fields are used at the moment.
-     * @param object $context the quiz context.
+     * @param context $context the quiz context.
      * @param bool $returnzero if false (default), when no attempts have been made '' is returned
-     * instead of 'Attempts: 0'.
+     *      instead of 'Attempts: 0'.
      * @param int $currentgroup if there is a concept of current group where this method is being
-     * called
-     *         (e.g. a report) pass it in here. Default 0 which means no current group.
+     *      called (e.g. a report) pass it in here. Default 0 which means no current group.
      * @return string HTML fragment for the link.
      */
     public function quiz_attempt_summary_link_to_reports($quiz, $cm, $context,
@@ -1150,6 +1316,62 @@ class mod_quiz_renderer extends plugin_renderer_base {
         $url = new moodle_url('/mod/quiz/report.php', array(
                 'id' => $cm->id, 'mode' => quiz_report_default_report($context)));
         return html_writer::link($url, $summary);
+    }
+
+    /**
+     * Render a summary of the number of group and user overrides, with corresponding links.
+     *
+     * @param stdClass $quiz the quiz settings.
+     * @param stdClass|cm_info $cm the cm object.
+     * @param int $currentgroup currently selected group, if there is one.
+     * @return string HTML fragment for the link.
+     */
+    public function quiz_override_summary_links(stdClass $quiz, stdClass $cm, $currentgroup = 0): string {
+
+        $baseurl = new moodle_url('/mod/quiz/overrides.php', ['cmid' => $cm->id]);
+        $counts = quiz_override_summary($quiz, $cm, $currentgroup);
+
+        $links = [];
+        if ($counts['group']) {
+            $links[] = html_writer::link(new moodle_url($baseurl, ['mode' => 'group']),
+                    get_string('overridessummarygroup', 'quiz', $counts['group']));
+        }
+        if ($counts['user']) {
+            $links[] = html_writer::link(new moodle_url($baseurl, ['mode' => 'user']),
+                    get_string('overridessummaryuser', 'quiz', $counts['user']));
+        }
+
+        if (!$links) {
+            return '';
+        }
+
+        $links = implode(', ', $links);
+        switch ($counts['mode']) {
+            case 'onegroup':
+                return get_string('overridessummarythisgroup', 'quiz', $links);
+
+            case 'somegroups':
+                return get_string('overridessummaryyourgroups', 'quiz', $links);
+
+            case 'allgroups':
+                return get_string('overridessummary', 'quiz', $links);
+
+            default:
+                throw new coding_exception('Unexpected mode ' . $counts['mode']);
+        }
+    }
+
+    /**
+     * Outputs a chart.
+     *
+     * @param \core\chart_base $chart The chart.
+     * @param string $title The title to display above the graph.
+     * @param array $attrs extra container html attributes.
+     * @return string HTML fragment for the graph.
+     */
+    public function chart(\core\chart_base $chart, $title, $attrs = []) {
+        return $this->heading($title, 3) . html_writer::tag('div',
+            $this->render($chart), array_merge(['class' => 'graph'], $attrs));
     }
 
     /**
@@ -1184,6 +1406,7 @@ class mod_quiz_renderer extends plugin_renderer_base {
 class mod_quiz_links_to_other_attempts implements renderable {
     /**
      * @var array string attempt number => url, or null for the current attempt.
+     * url may be either a moodle_url, or a renderable.
      */
     public $links = array();
 }
@@ -1237,10 +1460,11 @@ class mod_quiz_view_object {
     /** @var string $buttontext caption for the start attempt button. If this is null, show no
      *      button, or if it is '' show a back to the course button. */
     public $buttontext;
-    /** @var string $startattemptwarning alert to show the user before starting an attempt. */
-    public $startattemptwarning;
     /** @var moodle_url $startattempturl URL to start an attempt. */
     public $startattempturl;
+    /** @var mod_quiz_preflight_check_form|null $preflightcheckform confirmation form that must be
+     *       submitted before an attempt is started, if required. */
+    public $preflightcheckform;
     /** @var moodle_url $startattempturl URL for any Back to the course button. */
     public $backtocourseurl;
     /** @var bool $showbacktocourse should we show a back to the course button? */
@@ -1251,4 +1475,16 @@ class mod_quiz_view_object {
     public $popupoptions;
     /** @var bool $quizhasquestions whether the quiz has any questions. */
     public $quizhasquestions;
+
+    public function __get($field) {
+        switch ($field) {
+            case 'startattemptwarning':
+                debugging('startattemptwarning has been deprecated. It is now always blank.');
+                return '';
+
+            default:
+                debugging('Unknown property ' . $field);
+                return null;
+        }
+    }
 }

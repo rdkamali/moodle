@@ -54,14 +54,15 @@ class mod_lesson_generator extends testing_module_generator {
         global $CFG;
 
         // Add default values for lesson.
+        $lessonconfig = get_config('mod_lesson');
         $record = (array)$record + array(
-            'progressbar' => 0,
-            'ongoing' => 0,
-            'displayleft' => 0,
-            'displayleftif' => 0,
-            'slideshow' => 0,
-            'maxanswers' => $CFG->lesson_maxanswers,
-            'feedback' => 0,
+            'progressbar' => $lessonconfig->progressbar,
+            'ongoing' => $lessonconfig->ongoing,
+            'displayleft' => $lessonconfig->displayleftmenu,
+            'displayleftif' => $lessonconfig->displayleftif,
+            'slideshow' => $lessonconfig->slideshow,
+            'maxanswers' => $lessonconfig->maxanswers,
+            'feedback' => $lessonconfig->defaultfeedback,
             'activitylink' => 0,
             'available' => 0,
             'deadline' => 0,
@@ -71,16 +72,16 @@ class mod_lesson_generator extends testing_module_generator {
             'timespent' => 0,
             'completed' => 0,
             'gradebetterthan' => 0,
-            'modattempts' => 0,
-            'review' => 0,
-            'maxattempts' => 1,
-            'nextpagedefault' => $CFG->lesson_defaultnextpage,
-            'maxpages' => 0,
-            'practice' => 0,
-            'custom' => 1,
-            'retake' => 0,
-            'usemaxgrade' => 0,
-            'minquestions' => 0,
+            'modattempts' => $lessonconfig->modattempts,
+            'review' => $lessonconfig->displayreview,
+            'maxattempts' => $lessonconfig->maximumnumberofattempts,
+            'nextpagedefault' => $lessonconfig->defaultnextpage,
+            'maxpages' => $lessonconfig->numberofpagestoshow,
+            'practice' => $lessonconfig->practice,
+            'custom' => $lessonconfig->customscoring,
+            'retake' => $lessonconfig->retakesallowed,
+            'usemaxgrade' => $lessonconfig->handlingofretakes,
+            'minquestions' => $lessonconfig->minimumnumberofquestions,
             'grade' => 100,
         );
         if (!isset($record['mediafile'])) {
@@ -424,5 +425,28 @@ class mod_lesson_generator extends testing_module_generator {
         $context = context_module::instance($lesson->cmid);
         $page = lesson_page::create((object)$record, new lesson($lesson), $context, $CFG->maxbytes);
         return $DB->get_record('lesson_pages', array('id' => $page->id), '*', MUST_EXIST);
+    }
+
+    /**
+     * Create a lesson override (either user or group).
+     *
+     * @param array $data must specify lessonid, and one of userid or groupid.
+     */
+    public function create_override(array $data): void {
+        global $DB;
+
+        if (!isset($data['lessonid'])) {
+            throw new coding_exception('Must specify lessonid when creating a lesson override.');
+        }
+
+        if (!isset($data['userid']) && !isset($data['groupid'])) {
+            throw new coding_exception('Must specify one of userid or groupid when creating a lesson override.');
+        }
+
+        if (isset($data['userid']) && isset($data['groupid'])) {
+            throw new coding_exception('Cannot specify both userid and groupid when creating a lesson override.');
+        }
+
+        $DB->insert_record('lesson_overrides', (object) $data);
     }
 }

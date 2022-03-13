@@ -80,6 +80,28 @@ abstract class assign_feedback_plugin extends assign_plugin {
     }
 
     /**
+     * Return any files this plugin wishes to save to the gradebook.
+     *
+     * The array being returned should contain the necessary information to
+     * identify and copy the files.
+     *
+     * eg.
+     *
+     * [
+     *      'contextid' => $modulecontext->id,
+     *      'component' => ASSIGNFEEDBACK_XYZ_COMPONENT,
+     *      'filearea' => ASSIGNFEEDBACK_XYZ_FILEAREA,
+     *      'itemid' => $grade->id
+     * ]
+     *
+     * @param stdClass $grade The assign_grades object from the db
+     * @return array
+     */
+    public function files_for_gradebook(stdClass $grade) : array {
+        return [];
+    }
+
+    /**
      * Override to indicate a plugin supports quickgrading.
      *
      * @return boolean - True if the plugin supports quickgrading
@@ -110,6 +132,19 @@ abstract class assign_feedback_plugin extends assign_plugin {
      */
     public function is_quickgrading_modified($userid, $grade) {
         return false;
+    }
+
+    /**
+     * Has the plugin form element been modified in the current submission?
+     *
+     * @param stdClass $grade The grade.
+     * @param stdClass $data Form data from the feedback form.
+     * @return boolean - True if the form element has been modified.
+     */
+    public function is_feedback_modified(stdClass $grade, stdClass $data) {
+        debugging('This plugin (' . $this->get_name() . ') has not overwritten the is_feedback_modified() method.
+                Please add this method to your plugin', DEBUG_DEVELOPER);
+        return true;
     }
 
     /**
@@ -152,6 +187,15 @@ abstract class assign_feedback_plugin extends assign_plugin {
      */
     public function grading_action($gradingaction) {
         return '';
+    }
+
+    /**
+     * Supports injecting content into the review panel of the grading app.
+     *
+     * @return bool True if this plugin will add content to the review panel of the grading app.
+     */
+    public function supports_review_panel() {
+        return false;
     }
 
     /**

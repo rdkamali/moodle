@@ -82,6 +82,8 @@ $string['attls9short'] = 'argue with authors';
 $string['cannotfindanswer'] = 'There are no answers for this survey yet.';
 $string['cannotfindquestion'] = 'Question doesn\'t exist';
 $string['cannotfindsurveytmpt'] = 'No survey templates found!';
+$string['completiondetail:submit'] = 'Submit answers';
+$string['completionsubmit'] = 'Student must submit to this activity to complete it';
 $string['ciqintro'] = 'While thinking about recent events in this class, answer the questions below.';
 $string['ciqname'] = 'Critical incidents';
 $string['ciq1'] = 'At what moment in class were you most engaged as a learner?';
@@ -94,7 +96,6 @@ $string['ciq4'] = 'What action from anyone in the forums did you find most puzzl
 $string['ciq4short'] = 'Confusing moment';
 $string['ciq5'] = 'What event surprised you most?';
 $string['ciq5short'] = 'Suprising moment';
-$string['clicktocontinue'] = 'Click here to continue';
 $string['clicktocontinuecheck'] = 'Click here to check and continue';
 $string['collesaintro'] = 'The purpose of this survey is to help us understand how well the online delivery of this unit enabled you to learn.
 
@@ -106,7 +107,7 @@ Your carefully considered responses will help us improve the way this unit is pr
 
 Thanks very much.';
 $string['collesaname'] = 'COLLES (Actual)';
-$string['collesapintro'] = 'The purpose of this questionnaire is to help us understand how well the online delivery of this unit enabled you to learn. 
+$string['collesapintro'] = 'The purpose of this questionnaire is to help us understand how well the online delivery of this unit enabled you to learn.
 
 Each couple of the 24 statements below asks you to compare your <b>preferred</b> (ideal) and <b>actual</b> experience in this unit.
 
@@ -197,6 +198,7 @@ $string['downloadinfo'] = 'You can download the complete raw data for this surve
 $string['downloadresults'] = 'Download results';
 $string['downloadtext'] = 'Download data as a plain text file';
 $string['editingasurvey'] = 'Editing a survey';
+$string['errorunabletosavenotes'] = 'An error occurred while saving your notes.';
 $string['eventreportdownloaded'] = 'Survey report downloaded';
 $string['eventreportviewed'] = 'Survey report viewed';
 $string['eventresponsesubmitted'] = 'Survey response submitted';
@@ -204,6 +206,16 @@ $string['guestsnotallowed'] = 'Only enrolled users are able to submit surveys';
 $string['howlong'] = 'How long did this survey take you to complete?';
 $string['howlongoptions'] = 'under 1 min,1-2 min,2-3 min,3-4 min,4-5-min,5-10 min,more than 10';
 $string['ifoundthat'] = 'I found that';
+$string['indicator:cognitivedepth'] = 'Survey cognitive';
+$string['indicator:cognitivedepth_help'] = 'This indicator is based on the cognitive depth reached by the student in a Survey activity.';
+$string['indicator:cognitivedepthdef'] = 'Survey cognitive';
+$string['indicator:cognitivedepthdef_help'] = 'The participant has reached this percentage of the cognitive engagement offered by the Survey activities during this analysis interval (Levels = No view, View, Submit)';
+$string['indicator:cognitivedepthdef_link'] = 'Learning_analytics_indicators#Cognitive_depth';
+$string['indicator:socialbreadth'] = 'Survey social';
+$string['indicator:socialbreadth_help'] = 'This indicator is based on the social breadth reached by the student in a Survey activity.';
+$string['indicator:socialbreadthdef'] = 'Survey social';
+$string['indicator:socialbreadthdef_help'] = 'The participant has reached this percentage of the social engagement offered by the Survey activities during this analysis interval (Levels = No participation, Participant alone)';
+$string['indicator:socialbreadthdef_link'] = 'Learning_analytics_indicators#Social_breadth';
 $string['introtext'] = 'Introduction text';
 $string['invalidsurveyid'] = 'Survey ID was incorrect';
 $string['invalidtmptid'] = 'Invalid template id';
@@ -227,6 +239,15 @@ $string['pluginname'] = 'Survey';
 $string['preferred'] = 'Preferred';
 $string['preferredclass'] = 'Class preferred';
 $string['preferredstudent'] = '{$a} preferred';
+$string['privacy:metadata:analysis'] = 'A record of survey answers analysis.';
+$string['privacy:metadata:analysis:notes'] = 'Notes saved against a user\'s answers.';
+$string['privacy:metadata:analysis:userid'] = 'The ID of the user answering the survey.';
+$string['privacy:metadata:answers'] = 'A collection of answers to surveys.';
+$string['privacy:metadata:answers:answer1'] = 'Field to store the answer to a question.';
+$string['privacy:metadata:answers:answer2'] = 'Additional field to store the answer to a question.';
+$string['privacy:metadata:answers:question'] = 'The question.';
+$string['privacy:metadata:answers:time'] = 'The time when the answer was posted.';
+$string['privacy:metadata:answers:userid'] = 'The ID of the user who submitted their answer.';
 $string['question'] = 'Question';
 $string['questions'] = 'Questions';
 $string['questionsnotanswered'] = 'Some of the multiple choice questions have not been answered.';
@@ -237,6 +258,7 @@ $string['savednotes'] = 'Your notes were saved';
 $string['scaleagree5'] = 'Strongly disagree,Somewhat disagree,Neither agree nor disagree,Somewhat agree,Strongly agree';
 $string['scales'] = 'Scales';
 $string['scaletimes5'] = 'Almost never,Seldom,Sometimes,Often,Almost always';
+$string['search:activity'] = 'Survey - activity information';
 $string['seemoredetail'] = 'Click here to see more detail';
 $string['selectedquestions'] = 'Selected questions from a scale, all students';
 $string['summary'] = 'Summary';
@@ -258,6 +280,9 @@ $string['surveytype_help'] = 'There are 3 available survey types:
 $string['surveytype_link'] = 'mod/survey/mod';
 $string['thanksforanswers'] = 'Thanks for answering this survey, {$a}';
 $string['time'] = 'Time';
-$string['viewsurveyresponses'] = 'View {$a} survey responses';
 $string['notyetanswered'] = 'Not yet answered';
 $string['allquestionrequireanswer'] = 'All questions are required and must be answered.';
+
+// Deprecated since Moodle 4.0.
+$string['clicktocontinue'] = 'Click here to continue';
+$string['viewsurveyresponses'] = 'View {$a} survey responses';

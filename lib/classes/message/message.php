@@ -34,12 +34,15 @@ defined('MOODLE_INTERNAL') || die();
  *  component string Component name. must exist in message_providers
  *  name string Message type name. must exist in message_providers
  *  userfrom object|int The user sending the message
- *  userto object|int The message recipient
+ *  userto object|int The message recipient. This is mandatory for NOTIFICACIONS and 1:1 personal messages.
  *  subject string The message subject
  *  fullmessage string The full message in a given format
  *  fullmessageformat int The format if the full message (FORMAT_MOODLE, FORMAT_HTML, ..)
  *  fullmessagehtml string The full version (the message processor will choose with one to use)
  *  smallmessage string The small version of the message
+ *
+ * Required parameters of the $eventdata object for PERSONAL MESSAGES:
+ *  convid int The conversation identifier where this message will be sent
  *
  * Optional parameters of the $eventdata object:
  *  notification bool Should the message be considered as a notification rather than a personal message
@@ -49,6 +52,7 @@ defined('MOODLE_INTERNAL') || die();
  *  replyto string An email address which can be used to send an reply.
  *  attachment stored_file File instance that needs to be sent as attachment.
  *  attachname string Name of the attachment.
+ *  customdata mixed Custom data to be passed to the message processor. Must be serialisable using json_encode().
  *
  * @package   core_message
  * @since     Moodle 2.9
@@ -56,6 +60,12 @@ defined('MOODLE_INTERNAL') || die();
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class message {
+    /** @var int Course id. */
+    private $courseid;
+
+    /** @var string Module name. */
+    private $modulename;
+
     /** @var string Component name. */
     private $component;
 
@@ -64,6 +74,12 @@ class message {
 
     /** @var object|int The user who is sending this message. */
     private $userfrom;
+
+    /** @var int The conversation id where userfrom is sending this message. */
+    private $convid;
+
+    /** @var int The conversation type, eg. \core_message\api::MESSAGE_CONVERSATION_TYPE_INDIVIDUAL */
+    private $conversationtype;
 
     /** @var object|int The user who is receiving from which is sending this message. */
     private $userto;
@@ -95,6 +111,9 @@ class message {
     /** @var  string An email address which can be used to send an reply. */
     private $replyto;
 
+    /** @var  string A name which can be used with replyto. */
+    private $replytoname;
+
     /** @var  int Used internally to store the id of the row representing this message in DB. */
     private $savedmessageid;
 
@@ -104,10 +123,46 @@ class message {
     /** @var  string Name of the attachment. Note:- not all processors support this.*/
     private $attachname;
 
+    /** @var  int The time the message was created.*/
+    private $timecreated;
+
+    /** @var boolean Mark trust content. */
+    private $fullmessagetrust;
+
+    /** @var  mixed Custom data to be passed to the message processor. Must be serialisable using json_encode(). */
+    private $customdata;
+
+    /** @var boolean If message is anonymous. */
+    private $anonymous;
+
     /** @var array a list of properties that is allowed for each message. */
-    private $properties = array('component', 'name', 'userfrom', 'userto', 'subject', 'fullmessage', 'fullmessageformat',
-                                'fullmessagehtml', 'smallmessage', 'notification', 'contexturl', 'contexturlname', 'savedmessageid',
-                                'replyto', 'attachment', 'attachname');
+    private $properties = array(
+        'courseid',
+        'modulename',
+        'component',
+        'name',
+        'userfrom',
+        'convid',
+        'conversationtype',
+        'userto',
+        'subject',
+        'fullmessage',
+        'fullmessageformat',
+        'fullmessagehtml',
+        'smallmessage',
+        'notification',
+        'contexturl',
+        'contexturlname',
+        'replyto',
+        'replytoname',
+        'savedmessageid',
+        'attachment',
+        'attachname',
+        'timecreated',
+        'fullmessagetrust',
+        'customdata',
+        'anonymous',
+    );
 
     /** @var array property to store any additional message processor specific content */
     private $additionalcontent = array();
@@ -155,6 +210,20 @@ class message {
         } else {
             return $this->smallmessage;
         }
+    }
+
+    /**
+     * Always JSON encode customdata.
+     *
+     * @param mixed $customdata a data structure that must be serialisable using json_encode().
+     */
+    protected function set_customdata($customdata) {
+        // Always include the courseid (because is not stored in the notifications or messages table).
+        if (!empty($this->courseid) && (is_object($customdata) || is_array($customdata))) {
+            $customdata = (array) $customdata;
+            $customdata['courseid'] = $this->courseid;
+        }
+        $this->customdata = json_encode($customdata);
     }
 
     /**
@@ -209,8 +278,28 @@ class message {
      * @throws \coding_exception
      */
     public function __set($prop, $value) {
+
+        // Custom data must be JSON encoded always.
+        if ($prop == 'customdata') {
+            return $this->set_customdata($value);
+        }
+
         if (in_array($prop, $this->properties)) {
             return $this->$prop = $value;
+        }
+        throw new \coding_exception("Invalid property $prop specified");
+    }
+
+    /**
+     * Magic method to check if property is set.
+     *
+     * @param string $prop name of property to check.
+     * @return bool
+     * @throws \coding_exception
+     */
+    public function __isset($prop) {
+        if (in_array($prop, $this->properties)) {
+            return isset($this->$prop);
         }
         throw new \coding_exception("Invalid property $prop specified");
     }

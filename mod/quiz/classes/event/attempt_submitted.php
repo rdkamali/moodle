@@ -32,6 +32,7 @@ defined('MOODLE_INTERNAL') || die();
  *
  *      - int submitterid: id of submitter (null when trigged by CLI script).
  *      - int quizid: (optional) the id of the quiz.
+ *      - bool studentisonline: is the student currently interacting with Moodle?
  * }
  *
  * @package    mod_quiz
@@ -125,5 +126,17 @@ class attempt_submitted extends \core\event\base {
         if (!array_key_exists('submitterid', $this->other)) {
             throw new \coding_exception('The \'submitterid\' value must be set in other.');
         }
+    }
+
+    public static function get_objectid_mapping() {
+        return array('db' => 'quiz_attempts', 'restore' => 'quiz_attempt');
+    }
+
+    public static function get_other_mapping() {
+        $othermapped = array();
+        $othermapped['submitterid'] = array('db' => 'user', 'restore' => 'user');
+        $othermapped['quizid'] = array('db' => 'quiz', 'restore' => 'quiz');
+
+        return $othermapped;
     }
 }

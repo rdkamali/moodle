@@ -164,7 +164,7 @@ class grade extends tablelike implements selectable_items, filterable_items {
     public function original_headers() {
         return array(
             '', // For filter icon.
-            get_string('firstname') . ' (' . get_string('alternatename') . ') ' . get_string('lastname'),
+            get_string('fullnameuser', 'core'),
             get_string('range', 'grades'),
             get_string('grade', 'grades'),
             get_string('feedback', 'grades'),
@@ -198,8 +198,8 @@ class grade extends tablelike implements selectable_items, filterable_items {
             $lockicon = $OUTPUT->pix_icon('t/locked', 'grade is locked') . ' ';
         }
 
-        if (!empty($item->alternatename)) {
-            $fullname = $lockicon . $item->alternatename . ' (' . $item->firstname . ') ' . $item->lastname;
+        if (has_capability('moodle/site:viewfullnames', \context_course::instance($this->courseid))) {
+            $fullname = $lockicon . fullname($item, true);
         } else {
             $fullname = $lockicon . fullname($item);
         }
@@ -208,11 +208,12 @@ class grade extends tablelike implements selectable_items, filterable_items {
         $url = new moodle_url("/user/view.php", array('id' => $item->id, 'course' => $this->courseid));
         $iconstring = get_string('filtergrades', 'gradereport_singleview', $fullname);
         $grade->label = $fullname;
+        $userpic = $OUTPUT->user_picture($item, ['link' => false, 'visibletoscreenreaders' => false]);
 
         $line = array(
-            $OUTPUT->action_icon($this->format_link('user', $item->id), new pix_icon('t/editstring', $iconstring)),
-            $OUTPUT->user_picture($item, array('visibletoscreenreaders' => false)) .
-            html_writer::link($url, $fullname),
+            $OUTPUT->action_icon($this->format_link('user', $item->id), new pix_icon('t/editstring', ''), null,
+                    ['title' => $iconstring, 'aria-label' => $iconstring]),
+            html_writer::link($url, $userpic . $fullname),
             $this->item_range()
         );
         $lineclasses = array(
@@ -333,18 +334,16 @@ class grade extends tablelike implements selectable_items, filterable_items {
 
                     $data->$field = empty($grade) ? $null : $grade->finalgrade;
                     $data->{"old$field"} = $data->$field;
-
-                    preg_match('/_(\d+)_(\d+)/', $field, $oldoverride);
-                    $oldoverride = 'oldoverride' . $oldoverride[0];
-                    if (empty($data->$oldoverride)) {
-                        $data->$field = (!isset($grade->rawgrade)) ? $null : $grade->rawgrade;
-                    }
                 }
             }
 
             foreach ($data as $varname => $value) {
-                if (preg_match('/override_(\d+)_(\d+)/', $varname, $matches)) {
-                    $data->$matches[0] = '1';
+                if (preg_match('/^oldoverride_(\d+)_(\d+)/', $varname, $matches)) {
+                    // If we've selected overriding all grades.
+                    if ($filter == 'all') {
+                        $override = "override_{$matches[1]}_{$matches[2]}";
+                        $data->$override = '1';
+                    }
                 }
                 if (!preg_match('/^finalgrade_(\d+)_/', $varname, $matches)) {
                     continue;

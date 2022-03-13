@@ -25,11 +25,15 @@
 
 defined('MOODLE_INTERNAL') || die();
 
+/**
+ * @covers ::ajax_capture_output
+ * @covers ::ajax_check_captured_output
+ */
 class core_ajaxlib_testcase extends advanced_testcase {
     /** @var string Original error log */
     protected $oldlog;
 
-    protected function setUp() {
+    protected function setUp(): void {
         global $CFG;
 
         parent::setUp();
@@ -38,7 +42,7 @@ class core_ajaxlib_testcase extends advanced_testcase {
         ini_set('error_log', "$CFG->dataroot/testlog.log");
     }
 
-    protected function tearDown() {
+    protected function tearDown(): void {
         ini_set('error_log', $this->oldlog);
         parent::tearDown();
     }
@@ -70,7 +74,7 @@ class core_ajaxlib_testcase extends advanced_testcase {
         echo $content;
 
         if ($expectexception) {
-            $this->setExpectedException('coding_exception');
+            $this->expectException('coding_exception');
             ajax_check_captured_output();
         } else {
             $result = ajax_check_captured_output();

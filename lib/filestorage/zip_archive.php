@@ -145,7 +145,8 @@ class zip_archive extends file_archive {
      */
     protected function mangle_pathname($localname) {
         $result = str_replace('\\', '/', $localname);   // no MS \ separators
-        $result = preg_replace('/\.\.+/', '', $result); // prevent /.../
+        $result = preg_replace('/\.\.+\//', '', $result); // Cleanup any potential ../ transversal (any number of dots).
+        $result = preg_replace('/\.\.+/', '.', $result); // Join together any number of consecutive dots.
         $result = ltrim($result, '/');                  // no leading slash
 
         if ($result === '.') {
@@ -191,7 +192,7 @@ class zip_archive extends file_archive {
         }
 
         if ($this->emptyziphack) {
-            $this->za->close();
+            @$this->za->close();
             $this->za = null;
             $this->mode = null;
             $this->namelookup = null;
@@ -202,11 +203,17 @@ class zip_archive extends file_archive {
 
         } else if ($this->za->numFiles == 0) {
             // PHP can not create empty archives, so let's fake it.
-            $this->za->close();
+            @$this->za->close();
             $this->za = null;
             $this->mode = null;
             $this->namelookup = null;
             $this->modified = false;
+            // If the existing archive is already empty, we didn't change it.  Don't bother completing a save.
+            // This is important when we are inspecting archives that we might not have write permission to.
+            if (@filesize($this->archivepathname) == 22 &&
+                    @file_get_contents($this->archivepathname) === base64_decode(self::$emptyzipcontent)) {
+                return true;
+            }
             @unlink($this->archivepathname);
             $data = base64_decode(self::$emptyzipcontent);
             if (!file_put_contents($this->archivepathname, $data)) {
@@ -248,6 +255,28 @@ class zip_archive extends file_archive {
     }
 
     /**
+     * Extract the archive contents to the given location.
+     *
+     * @param string $destination Path to the location where to extract the files.
+     * @param int $index Index of the archive entry.
+     * @return bool true on success or false on failure
+     */
+    public function extract_to($destination, $index) {
+
+        if (!isset($this->za)) {
+            return false;
+        }
+
+        $name = $this->za->getNameIndex($index);
+
+        if ($name === false) {
+            return false;
+        }
+
+        return $this->za->extractTo($destination, $name);
+    }
+
+    /**
      * Returns file information.
      *
      * @param int $index index of file
@@ -263,9 +292,9 @@ class zip_archive extends file_archive {
             return false;
         }
 
-        // PHP 5.6 introduced encoding guessing logic, we need to fall back
-        // to raw ZIP_FL_ENC_RAW (== 64) to get consistent results as in PHP 5.5.
-        $result = $this->za->statIndex($index, 64);
+        // PHP 5.6 introduced encoding guessing logic for file names. To keep consistent behaviour with older versions,
+        // we fall back to obtaining file names as raw unmodified strings.
+        $result = $this->za->statIndex($index, ZipArchive::FL_ENC_RAW);
 
         if ($result === false) {
             return false;
@@ -656,6 +685,7 @@ class zip_archive extends file_archive {
                             case 'ISO-8859-6': $encoding = 'CP720'; break;
                             case 'ISO-8859-7': $encoding = 'CP737'; break;
                             case 'ISO-8859-8': $encoding = 'CP862'; break;
+                            case 'WINDOWS-1251': $encoding = 'CP866'; break;
                             case 'EUC-JP':
                             case 'UTF-8':
                                 if ($winchar = get_string('localewincharset', 'langconfig')) {

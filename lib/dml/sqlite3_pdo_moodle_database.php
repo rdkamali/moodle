@@ -193,21 +193,12 @@ class sqlite3_pdo_moodle_database extends pdo_moodle_database {
     }
 
     /**
-     * Returns detailed information about columns in table. This information is cached internally.
+     * Returns detailed information about columns in table.
+     *
      * @param string $table name
-     * @param bool $usecache
      * @return array array of database_column_info objects indexed with column names
      */
-    public function get_columns($table, $usecache=true) {
-
-        if ($usecache) {
-            $properties = array('dbfamily' => $this->get_dbfamily(), 'settings' => $this->get_settings_hash());
-            $cache = cache::make('core', 'databasemeta', $properties);
-            if ($data = $cache->get($table)) {
-                return $data;
-            }
-        }
-
+    protected function fetch_columns(string $table): array {
         $structure = array();
 
         // get table's CREATE TABLE command (we'll need it for autoincrement fields)
@@ -297,10 +288,6 @@ class sqlite3_pdo_moodle_database extends pdo_moodle_database {
                 $columninfo['default_value'] = substr($columninfo['default_value'], 1, -1);
             }
             $structure[$columninfo['name']] = new database_column_info($columninfo);
-        }
-
-        if ($usecache) {
-            $cache->set($table, $structure);
         }
 
         return $structure;

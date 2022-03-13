@@ -100,16 +100,16 @@ class mod_wiki_edit_form extends moodleform {
         $mform->addElement('hidden', 'contentformat', $format);
         $mform->setType('contentformat', PARAM_ALPHANUMEXT);
 
-        if (!empty($CFG->usetags)) {
+        if (core_tag_tag::is_enabled('mod_wiki', 'wiki_pages')) {
             $mform->addElement('header', 'tagshdr', get_string('tags', 'tag'));
-            $mform->addElement('tags', 'tags', get_string('tags'));
-            $mform->setType('tags', PARAM_TEXT);
         }
+        $mform->addElement('tags', 'tags', get_string('tags'),
+                array('itemtype' => 'wiki_pages', 'component' => 'mod_wiki'));
 
         $buttongroup = array();
         $buttongroup[] = $mform->createElement('submit', 'editoption', get_string('save', 'wiki'), array('id' => 'save'));
-        $buttongroup[] = $mform->createElement('submit', 'editoption', get_string('preview'), array('id' => 'preview'));
-        $buttongroup[] = $mform->createElement('submit', 'editoption', get_string('cancel'), array('id' => 'cancel'));
+        $buttongroup[] = $mform->createElement('submit', 'editoption', get_string('preview'), array('id' => 'preview'), false);
+        $buttongroup[] = $mform->createElement('submit', 'editoption', get_string('cancel'), array('id' => 'cancel'), false);
 
         $mform->addGroup($buttongroup, 'buttonar', '', array(' '), false);
         $mform->closeHeaderBefore('buttonar');

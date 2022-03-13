@@ -81,6 +81,88 @@ class core_mathslib_testcase extends basic_testcase {
         $this->assertSame(8, $formula->evaluate());
     }
 
+    public function test_conditional_functions() {
+        // Test ifthenelse.
+        $formula = new calc_formula('=ifthenelse(1,2,3)');
+        $this->assertSame(2, (int)$formula->evaluate());
+
+        $formula = new calc_formula('=ifthenelse(0,2,3)');
+        $this->assertSame(3, (int) $formula->evaluate());
+
+        $formula = new calc_formula('=ifthenelse(2<3,2,3)');
+        $this->assertSame(2, (int) $formula->evaluate());
+
+        // Test synonym if.
+        $formula = new calc_formula('=if(1,2,3)');
+        $this->assertSame(2, (int)$formula->evaluate());
+
+        $formula = new calc_formula('=if(0,2,3)');
+        $this->assertSame(3, (int) $formula->evaluate());
+
+        $formula = new calc_formula('=if(2<3,2,3)');
+        $this->assertSame(2, (int) $formula->evaluate());
+
+        // Test cond_and.
+        $formula = new calc_formula('=cond_and(1,1,1)');
+        $this->assertSame(1, (int)$formula->evaluate());
+
+        $formula = new calc_formula('=cond_and(1,1,0)');
+        $this->assertSame(0, (int) $formula->evaluate());
+
+        $formula = new calc_formula('=cond_and(0,0,0)');
+        $this->assertSame(0, (int) $formula->evaluate());
+
+        // Test synonym and.
+        $formula = new calc_formula('=and(1,1,1)');
+        $this->assertSame(1, (int)$formula->evaluate());
+
+        $formula = new calc_formula('=and(1,1,0)');
+        $this->assertSame(0, (int) $formula->evaluate());
+
+        $formula = new calc_formula('=and(0,0,0)');
+        $this->assertSame(0, (int) $formula->evaluate());
+
+        // Test cond_or.
+        $formula = new calc_formula('=cond_or(1,1,1)');
+        $this->assertSame(1, (int)$formula->evaluate());
+
+        $formula = new calc_formula('=cond_or(1,1,0)');
+        $this->assertSame(1, (int) $formula->evaluate());
+
+        $formula = new calc_formula('=cond_or(0,0,0)');
+        $this->assertSame(0, (int) $formula->evaluate());
+
+        // Test synonym or.
+        $formula = new calc_formula('=or(1,1,1)');
+        $this->assertSame(1, (int)$formula->evaluate());
+
+        $formula = new calc_formula('=or(1,1,0)');
+        $this->assertSame(1, (int) $formula->evaluate());
+
+        $formula = new calc_formula('=or(0,0,0)');
+        $this->assertSame(0, (int) $formula->evaluate());
+    }
+
+    public function test_conditional_operators() {
+        $formula = new calc_formula('=2==2');
+        $this->assertSame(1, $formula->evaluate());
+
+        $formula = new calc_formula('=2>3');
+        $this->assertSame(0, $formula->evaluate());
+        $formula = new calc_formula('=2<3');
+        $this->assertSame(1, $formula->evaluate());
+
+        $formula = new calc_formula('=(2<=3)');
+        $this->assertSame(1, $formula->evaluate());
+
+        $formula = new calc_formula('=(2<=3)*10');
+        $this->assertSame(10, $formula->evaluate());
+
+        $formula = new calc_formula('=(2>=3)*10');
+        $this->assertSame(0, $formula->evaluate());
+        $formula = new calc_formula('=2<3*10');
+        $this->assertSame(10, $formula->evaluate());
+    }
     /**
      * Tests the min and max functions.
      */
@@ -213,19 +295,19 @@ class core_mathslib_testcase extends basic_testcase {
 
     public function test_scientific_notation() {
         $formula = new calc_formula('=10e10');
-        $this->assertEquals(1e11, $formula->evaluate(), '', 1e11*1e-15);
+        $this->assertEqualsWithDelta(1e11, $formula->evaluate(), 1e11 * 1e-15);
 
         $formula = new calc_formula('=10e-10');
-        $this->assertEquals(1e-9, $formula->evaluate(), '', 1e11*1e-15);
+        $this->assertEqualsWithDelta(1e-9, $formula->evaluate(), 1e11 * 1e-15);
 
         $formula = new calc_formula('=10e+10');
-        $this->assertEquals(1e11, $formula->evaluate(), '', 1e11*1e-15);
+        $this->assertEqualsWithDelta(1e11, $formula->evaluate(), 1e11 * 1e-15);
 
         $formula = new calc_formula('=10e10*5');
-        $this->assertEquals(5e11, $formula->evaluate(), '', 1e11*1e-15);
+        $this->assertEqualsWithDelta(5e11, $formula->evaluate(), 1e11 * 1e-15);
 
         $formula = new calc_formula('=10e10^2');
-        $this->assertEquals(1e22, $formula->evaluate(), '', 1e22*1e-15);
+        $this->assertEqualsWithDelta(1e22, $formula->evaluate(), 1e22 * 1e-15);
     }
 
     public function test_rand_float() {

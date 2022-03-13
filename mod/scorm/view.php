@@ -15,6 +15,7 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 require_once("../../config.php");
+require_once($CFG->dirroot.'/mod/scorm/lib.php');
 require_once($CFG->dirroot.'/mod/scorm/locallib.php');
 require_once($CFG->dirroot.'/course/lib.php');
 
@@ -65,17 +66,23 @@ $contextmodule = context_module::instance($cm->id);
 
 $launch = false; // Does this automatically trigger a launch based on skipview.
 if (!empty($scorm->popup)) {
-    $orgidentifier = '';
-
     $scoid = 0;
     $orgidentifier = '';
-    if ($sco = scorm_get_sco($scorm->launch, SCO_ONLY)) {
+
+    $result = scorm_get_toc($USER, $scorm, $cm->id, TOCFULLURL);
+    // Set last incomplete sco to launch first.
+    if (!empty($result->sco->id)) {
+        $sco = $result->sco;
+    } else {
+        $sco = scorm_get_sco($scorm->launch, SCO_ONLY);
+    }
+    if (!empty($sco)) {
+        $scoid = $sco->id;
         if (($sco->organization == '') && ($sco->launch == '')) {
             $orgidentifier = $sco->identifier;
         } else {
             $orgidentifier = $sco->organization;
         }
-        $scoid = $sco->id;
     }
 
     if (empty($preventskip) && $scorm->skipview >= SCORM_SKIPVIEW_FIRST &&
@@ -90,14 +97,10 @@ if (!empty($scorm->popup)) {
     // Redirect back to the section with one section per page ?
 
     $courseformat = course_get_format($course)->get_course();
-    $sectionid = '';
-    if (isset($courseformat->coursedisplay) && $courseformat->coursedisplay == COURSE_DISPLAY_MULTIPAGE) {
-        $sectionid = $cm->sectionnum;
-    }
     if ($courseformat->format == 'singleactivity') {
         $courseurl = $url->out(false, array('preventskip' => '1'));
     } else {
-        $courseurl = course_get_url($course, $sectionid)->out(false);
+        $courseurl = course_get_url($course, $cm->sectionnum)->out(false);
     }
     $PAGE->requires->data_for_js('scormplayerdata', Array('launch' => $launch,
                                                            'currentorg' => $orgidentifier,
@@ -123,14 +126,7 @@ $shortname = format_string($course->shortname, true, array('context' => $context
 $pagetitle = strip_tags($shortname.': '.format_string($scorm->name));
 
 // Trigger module viewed event.
-$event = \mod_scorm\event\course_module_viewed::create(array(
-    'objectid' => $scorm->id,
-    'context' => $contextmodule,
-));
-$event->add_record_snapshot('course', $course);
-$event->add_record_snapshot('scorm', $scorm);
-$event->add_record_snapshot('course_modules', $cm);
-$event->trigger();
+scorm_view($scorm, $course, $cm, $contextmodule);
 
 if (empty($preventskip) && empty($launch) && (has_capability('mod/scorm:skipview', $contextmodule))) {
     scorm_simple_play($scorm, $USER, $contextmodule, $cm->id);
@@ -140,9 +136,14 @@ if (empty($preventskip) && empty($launch) && (has_capability('mod/scorm:skipview
 
 $PAGE->set_title($pagetitle);
 $PAGE->set_heading($course->fullname);
-echo $OUTPUT->header();
-echo $OUTPUT->heading(format_string($scorm->name));
+// Let the module handle the display.
+if (!empty($action) && $action == 'delete' && confirm_sesskey() && has_capability('mod/scorm:deleteownresponses', $contextmodule)) {
+    $PAGE->activityheader->disable();
+} else {
+    $PAGE->activityheader->set_description('');
+}
 
+echo $OUTPUT->header();
 if (!empty($action) && confirm_sesskey() && has_capability('mod/scorm:deleteownresponses', $contextmodule)) {
     if ($action == 'delete') {
         $confirmurl = new moodle_url($PAGE->url, array('action' => 'deleteconfirm'));
@@ -157,32 +158,26 @@ if (!empty($action) && confirm_sesskey() && has_capability('mod/scorm:deleteownr
     }
 }
 
-$currenttab = 'info';
-require($CFG->dirroot . '/mod/scorm/tabs.php');
-
 // Print the main part of the page.
 $attemptstatus = '';
 if (empty($launch) && ($scorm->displayattemptstatus == SCORM_DISPLAY_ATTEMPTSTATUS_ALL ||
          $scorm->displayattemptstatus == SCORM_DISPLAY_ATTEMPTSTATUS_ENTRY)) {
     $attemptstatus = scorm_get_attempt_status($USER, $scorm, $cm);
 }
-echo $OUTPUT->box(format_module_intro('scorm', $scorm, $cm->id).$attemptstatus, 'generalbox boxaligncenter boxwidthwide', 'intro');
+echo $OUTPUT->box(format_module_intro('scorm', $scorm, $cm->id), '', 'intro');
 
-$scormopen = true;
-$timenow = time();
-if (!empty($scorm->timeopen) && $scorm->timeopen > $timenow) {
-    echo $OUTPUT->box(get_string("notopenyet", "scorm", userdate($scorm->timeopen)), "generalbox boxaligncenter");
-    $scormopen = false;
+// Check if SCORM available. No need to display warnings because activity dates are displayed at the top of the page.
+list($available, $warnings) = scorm_get_availability_status($scorm);
+
+if ($available && empty($launch)) {
+    scorm_print_launch($USER, $scorm, 'view.php?id='.$cm->id, $cm);
 }
-if (!empty($scorm->timeclose) && $timenow > $scorm->timeclose) {
-    echo $OUTPUT->box(get_string("expired", "scorm", userdate($scorm->timeclose)), "generalbox boxaligncenter");
-    $scormopen = false;
-}
-if ($scormopen && empty($launch)) {
-    scorm_view_display($USER, $scorm, 'view.php?id='.$cm->id, $cm);
-}
+
+echo $OUTPUT->box($attemptstatus);
+
 if (!empty($forcejs)) {
-    echo $OUTPUT->box(get_string("forcejavascriptmessage", "scorm"), "generalbox boxaligncenter forcejavascriptmessage");
+    $message = $OUTPUT->box(get_string("forcejavascriptmessage", "scorm"), "forcejavascriptmessage");
+    echo html_writer::tag('noscript', $message);
 }
 
 if (!empty($scorm->popup)) {

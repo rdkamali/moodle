@@ -35,7 +35,7 @@ class core_enrol_role_external_testcase extends externallib_advanced_testcase {
     /**
      * Tests set up
      */
-    protected function setUp() {
+    protected function setUp(): void {
         global $CFG;
         require_once($CFG->dirroot . '/enrol/externallib.php');
     }
@@ -84,7 +84,7 @@ class core_enrol_role_external_testcase extends externallib_advanced_testcase {
 
         // Call without required capability.
         $this->unassignUserCapability('moodle/role:assign', $context->id, $roleid);
-        $this->setExpectedException('moodle_exception');
+        $this->expectException('moodle_exception');
         $categories = core_role_external::assign_roles(
             array('roleid' => 3, 'userid' => $USER->id, 'contextid' => $context->id));
     }
@@ -138,7 +138,7 @@ class core_enrol_role_external_testcase extends externallib_advanced_testcase {
 
         // Call without required capability.
         $this->unassignUserCapability('moodle/role:assign', $context->id, $roleid);
-        $this->setExpectedException('moodle_exception');
+        $this->expectException('moodle_exception');
         $categories = core_role_external::unassign_roles(
             array('roleid' => 3, 'userid' => $USER->id, 'contextid' => $context->id));
     }

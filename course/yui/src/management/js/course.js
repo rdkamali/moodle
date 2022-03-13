@@ -6,9 +6,9 @@
  * @constructor
  * @extends Item
  */
-function Course() {
+Course = function() {
     Course.superclass.constructor.apply(this, arguments);
-}
+};
 Course.NAME = 'moodle-course-management-course';
 Course.CSS_PREFIX = 'management-course';
 Course.ATTRS = {
@@ -18,7 +18,7 @@ Course.ATTRS = {
      * @attribute courseid
      * @type Number
      */
-    courseid : {},
+    courseid: {},
 
     /**
      * True if this is the selected course.
@@ -26,17 +26,17 @@ Course.ATTRS = {
      * @type Boolean
      * @default null
      */
-    selected : {
-        getter : function(value, name) {
+    selected: {
+        getter: function(value, name) {
             if (value === null) {
                 value = this.get('node').getData(name);
                 this.set(name, value);
             }
             return value;
         },
-        value : null
+        value: null
     },
-    node : {
+    node: {
 
     },
     /**
@@ -45,8 +45,8 @@ Course.ATTRS = {
      * @type Console
      * @writeOnce
      */
-    console : {
-        writeOnce : 'initOnly'
+    console: {
+        writeOnce: 'initOnly'
     },
 
     /**
@@ -55,8 +55,8 @@ Course.ATTRS = {
      * @type Category
      * @writeOnce
      */
-    category : {
-        writeOnce : 'initOnly'
+    category: {
+        writeOnce: 'initOnly'
     }
 };
 Course.prototype = {
@@ -64,7 +64,7 @@ Course.prototype = {
      * Initialises the new course instance.
      * @method initializer
      */
-    initializer : function() {
+    initializer: function() {
         var node = this.get('node'),
             category = this.get('category');
         this.set('courseid', node.getData('id'));
@@ -79,7 +79,7 @@ Course.prototype = {
      * @method getName
      * @return {String}
      */
-    getName : function() {
+    getName: function() {
         return this.get('node').one('a.coursename').get('innerHTML');
     },
 
@@ -90,9 +90,9 @@ Course.prototype = {
      * @param {EventFacade} e
      * @return {Boolean}
      */
-    handle : function(action, e) {
+    handle: function(action, e) {
         var managementconsole = this.get('console'),
-            args = {courseid : this.get('courseid')};
+            args = {courseid: this.get('courseid')};
         switch (action) {
             case 'moveup':
                 e.halt();
@@ -131,7 +131,7 @@ Course.prototype = {
      * Removes this course.
      * @method remove
      */
-    remove : function() {
+    remove: function() {
         this.get('console').removeCourseById(this.get('courseid'));
         this.get('node').remove();
     },
@@ -143,12 +143,12 @@ Course.prototype = {
      * @param {Number} moveaftercourse The course to move after or 0 to put it at the top.
      * @param {Number} previousid the course it was previously after in case we need to revert.
      */
-    moveAfter : function(moveaftercourse, previousid) {
+    moveAfter: function(moveaftercourse, previousid) {
         var managementconsole = this.get('console'),
             args = {
-                courseid : this.get('courseid'),
-                moveafter : moveaftercourse,
-                previous : previousid
+                courseid: this.get('courseid'),
+                moveafter: moveaftercourse,
+                previous: previousid
             };
         managementconsole.performAjaxAction('movecourseafter', args, this.moveAfterResponse, this);
     },
@@ -163,12 +163,12 @@ Course.prototype = {
      * @param {Objects} args The arguments that were given with the request.
      * @return {Boolean}
      */
-    moveAfterResponse : function(transactionid, response, args) {
+    moveAfterResponse: function(transactionid, response, args) {
         var outcome = this.checkAjaxResponse(transactionid, response, args),
             node = this.get('node'),
             previous;
         if (outcome === false) {
-            previous = node.ancestor('ul').one('li[data-id='+args.previous+']');
+            previous = node.ancestor('ul').one('li[data-id=' + args.previous + ']');
             Y.log('AJAX failed to move this course after the requested course', 'warn', 'moodle-course-management');
             if (previous) {
                 // After the last previous.
@@ -179,7 +179,7 @@ Course.prototype = {
             }
             return false;
         }
-        Y.log('AJAX successfully moved course ('+this.getName()+')', 'info', 'moodle-course-management');
+        Y.log('AJAX successfully moved course (' + this.getName() + ')', 'info', 'moodle-course-management');
         this.highlight();
     }
 };

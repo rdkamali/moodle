@@ -38,7 +38,7 @@ class tool_monitor_eventobservers_testcase extends advanced_testcase {
     /**
      * Set up method.
      */
-    public function setUp() {
+    public function setUp(): void {
         // Enable monitor.
         set_config('enablemonitor', 1, 'tool_monitor');
     }
@@ -384,7 +384,7 @@ class tool_monitor_eventobservers_testcase extends advanced_testcase {
             // Now let us trigger 7 instances of the event.
             $event = \mod_book\event\course_module_instance_list_viewed::create_from_course($course);
             $event->trigger();
-            sleep(1); // Add a second delay, to prevent time collisions.
+            $this->waitForSecond(); // Add a second delay, to prevent time collisions.
         }
         $this->run_adhock_tasks();
         $messages = $messagesink->get_messages();
@@ -467,7 +467,13 @@ class tool_monitor_eventobservers_testcase extends advanced_testcase {
         $rulerecord->eventname = '\mod_book\event\course_module_viewed';
         $rulerecord->cmid = $book->cmid;
         $rulerecord->frequency = 1;
-        $rulerecord->template = '{link} {modulelink} {rulename} {description} {eventname}';
+        $rulerecord->template = '## {link} ##
+
+* {modulelink}
+* __{rulename}__
+* {description}
+* {eventname}';
+        $rulerecord->templateformat = FORMAT_MARKDOWN;
 
         $rule = $toolgenerator->create_rule($rulerecord);
 
@@ -491,13 +497,22 @@ class tool_monitor_eventobservers_testcase extends advanced_testcase {
         $msg = array_pop($msgs);
 
         $modurl = new moodle_url('/mod/book/view.php', array('id' => $book->cmid));
-        $expectedmsg = $event->get_url()->out() . ' ' .
-                        $modurl->out()  . ' ' .
-                        $rule->get_name($context) . ' ' .
-                        $rule->get_description($context) . ' ' .
-                        $rule->get_event_name();
 
-        $this->assertEquals($expectedmsg, $msg->fullmessage);
+        $this->assertMatchesRegularExpression('~<h2>.*' . preg_quote($event->get_url()->out(), '~') . '.*</h2>~',
+            $msg->fullmessagehtml);
+        $this->assertMatchesRegularExpression('~<li>.*' . preg_quote($modurl->out(), '~') . '.*</li>~', $msg->fullmessagehtml);
+        $this->assertStringContainsString('<li><strong>'.$rule->get_name($context).'</strong></li>', $msg->fullmessagehtml);
+        $this->assertStringContainsString('<li>'.$rule->get_description($context).'</li>', $msg->fullmessagehtml);
+        $this->assertStringContainsString('<li>'.$rule->get_event_name().'</li>', $msg->fullmessagehtml);
+
+        $this->assertEquals(FORMAT_PLAIN, $msg->fullmessageformat);
+        $this->assertStringNotContainsString('<h2>', $msg->fullmessage);
+        $this->assertStringNotContainsString('##', $msg->fullmessage);
+        $this->assertStringContainsString(strtoupper($event->get_url()->out()), $msg->fullmessage);
+        $this->assertStringContainsString('* '.$modurl->out(), $msg->fullmessage);
+        $this->assertStringContainsString('* '.strtoupper($rule->get_name($context)), $msg->fullmessage);
+        $this->assertStringContainsString('* '.$rule->get_description($context), $msg->fullmessage);
+        $this->assertStringContainsString('* '.$rule->get_event_name(), $msg->fullmessage);
     }
 
     /**

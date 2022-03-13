@@ -1,6 +1,5 @@
 <?php
-
-// This file is part of Moodle - http://moodle.org/
+// This file is part of Moodle - https://moodle.org/
 //
 // Moodle is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -13,7 +12,7 @@
 // GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License
-// along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+// along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 /**
  * Automatically generated strings for Moodle installer
@@ -40,7 +39,7 @@ $string['cannotsavezipfile'] = 'Nevar saglabāt ZIP failu';
 $string['cannotunzipfile'] = 'Nevar atzipot failu';
 $string['componentisuptodate'] = 'Komponents atbilst visjaunākajai versijai.';
 $string['downloadedfilecheckfailed'] = 'Lejupielādētā faila pārbaudes rezultāts nesekmīgs.';
-$string['invalidmd5'] = 'Nederīgs md5';
+$string['invalidmd5'] = 'Pārbaudītais mainīgais bija nepareizs - mēģiniet vēlreiz';
 $string['missingrequiredfield'] = 'Trūkst kāda nepieciešamā lauka';
 $string['wrongdestpath'] = 'Nepareizs mērķa ceļš.';
 $string['wrongsourcebase'] = 'Nepareiza avota URL bāze.';

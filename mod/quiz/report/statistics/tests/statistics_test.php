@@ -144,7 +144,7 @@ class quiz_statistics_question_stats_testcase extends basic_testcase {
         foreach ($this->qstats->get_all_slots() as $slot) {
             $value = array_shift($values);
             if ($value !== null) {
-                $this->assertEquals($value, $this->qstats->for_slot($slot)->{$fieldname} * $multiplier, '', 1E-6);
+                $this->assertEqualsWithDelta($value, $this->qstats->for_slot($slot)->{$fieldname} * $multiplier, 1E-6);
             } else {
                 $this->assertEquals($value, $this->qstats->for_slot($slot)->{$fieldname} * $multiplier);
             }
@@ -154,14 +154,15 @@ class quiz_statistics_question_stats_testcase extends basic_testcase {
     public function get_fields_from_csv($line) {
         $line = trim($line);
         $items = preg_split('!,!', $line);
-        while (list($key) = each($items)) {
+        $cnt = count($items);
+        for ($key = 0; $key < $cnt; $key++) {
             if ($items[$key]!='') {
-                if ($start = ($items[$key]{0}=='"')) {
+                if ($start = ($items[$key][0]=='"')) {
                     $items[$key] = substr($items[$key], 1);
-                    while (!$end = ($items[$key]{strlen($items[$key])-1}=='"')) {
+                    while (!$end = ($items[$key][strlen($items[$key])-1]=='"')) {
                         $item = $items[$key];
                         unset($items[$key]);
-                        list($key) = each($items);
+                        $key++;
                         $items[$key] = $item . ',' . $items[$key];
                     }
                     $items[$key] = substr($items[$key], 0, strlen($items[$key])-1);

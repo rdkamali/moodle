@@ -14,17 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-/**
- * File containing tests for the helper.
- *
- * @package    tool_uploadcourse
- * @copyright  2013 Frédéric Massart
- * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- */
+namespace tool_uploadcourse;
 
-defined('MOODLE_INTERNAL') || die();
-
-global $CFG;
+use tool_uploadcourse_helper;
 
 /**
  * Helper test case.
@@ -33,7 +25,7 @@ global $CFG;
  * @copyright  2013 Frédéric Massart
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class tool_uploadcourse_helper_testcase extends advanced_testcase {
+class helper_test extends \advanced_testcase {
 
     public function test_generate_shortname() {
         $data = (object) array('fullname' => 'Ah bh Ch 01 02 03', 'idnumber' => 'ID123');
@@ -53,7 +45,7 @@ class tool_uploadcourse_helper_testcase extends advanced_testcase {
 
     public function test_get_course_formats() {
         $result = tool_uploadcourse_helper::get_course_formats();
-        $this->assertSame(array_keys(core_component::get_plugin_list('format')), $result);
+        $this->assertSame(array_keys(\core_component::get_plugin_list('format')), $result);
         // Should be similar as first result, as cached.
         $this->assertSame($result, tool_uploadcourse_helper::get_course_formats());
     }
@@ -122,31 +114,29 @@ class tool_uploadcourse_helper_testcase extends advanced_testcase {
         $c2 = $this->getDataGenerator()->create_course((object) array('shortname' => 'Yay'));
 
         // Creating backup file.
-        $bc = new backup_controller(backup::TYPE_1COURSE, $c1->id, backup::FORMAT_MOODLE,
-            backup::INTERACTIVE_NO, backup::MODE_GENERAL, 2);
+        $bc = new \backup_controller(\backup::TYPE_1COURSE, $c1->id, \backup::FORMAT_MOODLE,
+            \backup::INTERACTIVE_NO, \backup::MODE_GENERAL, 2);
         $bc->execute_plan();
         $result = $bc->get_results();
         $this->assertTrue(isset($result['backup_destination']));
         $c1backupfile = $result['backup_destination']->copy_content_to_temp();
         $bc->destroy();
-        unset($bc); // File logging is a mess, we can only try to rely on gc to close handles.
 
         // Creating backup file.
-        $bc = new backup_controller(backup::TYPE_1COURSE, $c2->id, backup::FORMAT_MOODLE,
-            backup::INTERACTIVE_NO, backup::MODE_GENERAL, 2);
+        $bc = new \backup_controller(\backup::TYPE_1COURSE, $c2->id, \backup::FORMAT_MOODLE,
+            \backup::INTERACTIVE_NO, \backup::MODE_GENERAL, 2);
         $bc->execute_plan();
         $result = $bc->get_results();
         $this->assertTrue(isset($result['backup_destination']));
         $c2backupfile = $result['backup_destination']->copy_content_to_temp();
         $bc->destroy();
-        unset($bc); // File logging is a mess, we can only try to rely on gc to close handles.
 
         $oldcfg = isset($CFG->keeptempdirectoriesonbackup) ? $CFG->keeptempdirectoriesonbackup : false;
         $CFG->keeptempdirectoriesonbackup = true;
 
         // Checking restore dir.
         $dir = tool_uploadcourse_helper::get_restore_content_dir($c1backupfile, null);
-        $bcinfo = backup_general_helper::get_backup_information($dir);
+        $bcinfo = \backup_general_helper::get_backup_information($dir);
         $this->assertEquals($bcinfo->original_course_id, $c1->id);
         $this->assertEquals($bcinfo->original_course_fullname, $c1->fullname);
 
@@ -156,13 +146,13 @@ class tool_uploadcourse_helper_testcase extends advanced_testcase {
 
         // Get the second course.
         $dir = tool_uploadcourse_helper::get_restore_content_dir($c2backupfile, null);
-        $bcinfo = backup_general_helper::get_backup_information($dir);
+        $bcinfo = \backup_general_helper::get_backup_information($dir);
         $this->assertEquals($bcinfo->original_course_id, $c2->id);
         $this->assertEquals($bcinfo->original_course_fullname, $c2->fullname);
 
         // Checking with a shortname.
         $dir = tool_uploadcourse_helper::get_restore_content_dir(null, $c1->shortname);
-        $bcinfo = backup_general_helper::get_backup_information($dir);
+        $bcinfo = \backup_general_helper::get_backup_information($dir);
         $this->assertEquals($bcinfo->original_course_id, $c1->id);
         $this->assertEquals($bcinfo->original_course_fullname, $c1->fullname);
 
@@ -172,7 +162,7 @@ class tool_uploadcourse_helper_testcase extends advanced_testcase {
 
         // Get the second course.
         $dir = tool_uploadcourse_helper::get_restore_content_dir(null, $c2->shortname);
-        $bcinfo = backup_general_helper::get_backup_information($dir);
+        $bcinfo = \backup_general_helper::get_backup_information($dir);
         $this->assertEquals($bcinfo->original_course_id, $c2->id);
         $this->assertEquals($bcinfo->original_course_fullname, $c2->fullname);
 
@@ -250,6 +240,81 @@ class tool_uploadcourse_helper_testcase extends advanced_testcase {
         $actual = tool_uploadcourse_helper::get_role_names($data, $errors);
         $this->assertSame($actual, $expected);
         $this->assertArrayHasKey('invalidroles', $errors);
+    }
+
+    /**
+     * Test custom field data processing
+     */
+    public function test_get_custom_course_field_data() {
+        global $DB;
+
+        $this->resetAfterTest();
+
+        // Create all the fields!
+        $category = $this->get_customfield_generator()->create_category();
+
+        $checkboxfield = $this->create_custom_field($category, 'checkbox', 'mycheckbox');
+        $datefield = $this->create_custom_field($category, 'date', 'mydate');
+        $selectfield = $this->create_custom_field($category, 'select', 'myselect', ['options' => "Red\nGreen\nBlue"]);
+        $textfield = $this->create_custom_field($category, 'text', 'mytext', ['locked' => 1]);
+        $textareafield = $this->create_custom_field($category, 'textarea', 'mytextarea');
+
+        $fields = tool_uploadcourse_helper::get_custom_course_fields();
+        $this->assertCount(5, $fields);
+
+        $this->assertArrayHasKey($checkboxfield->get('shortname'), $fields);
+        $this->assertInstanceOf(\customfield_checkbox\field_controller::class, $fields[$checkboxfield->get('shortname')]);
+
+        $this->assertArrayHasKey($datefield->get('shortname'), $fields);
+        $this->assertInstanceOf(\customfield_date\field_controller::class, $fields[$datefield->get('shortname')]);
+
+        $this->assertArrayHasKey($selectfield->get('shortname'), $fields);
+        $this->assertInstanceOf(\customfield_select\field_controller::class, $fields[$selectfield->get('shortname')]);
+
+        $this->assertArrayHasKey($textfield->get('shortname'), $fields);
+        $this->assertInstanceOf(\customfield_text\field_controller::class, $fields[$textfield->get('shortname')]);
+
+        $this->assertArrayHasKey($textareafield->get('shortname'), $fields);
+        $this->assertInstanceOf(\customfield_textarea\field_controller::class, $fields[$textareafield->get('shortname')]);
+
+        $data = [
+            'customfield_mycheckbox' => '1',
+            'customfield_mydate' => '2019-10-01',
+            'customfield_myselect' => 'Green',
+            'customfield_mytext' => 'Hello',
+            'customfield_myunknownfield' => 'Goodbye',
+        ];
+
+        $expected = [
+            'customfield_mycheckbox' => '1',
+            'customfield_mydate' => strtotime('2019-10-01'),
+            'customfield_myselect' => 2,
+            'customfield_mytext' => 'Hello',
+        ];
+
+        $course = $this->getDataGenerator()->create_course();
+        $user = $this->getDataGenerator()->create_and_enrol($course, 'manager');
+        $this->setUser($user);
+
+        $context = \context_course::instance($course->id);
+
+        $this->assertEquals($expected, tool_uploadcourse_helper::get_custom_course_field_data($data, [], $context));
+
+        // Now add our custom textarea field (separately because the value of it's 'itemid' element is unknown).
+        $data['customfield_mytextarea'] = 'Something';
+        $fields = tool_uploadcourse_helper::get_custom_course_field_data($data, [], $context);
+        $this->assertArrayHasKey('customfield_mytextarea_editor', $fields);
+        $this->assertArrayHasKey('text', $fields['customfield_mytextarea_editor']);
+        $this->assertEquals('Something', $fields['customfield_mytextarea_editor']['text']);
+
+        // Now prohibit the capability to change locked fields for the manager role.
+        $managerrole = $DB->get_record('role', ['shortname' => 'manager']);
+        role_change_permission($managerrole->id, $context, 'moodle/course:changelockedcustomfields', CAP_PROHIBIT);
+
+        // The locked 'mytext' custom field should not be returned.
+        $fields = tool_uploadcourse_helper::get_custom_course_field_data($data, [], $context);
+        $this->assertCount(4, $fields);
+        $this->assertArrayNotHasKey('customfield_mytext', $fields);
     }
 
     public function test_increment_idnumber() {
@@ -395,5 +460,34 @@ class tool_uploadcourse_helper_testcase extends advanced_testcase {
         $path = array('Cat 3', 'Cat 3.1.1');
         $this->assertEquals($cat3_fakedouble->id, tool_uploadcourse_helper::resolve_category_by_path($path));
         $this->assertEquals($cat3_fakedouble->id, tool_uploadcourse_helper::resolve_category_by_path($path));
+    }
+
+    /**
+     * Get custom field plugin generator
+     *
+     * @return core_customfield_generator
+     */
+    protected function get_customfield_generator() : \core_customfield_generator {
+        return $this->getDataGenerator()->get_plugin_generator('core_customfield');
+    }
+
+    /**
+     * Helper method to create custom course field
+     *
+     * @param \core_customfield\category_controller $category
+     * @param string $type
+     * @param string $shortname
+     * @param array $configdata
+     * @return \core_customfield\field_controller
+     */
+    protected function create_custom_field(\core_customfield\category_controller $category, string $type, string $shortname,
+            array $configdata = []) : \core_customfield\field_controller {
+
+        return $this->get_customfield_generator()->create_field([
+            'categoryid' => $category->get('id'),
+            'type' => $type,
+            'shortname' => $shortname,
+            'configdata' => $configdata,
+        ]);
     }
 }

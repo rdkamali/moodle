@@ -14,6 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace core_webservice;
+
+use externallib_advanced_testcase;
+
 defined('MOODLE_INTERNAL') || die();
 
 global $CFG;
@@ -28,9 +32,9 @@ require_once($CFG->dirroot . '/webservice/tests/helpers.php');
  * @copyright  2012 Paul Charsley
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class core_webservice_externallib_testcase extends externallib_advanced_testcase {
+class externallib_test extends externallib_advanced_testcase {
 
-    public function setUp() {
+    public function setUp(): void {
         // Calling parent is good, always
         parent::setUp();
 
@@ -39,13 +43,9 @@ class core_webservice_externallib_testcase extends externallib_advanced_testcase
     }
 
     public function test_get_site_info() {
-        global $DB, $USER, $CFG;
+        global $DB, $USER, $CFG, $PAGE;
 
         $this->resetAfterTest(true);
-
-        // This is the info we are going to check
-        set_config('release', '2.4dev (Build: 20120823)');
-        set_config('version', '2012083100.00');
 
         $maxbytes = 10485760;
         $userquota = 5242880;
@@ -53,14 +53,16 @@ class core_webservice_externallib_testcase extends externallib_advanced_testcase
         set_config('userquota', $userquota);
 
         // Set current user
+        set_config('allowuserthemes', 1);
         $user = array();
         $user['username'] = 'johnd';
         $user['firstname'] = 'John';
         $user['lastname'] = 'Doe';
+        $user['theme'] = 'boost';
         self::setUser(self::getDataGenerator()->create_user($user));
 
         // Add a web service and token.
-        $webservice = new stdClass();
+        $webservice = new \stdClass();
         $webservice->name = 'Test web service';
         $webservice->enabled = true;
         $webservice->restrictedusers = false;
@@ -75,7 +77,7 @@ class core_webservice_externallib_testcase extends externallib_advanced_testcase
             'functionname' => 'core_course_get_contents'));
 
         $_POST['wstoken'] = 'testtoken';
-        $externaltoken = new stdClass();
+        $externaltoken = new \stdClass();
         $externaltoken->token = 'testtoken';
         $externaltoken->tokentype = 0;
         $externaltoken->userid = $USER->id;
@@ -85,20 +87,21 @@ class core_webservice_externallib_testcase extends externallib_advanced_testcase
         $externaltoken->timecreated = time();
         $DB->insert_record('external_tokens', $externaltoken);
 
-        $siteinfo = core_webservice_external::get_site_info();
+        $siteinfo = \core_webservice_external::get_site_info();
 
         // We need to execute the return values cleaning process to simulate the web service server.
-        $siteinfo = external_api::clean_returnvalue(core_webservice_external::get_site_info_returns(), $siteinfo);
+        $siteinfo = \external_api::clean_returnvalue(\core_webservice_external::get_site_info_returns(), $siteinfo);
 
         $this->assertEquals('johnd', $siteinfo['username']);
         $this->assertEquals('John', $siteinfo['firstname']);
         $this->assertEquals('Doe', $siteinfo['lastname']);
         $this->assertEquals(current_language(), $siteinfo['lang']);
         $this->assertEquals($USER->id, $siteinfo['userid']);
+        $this->assertEquals(SITEID, $siteinfo['siteid']);
         $this->assertEquals(true, $siteinfo['downloadfiles']);
         $this->assertEquals($CFG->release, $siteinfo['release']);
         $this->assertEquals($CFG->version, $siteinfo['version']);
-        $this->assertEquals($CFG->mobilecssurl, $siteinfo['mobilecssurl']);
+        $this->assertEquals('', $siteinfo['mobilecssurl']);
         $this->assertEquals(count($siteinfo['functions']), 1);
         $function = array_pop($siteinfo['functions']);
         $this->assertEquals($function['name'], 'core_course_get_contents');
@@ -123,13 +126,26 @@ class core_webservice_externallib_testcase extends externallib_advanced_testcase
         // covered below for admin user. This test is for user not allowed to ignore limits.
         $this->assertEquals(get_max_upload_file_size($maxbytes), $siteinfo['usermaxuploadfilesize']);
         $this->assertEquals(true, $siteinfo['usercanmanageownfiles']);
+        $userkey = get_user_key('core_files', $USER->id);
+        $this->assertEquals($userkey, $siteinfo['userprivateaccesskey']);
+
+        $this->assertEquals(HOMEPAGE_MY, $siteinfo['userhomepage']);
+        $this->assertEquals($CFG->calendartype, $siteinfo['sitecalendartype']);
+        if (!empty($USER->calendartype)) {
+            $this->assertEquals($USER->calendartype, $siteinfo['usercalendartype']);
+        } else {
+            $this->assertEquals($CFG->calendartype, $siteinfo['usercalendartype']);
+        }
+        $this->assertFalse($siteinfo['userissiteadmin']);
+        $this->assertEquals($CFG->calendartype, $siteinfo['sitecalendartype']);
+        $this->assertEquals($user['theme'], $siteinfo['theme']);
 
         // Now as admin.
         $this->setAdminUser();
 
         // Set a fake token for the user admin.
         $_POST['wstoken'] = 'testtoken';
-        $externaltoken = new stdClass();
+        $externaltoken = new \stdClass();
         $externaltoken->token = 'testtoken';
         $externaltoken->tokentype = 0;
         $externaltoken->userid = $USER->id;
@@ -138,15 +154,57 @@ class core_webservice_externallib_testcase extends externallib_advanced_testcase
         $externaltoken->creatorid = $USER->id;
         $externaltoken->timecreated = time();
         $DB->insert_record('external_tokens', $externaltoken);
-        $siteinfo = core_webservice_external::get_site_info();
+
+        // Set a home page by user preferences.
+        $CFG->defaulthomepage = HOMEPAGE_USER;
+        set_user_preference('user_home_page_preference', HOMEPAGE_SITE);
+
+        $siteinfo = \core_webservice_external::get_site_info();
 
         // We need to execute the return values cleaning process to simulate the web service server.
-        $siteinfo = external_api::clean_returnvalue(core_webservice_external::get_site_info_returns(), $siteinfo);
+        $siteinfo = \external_api::clean_returnvalue(\core_webservice_external::get_site_info_returns(), $siteinfo);
 
         $this->assertEquals(0, $siteinfo['userquota']);
         $this->assertEquals(USER_CAN_IGNORE_FILE_SIZE_LIMITS, $siteinfo['usermaxuploadfilesize']);
         $this->assertEquals(true, $siteinfo['usercanmanageownfiles']);
+        $this->assertTrue($siteinfo['userissiteadmin']);
+        $this->assertEmpty($USER->theme);
+        $this->assertEquals($PAGE->theme->name, $siteinfo['theme']);
+        $this->assertEquals($CFG->limitconcurrentlogins, $siteinfo['limitconcurrentlogins']);
+        $this->assertFalse(isset($siteinfo['usersessionscount']));
 
+        $CFG->limitconcurrentlogins = 1;
+        $record = new \stdClass();
+        $record->state        = 0;
+        $record->sessdata     = null;
+        $record->userid       = $USER->id;
+        $record->timemodified = time();
+        $record->firstip      = $record->lastip = '10.0.0.1';
+        $record->sid = md5('hokus1');
+        $record->timecreated = time();
+        $DB->insert_record('sessions', $record);
+
+        $siteinfo = \core_webservice_external::get_site_info();
+        $siteinfo = \external_api::clean_returnvalue(\core_webservice_external::get_site_info_returns(), $siteinfo);
+        $this->assertEquals($CFG->limitconcurrentlogins, $siteinfo['limitconcurrentlogins']);
+        $this->assertEquals(1, $siteinfo['usersessionscount']);
+    }
+
+    /**
+     * Test get_site_info with values > PHP_INT_MAX. We check only userquota since maxbytes require PHP ini changes.
+     */
+    public function test_get_site_info_max_int() {
+        $this->resetAfterTest(true);
+
+        self::setUser(self::getDataGenerator()->create_user());
+
+        // Check values higher than PHP_INT_MAX. This value may come from settings (as string).
+        $userquota = PHP_INT_MAX . '000';
+        set_config('userquota', $userquota);
+
+        $result = \core_webservice_external::get_site_info();
+        $result = \external_api::clean_returnvalue(\core_webservice_external::get_site_info_returns(), $result);
+        $this->assertEquals(PHP_INT_MAX, $result['userquota']);
     }
 
 }

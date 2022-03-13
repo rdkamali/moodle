@@ -56,12 +56,22 @@ class mod_assign_mod_form extends moodleform_mod {
         $mform->addRule('name', null, 'required', null, 'client');
         $mform->addRule('name', get_string('maximumchars', '', 255), 'maxlength', 255, 'client');
 
-        $this->add_intro_editor(true, get_string('description', 'assign'));
+        $this->standard_intro_elements(get_string('description', 'assign'));
+
+        // Activity.
+        $mform->addElement('editor', 'activityeditor',
+             get_string('activityeditor', 'assign'), array('rows' => 10), array('maxfiles' => EDITOR_UNLIMITED_FILES,
+            'noclean' => true, 'context' => $this->context, 'subdirs' => true));
+        $mform->addHelpButton('activityeditor', 'activityeditor', 'assign');
+        $mform->setType('activityeditor', PARAM_RAW);
 
         $mform->addElement('filemanager', 'introattachments',
                             get_string('introattachments', 'assign'),
                             null, array('subdirs' => 0, 'maxbytes' => $COURSE->maxbytes) );
         $mform->addHelpButton('introattachments', 'introattachments', 'assign');
+
+        $mform->addElement('advcheckbox', 'submissionattachments', get_string('submissionattachments', 'assign'));
+        $mform->addHelpButton('submissionattachments', 'submissionattachments', 'assign');
 
         $ctx = null;
         if ($this->current && $this->current->coursemodule) {
@@ -76,8 +86,6 @@ class mod_assign_mod_form extends moodleform_mod {
             $course = $DB->get_record('course', array('id'=>$this->current->course), '*', MUST_EXIST);
             $assignment->set_course($course);
         }
-
-        $config = get_config('assign');
 
         $mform->addElement('header', 'availability', get_string('availability', 'assign'));
         $mform->setExpanded('availability', true);
@@ -94,6 +102,18 @@ class mod_assign_mod_form extends moodleform_mod {
         $name = get_string('cutoffdate', 'assign');
         $mform->addElement('date_time_selector', 'cutoffdate', $name, array('optional'=>true));
         $mform->addHelpButton('cutoffdate', 'cutoffdate', 'assign');
+
+        $name = get_string('gradingduedate', 'assign');
+        $mform->addElement('date_time_selector', 'gradingduedate', $name, array('optional' => true));
+        $mform->addHelpButton('gradingduedate', 'gradingduedate', 'assign');
+
+        $timelimitenabled = get_config('assign', 'enabletimelimit');
+        // Time limit.
+        if ($timelimitenabled) {
+            $mform->addElement('duration', 'timelimit', get_string('timelimit', 'assign'),
+                array('optional' => true));
+            $mform->addHelpButton('timelimit', 'timelimit', 'assign');
+        }
 
         $name = get_string('alwaysshowdescription', 'assign');
         $mform->addElement('checkbox', 'alwaysshowdescription', $name);
@@ -127,7 +147,7 @@ class mod_assign_mod_form extends moodleform_mod {
         $options += array_combine(range(1, 30), range(1, 30));
         $mform->addElement('select', 'maxattempts', get_string('maxattempts', 'mod_assign'), $options);
         $mform->addHelpButton('maxattempts', 'maxattempts', 'assign');
-        $mform->disabledIf('maxattempts', 'attemptreopenmethod', 'eq', ASSIGN_ATTEMPT_REOPEN_METHOD_NONE);
+        $mform->hideIf('maxattempts', 'attemptreopenmethod', 'eq', ASSIGN_ATTEMPT_REOPEN_METHOD_NONE);
 
         $mform->addElement('header', 'groupsubmissionsettings', get_string('groupsubmissionsettings', 'assign'));
 
@@ -138,10 +158,18 @@ class mod_assign_mod_form extends moodleform_mod {
             $mform->freeze('teamsubmission');
         }
 
+        $name = get_string('preventsubmissionnotingroup', 'assign');
+        $mform->addElement('selectyesno', 'preventsubmissionnotingroup', $name);
+        $mform->addHelpButton('preventsubmissionnotingroup',
+            'preventsubmissionnotingroup',
+            'assign');
+        $mform->setType('preventsubmissionnotingroup', PARAM_BOOL);
+        $mform->hideIf('preventsubmissionnotingroup', 'teamsubmission', 'eq', 0);
+
         $name = get_string('requireallteammemberssubmit', 'assign');
         $mform->addElement('selectyesno', 'requireallteammemberssubmit', $name);
         $mform->addHelpButton('requireallteammemberssubmit', 'requireallteammemberssubmit', 'assign');
-        $mform->disabledIf('requireallteammemberssubmit', 'teamsubmission', 'eq', 0);
+        $mform->hideIf('requireallteammemberssubmit', 'teamsubmission', 'eq', 0);
         $mform->disabledIf('requireallteammemberssubmit', 'submissiondrafts', 'eq', 0);
 
         $groupings = groups_get_all_groupings($assignment->get_course()->id);
@@ -154,7 +182,7 @@ class mod_assign_mod_form extends moodleform_mod {
         $name = get_string('teamsubmissiongroupingid', 'assign');
         $mform->addElement('select', 'teamsubmissiongroupingid', $name, $options);
         $mform->addHelpButton('teamsubmissiongroupingid', 'teamsubmissiongroupingid', 'assign');
-        $mform->disabledIf('teamsubmissiongroupingid', 'teamsubmission', 'eq', 0);
+        $mform->hideIf('teamsubmissiongroupingid', 'teamsubmission', 'eq', 0);
         if ($assignment->has_submissions_or_grades()) {
             $mform->freeze('teamsubmissiongroupingid');
         }
@@ -174,7 +202,7 @@ class mod_assign_mod_form extends moodleform_mod {
         $mform->addElement('selectyesno', 'sendstudentnotifications', $name);
         $mform->addHelpButton('sendstudentnotifications', 'sendstudentnotificationsdefault', 'assign');
 
-        // Plagiarism enabling form.
+        // Plagiarism enabling form. To be removed (deprecated) with MDL-67526.
         if (!empty($CFG->enableplagiarism)) {
             require_once($CFG->libdir . '/plagiarismlib.php');
             plagiarism_get_form_elements_module($mform, $ctx->get_course_context(), 'mod_assign');
@@ -188,6 +216,10 @@ class mod_assign_mod_form extends moodleform_mod {
             $mform->freeze('blindmarking');
         }
 
+        $name = get_string('hidegrader', 'assign');
+        $mform->addElement('selectyesno', 'hidegrader', $name);
+        $mform->addHelpButton('hidegrader', 'hidegrader', 'assign');
+
         $name = get_string('markingworkflow', 'assign');
         $mform->addElement('selectyesno', 'markingworkflow', $name);
         $mform->addHelpButton('markingworkflow', 'markingworkflow', 'assign');
@@ -195,38 +227,12 @@ class mod_assign_mod_form extends moodleform_mod {
         $name = get_string('markingallocation', 'assign');
         $mform->addElement('selectyesno', 'markingallocation', $name);
         $mform->addHelpButton('markingallocation', 'markingallocation', 'assign');
-        $mform->disabledIf('markingallocation', 'markingworkflow', 'eq', 0);
+        $mform->hideIf('markingallocation', 'markingworkflow', 'eq', 0);
 
         $this->standard_coursemodule_elements();
         $this->apply_admin_defaults();
 
         $this->add_action_buttons();
-
-        // Add warning popup/noscript tag, if grades are changed by user.
-        $hasgrade = false;
-        if (!empty($this->_instance)) {
-            $hasgrade = $DB->record_exists_select('assign_grades',
-                                                  'assignment = ? AND grade <> -1',
-                                                  array($this->_instance));
-        }
-
-        if ($mform->elementExists('grade') && $hasgrade) {
-            $module = array(
-                'name' => 'mod_assign',
-                'fullpath' => '/mod/assign/module.js',
-                'requires' => array('node', 'event'),
-                'strings' => array(array('changegradewarning', 'mod_assign'))
-                );
-            $PAGE->requires->js_init_call('M.mod_assign.init_grade_change', null, false, $module);
-
-            // Add noscript tag in case.
-            $noscriptwarning = $mform->createElement('static',
-                                                     'warning',
-                                                     null,
-                                                     html_writer::tag('noscript',
-                                                     get_string('changegradewarning', 'mod_assign')));
-            $mform->insertElementBefore($noscriptwarning, 'grade');
-        }
     }
 
     /**
@@ -237,19 +243,27 @@ class mod_assign_mod_form extends moodleform_mod {
     public function validation($data, $files) {
         $errors = parent::validation($data, $files);
 
-        if ($data['allowsubmissionsfromdate'] && $data['duedate']) {
-            if ($data['allowsubmissionsfromdate'] > $data['duedate']) {
+        if (!empty($data['allowsubmissionsfromdate']) && !empty($data['duedate'])) {
+            if ($data['duedate'] < $data['allowsubmissionsfromdate']) {
                 $errors['duedate'] = get_string('duedatevalidation', 'assign');
             }
         }
-        if ($data['duedate'] && $data['cutoffdate']) {
-            if ($data['duedate'] > $data['cutoffdate']) {
+        if (!empty($data['cutoffdate']) && !empty($data['duedate'])) {
+            if ($data['cutoffdate'] < $data['duedate'] ) {
                 $errors['cutoffdate'] = get_string('cutoffdatevalidation', 'assign');
             }
         }
-        if ($data['allowsubmissionsfromdate'] && $data['cutoffdate']) {
-            if ($data['allowsubmissionsfromdate'] > $data['cutoffdate']) {
+        if (!empty($data['allowsubmissionsfromdate']) && !empty($data['cutoffdate'])) {
+            if ($data['cutoffdate'] < $data['allowsubmissionsfromdate']) {
                 $errors['cutoffdate'] = get_string('cutoffdatefromdatevalidation', 'assign');
+            }
+        }
+        if ($data['gradingduedate']) {
+            if ($data['allowsubmissionsfromdate'] && $data['allowsubmissionsfromdate'] > $data['gradingduedate']) {
+                $errors['gradingduedate'] = get_string('gradingduefromdatevalidation', 'assign');
+            }
+            if ($data['duedate'] && $data['duedate'] > $data['gradingduedate']) {
+                $errors['gradingduedate'] = get_string('gradingdueduedatevalidation', 'assign');
             }
         }
         if ($data['blindmarking'] && $data['attemptreopenmethod'] == ASSIGN_ATTEMPT_REOPEN_METHOD_UNTILPASS) {
@@ -286,6 +300,17 @@ class mod_assign_mod_form extends moodleform_mod {
                                 0, array('subdirs' => 0));
         $defaultvalues['introattachments'] = $draftitemid;
 
+        // Activity editor fields.
+        $activitydraftitemid = file_get_submitted_draft_itemid('activityeditor');
+        if (!empty($defaultvalues['activity'])) {
+            $defaultvalues['activityeditor'] = array(
+                'text' => file_prepare_draft_area($activitydraftitemid, $ctx->id, 'mod_assign', ASSIGN_ACTIVITYATTACHMENT_FILEAREA,
+                    0, array('subdirs' => 0), $defaultvalues['activity']),
+                'format' => $defaultvalues['activityformat'],
+                'itemid' => $activitydraftitemid
+            );
+        }
+
         $assignment->plugin_data_preprocessing($defaultvalues);
     }
 
@@ -297,7 +322,9 @@ class mod_assign_mod_form extends moodleform_mod {
     public function add_completion_rules() {
         $mform =& $this->_form;
 
-        $mform->addElement('checkbox', 'completionsubmit', '', get_string('completionsubmit', 'assign'));
+        $mform->addElement('advcheckbox', 'completionsubmit', '', get_string('completionsubmit', 'assign'));
+        // Enable this completion rule by default.
+        $mform->setDefault('completionsubmit', 1);
         return array('completionsubmit');
     }
 

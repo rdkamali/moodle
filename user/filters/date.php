@@ -44,9 +44,19 @@ class user_filter_date extends user_filter_type {
      * @param boolean $advanced advanced form element flag
      * @param string $field user table filed name
      */
-    public function user_filter_date($name, $label, $advanced, $field) {
-        parent::user_filter_type($name, $label, $advanced);
+    public function __construct($name, $label, $advanced, $field) {
+        parent::__construct($name, $label, $advanced);
         $this->_field = $field;
+    }
+
+    /**
+     * Old syntax of class constructor. Deprecated in PHP7.
+     *
+     * @deprecated since Moodle 3.1
+     */
+    public function user_filter_date($name, $label, $advanced, $field) {
+        debugging('Use of class name as constructor is deprecated', DEBUG_DEVELOPER);
+        self::__construct($name, $label, $advanced, $field);
     }
 
     /**
@@ -56,11 +66,18 @@ class user_filter_date extends user_filter_type {
     public function setupForm(&$mform) {
         $objs = array();
 
-        $objs[] = $mform->createElement('static', $this->_name.'_sck', null, get_string('isafter', 'filters'));
+        $objs[] = $mform->createElement('static', $this->_name.'_s1', null,
+            html_writer::start_tag('div', array('class' => 'w-100 d-flex align-items-center')));
+        $objs[] = $mform->createElement('static', $this->_name.'_s2', null,
+            html_writer::tag('div', get_string('isafter', 'filters'), array('class' => 'mr-2')));
         $objs[] = $mform->createElement('date_selector', $this->_name.'_sdt', null, array('optional' => true));
-        $objs[] = $mform->createElement('static', $this->_name.'_break', null, '<br/>');
-        $objs[] = $mform->createElement('static', $this->_name.'_edk', null, get_string('isbefore', 'filters'));
+        $objs[] = $mform->createElement('static', $this->_name.'_s3', null, html_writer::end_tag('div'));
+        $objs[] = $mform->createElement('static', $this->_name.'_s4', null,
+            html_writer::start_tag('div', array('class' => 'w-100 d-flex align-items-center')));
+        $objs[] = $mform->createElement('static', $this->_name.'_s5', null,
+            html_writer::tag('div', get_string('isbefore', 'filters'), array('class' => 'mr-2')));
         $objs[] = $mform->createElement('date_selector', $this->_name.'_edt', null, array('optional' => true));
+        $objs[] = $mform->createElement('static', $this->_name.'_s6', null, html_writer::end_tag('div'));
 
         $grp =& $mform->addElement('group', $this->_name.'_grp', $this->_label, $objs, '', false);
 

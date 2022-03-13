@@ -94,6 +94,9 @@ class question_attempt_step {
     /** @var array name => array of {@link stored_file}s. Caches the contents of file areas. */
     private $files = array();
 
+    /** @var stdClass User information. */
+    private $user = null;
+
     /**
      * You should not need to call this constructor in your own code. Steps are
      * normally created by {@link question_attempt} methods like
@@ -170,6 +173,37 @@ class question_attempt_step {
     /** @return int the id of the user resonsible for creating this step. */
     public function get_user_id() {
         return $this->userid;
+    }
+
+    /**
+     * Update full user information for step.
+     *
+     * @param stdClass $user Full user object.
+     * @throws coding_exception
+     */
+    public function add_full_user_object(stdClass $user): void {
+        if ($user->id != $this->userid) {
+            throw new coding_exception('Wrong user passed to add_full_user_object');
+        }
+        $this->user = $user;
+    }
+
+    /**
+     * Return the full user object.
+     *
+     * @return stdClass Get full user object.
+     */
+    public function get_user(): stdClass {
+        return $this->user;
+    }
+
+    /**
+     * Get full name of user who did action.
+     *
+     * @return string full name of user.
+     */
+    public function get_user_fullname(): string {
+        return fullname($this->user);
     }
 
     /** @return int the timestamp when this step was created. */
@@ -371,6 +405,48 @@ class question_attempt_step {
     }
 
     /**
+     * Set a metadata variable.
+     *
+     * Do not call this method directly from  your code. It is for internal
+     * use only. You should call {@link question_usage::set_question_attempt_metadata()}.
+     *
+     * @param string $name the name of the variable to set. [a-z][a-z0-9]*.
+     * @param string $value the value to set.
+     */
+    public function set_metadata_var($name, $value) {
+        $this->data[':_' . $name] = $value;
+    }
+
+    /**
+     * Whether this step has a metadata variable.
+     *
+     * Do not call this method directly from  your code. It is for internal
+     * use only. You should call {@link question_usage::get_question_attempt_metadata()}.
+     *
+     * @param string $name the name of the variable to set. [a-z][a-z0-9]*.
+     * @return bool the value to set previously, or null if this variable was never set.
+     */
+    public function has_metadata_var($name) {
+        return isset($this->data[':_' . $name]);
+    }
+
+    /**
+     * Get a metadata variable.
+     *
+     * Do not call this method directly from  your code. It is for internal
+     * use only. You should call {@link question_usage::get_question_attempt_metadata()}.
+     *
+     * @param string $name the name of the variable to set. [a-z][a-z0-9]*.
+     * @return string the value to set previously, or null if this variable was never set.
+     */
+    public function get_metadata_var($name) {
+        if (!$this->has_metadata_var($name)) {
+            return null;
+        }
+        return $this->data[':_' . $name];
+    }
+
+    /**
      * Create a question_attempt_step from records loaded from the database.
      * @param Iterator $records Raw records loaded from the database.
      * @param int $stepid The id of the records to extract.
@@ -477,7 +553,7 @@ class question_attempt_pending_step extends question_attempt_step {
 
     /**
      * If as a result of processing this step, you identify that this variant of the
-     * question is acutally identical to the another one, you may change the
+     * question is actually identical to the another one, you may change the
      * variant number recorded, in order to give better statistics. For an example
      * see qbehaviour_opaque.
      * @param int $variant the new variant number.
@@ -529,7 +605,7 @@ class question_attempt_step_read_only extends question_attempt_step {
 /**
  * A null {@link question_attempt_step} returned from
  * {@link question_attempt::get_last_step()} etc. when a an attempt has just been
- * created and there is no acutal step.
+ * created and there is no actual step.
  *
  * @copyright  2009 The Open University
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later

@@ -22,11 +22,13 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+/**
+ * Perform the post-install procedures.
+ */
 function xmldb_block_feedback_install() {
     global $DB;
 
-/// Disable this block by default (because Feedback is not technically part of 2.0)
-    $DB->set_field('block', 'visible', 0, array('name'=>'feedback'));
+    // Disable feedback on new installs by default.
+    $DB->set_field('block', 'visible', 0, ['name' => 'feedback']);
 
 }
-

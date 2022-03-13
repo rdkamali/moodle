@@ -30,15 +30,6 @@ define('NO_DEBUG_DISPLAY', true);
 
 define('WS_SERVER', true);
 
-// Make sure OPcache does not strip comments, we need them for Zend!
-if (ini_get('opcache.enable') and strtolower(ini_get('opcache.enable')) !== 'off') {
-    if (!ini_get('opcache.save_comments') or strtolower(ini_get('opcache.save_comments')) === 'off') {
-        ini_set('opcache.enable', 0);
-    } else {
-        ini_set('opcache.load_comments', 1);
-    }
-}
-
 require('../../config.php');
 require_once("$CFG->dirroot/webservice/soap/locallib.php");
 
@@ -52,3 +43,14 @@ $server = new webservice_soap_server(WEBSERVICE_AUTHMETHOD_PERMANENT_TOKEN);
 $server->run();
 die;
 
+/**
+ * Raises Early WS Exception in SOAP format.
+ *
+ * @param  Exception $ex Raised exception.
+ */
+function raise_early_ws_exception(Exception $ex): void {
+    global $CFG;
+    require_once("$CFG->dirroot/webservice/soap/locallib.php");
+    $server = new webservice_soap_server(WEBSERVICE_AUTHMETHOD_PERMANENT_TOKEN);
+    $server->exception_handler($ex);
+}

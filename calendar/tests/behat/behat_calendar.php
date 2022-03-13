@@ -26,7 +26,6 @@
 // NOTE: no MOODLE_INTERNAL used, this file may be required by behat before including /config.php.
 require_once(__DIR__ . '/../../../lib/behat/behat_base.php');
 
-use Behat\Behat\Context\Step\Given as Given;
 use Behat\Gherkin\Node\TableNode as TableNode;
 
 /**
@@ -40,21 +39,30 @@ use Behat\Gherkin\Node\TableNode as TableNode;
 class behat_calendar extends behat_base {
 
     /**
+     * Return the list of partial named selectors.
+     *
+     * @return array
+     */
+    public static function get_partial_named_selectors(): array {
+        return [
+            new behat_component_named_selector('mini calendar block', [".//*[@data-block='calendar_month']"]),
+            new behat_component_named_selector('full calendar page', [".//*[@id='page-calendar-view']"]),
+            new behat_component_named_selector('calendar day', [".//*[@data-region='day'][@data-day=%locator%]"]),
+        ];
+    }
+
+    /**
      * Create event when starting on the front page.
      *
      * @Given /^I create a calendar event with form data:$/
      * @param TableNode $data
-     * @return array the list of actions to perform
      */
     public function i_create_a_calendar_event_with_form_data($data) {
-        // Get the event name.
-        $eventname = $data->getRow(1);
-        $eventname = $eventname[1];
+        // Go to current month page.
+        $this->execute("behat_general::click_link", get_string('fullcalendar', 'calendar'));
 
-        return array(
-            new Given('I follow "' . get_string('monththis', 'calendar') . '"'),
-            new Given('I create a calendar event:', $data),
-        );
+        // Create event.
+        $this->i_create_a_calendar_event($data);
     }
 
     /**
@@ -62,51 +70,94 @@ class behat_calendar extends behat_base {
      *
      * @Given /^I create a calendar event:$/
      * @param TableNode $data
-     * @return array the list of actions to perform
      */
     public function i_create_a_calendar_event($data) {
         // Get the event name.
         $eventname = $data->getRow(1);
         $eventname = $eventname[1];
 
-        return array(
-            new Given('I click on "' . get_string('newevent', 'calendar') .'" "button"'),
-            new Given('I set the following fields to these values:', $data),
-            new Given('I press "' . get_string('savechanges') . '"'),
-            new Given('I should see "' . $eventname . '"')
-        );
+        $this->execute("behat_general::wait_until_the_page_is_ready");
+
+        if ($this->running_javascript()) {
+            // Click to create new event.
+            $this->execute("behat_general::i_click_on", array(get_string('newevent', 'calendar'), "button"));
+
+            // Set form fields.
+            $this->execute("behat_forms::i_set_the_following_fields_to_these_values", $data);
+
+            // Save event.
+            $this->execute("behat_forms::press_button", get_string('save'));
+        }
     }
 
     /**
-     * Hover over a specific day in the calendar.
+     * Hover over a specific day in the mini-calendar.
      *
-     * @Given /^I hover over day "(?P<dayofmonth>\d+)" of this month in the calendar$/
+     * @Given /^I hover over day "(?P<dayofmonth>\d+)" of this month in the mini-calendar block$/
      * @param int $day The day of the current month
-     * @return Given[]
      */
-    public function i_hover_over_day_of_this_month_in_calendar($day) {
-        $summarytitle = get_string('calendarheading', 'calendar', userdate(time(), get_string('strftimemonthyear')));
-        // The current month table.
-        $currentmonth = "table[contains(concat(' ', normalize-space(@summary), ' '), ' {$summarytitle} ')]";
+    public function i_hover_over_day_of_this_month_in_mini_calendar_block(int $day): void {
+        $this->execute("behat_general::i_hover_in_the",
+            [$day, 'core_calendar > calendar day', '', 'core_calendar > mini calendar block']);
+    }
 
-        // Strings for the class cell match.
-        $cellclasses  = "contains(concat(' ', normalize-space(@class), ' '), ' day ')";
-        $daycontains  = "text()[contains(concat(' ', normalize-space(.), ' '), ' {$day} ')]";
-        $daycell      = "td[{$cellclasses}]";
-        $dayofmonth   = "a[{$daycontains}]";
-        return array(
-            new Given('I hover "//' . $currentmonth . '/descendant::' . $daycell . '/' . $dayofmonth . '" "xpath_element"'),
-        );
+    /**
+     * Hover over a specific day in the full calendar page.
+     *
+     * @Given /^I hover over day "(?P<dayofmonth>\d+)" of this month in the full calendar page$/
+     * @param int $day The day of the current month
+     */
+    public function i_hover_over_day_of_this_month_in_full_calendar_page(int $day): void {
+        $this->execute("behat_general::i_hover_in_the",
+            [$day, 'core_calendar > calendar day', '', 'core_calendar > full calendar page']);
+    }
+
+    /**
+     * Hover over today in the mini-calendar.
+     *
+     * @Given /^I hover over today in the mini-calendar block$/
+     */
+    public function i_hover_over_today_in_mini_calendar_block(): void {
+        // For window's compatibility, using %d and not %e.
+        $todaysday = trim(strftime('%d'));
+        $todaysday = ltrim($todaysday, '0');
+        $this->i_hover_over_day_of_this_month_in_mini_calendar_block($todaysday);
     }
 
     /**
      * Hover over today in the calendar.
      *
      * @Given /^I hover over today in the calendar$/
-     * @return Given[]
      */
     public function i_hover_over_today_in_the_calendar() {
-        $todaysday = trim(strftime('%e'));
+        // For window's compatibility, using %d and not %e.
+        $todaysday = trim(strftime('%d'));
+        $todaysday = ltrim($todaysday, '0');
         return $this->i_hover_over_day_of_this_month_in_calendar($todaysday);
+    }
+
+    /**
+     * Navigate to a specific date in the calendar.
+     *
+     * @Given /^I view the calendar for "(?P<month>\d+)" "(?P<year>\d+)"$/
+     * @param int $month the month selected as a number
+     * @param int $year the four digit year
+     */
+    public function i_view_the_calendar_for($month, $year) {
+        $time = make_timestamp($year, $month, 1);
+        $this->execute('behat_general::i_visit', ['/calendar/view.php?view=month&course=1&time='.$time]);
+
+    }
+
+    /**
+     * Navigate to site calendar.
+     *
+     * @Given /^I am viewing site calendar$/
+     * @throws coding_exception
+     * @return void
+     */
+    public function i_am_viewing_site_calendar() {
+        $url = new moodle_url('/calendar/view.php', ['view' => 'month']);
+        $this->execute('behat_general::i_visit', [$url]);
     }
 }

@@ -8,8 +8,8 @@ Feature: A teacher can set a time limit for a lesson
   Scenario: Accessing as student to a lesson with time limit
     Given the following "users" exist:
       | username | firstname | lastname | email |
-      | teacher1 | Teacher | 1 | teacher1@asd.com |
-      | student1 | Student | 1 | student1@asd.com |
+      | teacher1 | Teacher | 1 | teacher1@example.com |
+      | student1 | Student | 1 | student1@example.com |
     And the following "courses" exist:
       | fullname | shortname | category |
       | Course 1 | C1 | 0 |
@@ -18,15 +18,14 @@ Feature: A teacher can set a time limit for a lesson
       | teacher1 | C1 | editingteacher |
       | student1 | C1 | student |
     And I log in as "teacher1"
-    And I follow "Course 1"
-    And I turn editing mode on
+    And I am on "Course 1" course homepage with editing mode on
     And I add a "Lesson" to section "1" and I fill the form with:
       | Name | Test lesson |
       | Description | Test lesson description |
       | timelimit[enabled] | 1 |
       | timelimit[timeunit] | 60 |
       | timelimit[number]   | 1  |
-    And I follow "Test lesson"
+    And I am on the "Test lesson" "lesson activity" page
     And I follow "Add a content page"
     And I set the following fields to these values:
       | Page title | Lesson page name |
@@ -34,9 +33,7 @@ Feature: A teacher can set a time limit for a lesson
       | Description | Single button |
     And I press "Save page"
     And I log out
-    And I log in as "student1"
-    And I follow "Course 1"
-    When I follow "Test lesson"
+    When I am on the "Test lesson" "lesson activity" page logged in as student1
     Then I should see "You have 1 min to finish the lesson."
     And I wait "3" seconds
     And I should see "Time remaining"

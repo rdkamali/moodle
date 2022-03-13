@@ -1,23 +1,27 @@
 Description of import of Horde libraries
-
-# Download the Horde git repository. You will probably want to keep this
-  around for future updates:
-    git clone git@github.com:horde/horde.git
-# Checkout the version of horde you require:
-    git checkout horde-5.2.1
-# Copy the following script, change it's execute bit, and run it, passing
-  in your path to Horde:
-    /tmp/copyhorde.sh ~/git/ext/horde/framework
+# Clone the Horde Git Tools repository and install. You will need
+  this for future updates:
+    https://github.com/horde/git-tools
+# Make sure to follow the #Configuration step mentioned in the URL above. In
+  particular make sure to set the 'git_base' config option in conf.php
+# Go into the repository cloned above and perform the following:
+    bin/horde-git-tools git clone
+  (Go for a coffee, this will take a while)
+# Checkout the latest stable version for all repos, currently 5.2:
+    bin/horde-git-tools git checkout FRAMEWORK_5_2
+# Copy the following script and store it on /tmp, change it's execute bit(chmod 777), and run it,
+  passing in your path to Horde (the directory you've cloned the repository):
+    /tmp/copyhorde.sh ~/git/base/directory/from/step/2
 
 ====
 #!/bin/sh
 
-source=$1/framework
+source=$1
 target=./lib/horde
 
 echo "Copy Horde modules from $source to $target"
 
-modules="Crypt_Blowfish Exception Imap_Client Mail Mime Secret Socket_Client Stream Stream_Filter Stream_Wrapper Support Text_Flowed Translation Util"
+modules="Crypt_Blowfish Exception Idna Imap_Client Mail Mime Secret Socket_Client Stream Stream_Filter Stream_Wrapper Support Text_Flowed Translation Util"
 
 rm -rf $target/locale $target/framework
 mkdir -p $target/locale $target/framework/Horde
@@ -32,3 +36,8 @@ do
     cp -Rf $locale/* $target/locale
   fi
 done
+
+Local modifications:
+- lib/Horde/Imap/Client/Exception/ServerResponse.php has been minimally modified for php80 compatibility
+  The fix applied is already upstream, see https://github.com/horde/Imap_Client/pull/13 and it's available
+  in Imap_Client 2.30.4 and up. See MDL-73405 for more details.

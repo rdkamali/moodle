@@ -27,11 +27,14 @@ namespace core\output;
 
 use external_api;
 use external_function_parameters;
+use external_multiple_structure;
+use external_single_structure;
 use external_value;
 use core_component;
 use moodle_exception;
 use context_system;
 use theme_config;
+use core\external\output\icon_system\load_fontawesome_map;
 
 /**
  * This class contains a list of webservice functions related to output.
@@ -49,20 +52,11 @@ class external extends external_api {
     public static function load_template_parameters() {
         return new external_function_parameters(
                 array('component' => new external_value(PARAM_COMPONENT, 'component containing the template'),
-                      'template' => new external_value(PARAM_ALPHANUMEXT, 'name of the template'),
+                      'template' => new external_value(PARAM_SAFEPATH, 'name of the template'),
                       'themename' => new external_value(PARAM_ALPHANUMEXT, 'The current theme.'),
+                      'includecomments' => new external_value(PARAM_BOOL, 'Include comments or not', VALUE_DEFAULT, false)
                          )
             );
-    }
-
-    /**
-     * Can this function be called directly from ajax?
-     *
-     * @return boolean
-     * @since Moodle 2.9
-     */
-    public static function load_template_is_allowed_from_ajax() {
-        return true;
     }
 
     /**
@@ -73,52 +67,24 @@ class external extends external_api {
      * @param string $themename The name of the current theme.
      * @return string the template
      */
-    public static function load_template($component, $template, $themename) {
+    public static function load_template($component, $template, $themename, $includecomments = false) {
         global $DB, $CFG, $PAGE;
 
+        $PAGE->set_context(context_system::instance());
         $params = self::validate_parameters(self::load_template_parameters(),
                                             array('component' => $component,
                                                   'template' => $template,
-                                                  'themename' => $themename));
+                                                  'themename' => $themename,
+                                                  'includecomments' => $includecomments));
 
-        $component = $params['component'];
-        $template = $params['template'];
-        $themename = $params['themename'];
-
-        // Check if this is a valid component.
-        $componentdir = core_component::get_component_directory($component);
-        if (empty($componentdir)) {
-            throw new moodle_exception('filenotfound', 'error');
-        }
-        // Places to look.
-        $candidates = array();
-        // Theme dir.
-        $root = $CFG->dirroot;
-
-        $themeconfig = theme_config::load($themename);
-
-        $candidate = "${root}/theme/${themename}/templates/${component}/${template}.mustache";
-        $candidates[] = $candidate;
-        // Theme parents dir.
-        foreach ($themeconfig->parents as $theme) {
-            $candidate = "${root}/theme/${theme}/templates/${component}/${template}.mustache";
-            $candidates[] = $candidate;
-        }
-        // Component dir.
-        $candidate = "${componentdir}/templates/${template}.mustache";
-        $candidates[] = $candidate;
-        $templatestr = false;
-        foreach ($candidates as $candidate) {
-            if (file_exists($candidate)) {
-                $templatestr = file_get_contents($candidate);
-                break;
-            }
-        }
-        if ($templatestr === false) {
-            throw new moodle_exception('filenotfound', 'error');
-        }
-
-        return $templatestr;
+        $loader = new mustache_template_source_loader();
+        // Will throw exceptions if the template does not exist.
+        return $loader->load(
+            $params['component'],
+            $params['template'],
+            $params['themename'],
+            $params['includecomments']
+        );
     }
 
     /**
@@ -129,5 +95,140 @@ class external extends external_api {
     public static function load_template_returns() {
         return new external_value(PARAM_RAW, 'template');
     }
-}
 
+    /**
+     * Returns description of load_template_with_dependencies() parameters.
+     *
+     * @return external_function_parameters
+     */
+    public static function load_template_with_dependencies_parameters() {
+        return new external_function_parameters([
+            'component' => new external_value(PARAM_COMPONENT, 'component containing the template'),
+            'template' => new external_value(PARAM_SAFEPATH, 'name of the template'),
+            'themename' => new external_value(PARAM_ALPHANUMEXT, 'The current theme.'),
+            'includecomments' => new external_value(PARAM_BOOL, 'Include comments or not', VALUE_DEFAULT, false),
+            'lang' => new external_value(PARAM_LANG, 'lang', VALUE_DEFAULT, null),
+        ]);
+    }
+
+    /**
+     * Return a mustache template, and all the child templates and strings it requires.
+     *
+     * @param string $component The component that holds the template.
+     * @param string $template The name of the template.
+     * @param string $themename The name of the current theme.
+     * @param bool $includecomments Whether to strip comments from the template source.
+     * @param string $lang moodle translation language, null means use current.
+     * @return string the template
+     */
+    public static function load_template_with_dependencies(
+        string $component,
+        string $template,
+        string $themename,
+        bool $includecomments = false,
+        string $lang = null
+    ) {
+        global $DB, $CFG, $PAGE;
+
+        $params = self::validate_parameters(
+            self::load_template_with_dependencies_parameters(),
+            [
+                'component' => $component,
+                'template' => $template,
+                'themename' => $themename,
+                'includecomments' => $includecomments,
+                'lang' => $lang
+            ]
+        );
+
+        $loader = new mustache_template_source_loader();
+        // Will throw exceptions if the template does not exist.
+        $dependencies = $loader->load_with_dependencies(
+            $params['component'],
+            $params['template'],
+            $params['themename'],
+            $params['includecomments'],
+            [],
+            [],
+            $params['lang']
+        );
+        $formatdependencies = function($dependency) {
+            $results = [];
+            foreach ($dependency as $dependencycomponent => $dependencyvalues) {
+                foreach ($dependencyvalues as $dependencyname => $dependencyvalue) {
+                    array_push($results, [
+                        'component' => $dependencycomponent,
+                        'name' => $dependencyname,
+                        'value' => $dependencyvalue
+                    ]);
+                }
+            }
+            return $results;
+        };
+
+        // Now we have to unpack the dependencies into a format that can be returned
+        // by external functions (because they don't support dynamic keys).
+        return [
+            'templates' => $formatdependencies($dependencies['templates']),
+            'strings' => $formatdependencies($dependencies['strings'])
+        ];
+    }
+
+    /**
+     * Returns description of load_template_with_dependencies() result value.
+     *
+     * @return external_description
+     */
+    public static function load_template_with_dependencies_returns() {
+        $resourcestructure = new external_single_structure([
+            'component' => new external_value(PARAM_COMPONENT, 'component containing the resource'),
+            'name' => new external_value(PARAM_TEXT, 'name of the resource'),
+            'value' => new external_value(PARAM_RAW, 'resource value')
+        ]);
+
+        return new external_single_structure([
+            'templates' => new external_multiple_structure($resourcestructure),
+            'strings' => new external_multiple_structure($resourcestructure)
+        ]);
+    }
+
+    /**
+     * Returns description of load_icon_map() parameters.
+     *
+     * @return external_function_parameters
+     */
+    public static function load_fontawesome_icon_map_parameters() {
+        return new external_function_parameters([]);
+    }
+
+    /**
+     * Return a mapping of icon names to icons.
+     *
+     * @deprecated since Moodle 3.10
+     * @return array the mapping
+     */
+    public static function load_fontawesome_icon_map() {
+        global $PAGE;
+
+        return load_fontawesome_map::execute($PAGE->theme->name);
+    }
+
+    /**
+     * Returns description of load_icon_map() result value.
+     *
+     * @return external_description
+     */
+    public static function load_fontawesome_icon_map_returns() {
+        return load_fontawesome_map::execute_returns();
+    }
+
+    /**
+     * The `load_fontawesome_icon_map` function has been replaced with
+     * @see load_fontawesome_map::execute()
+     *
+     * @return bool
+     */
+    public static function load_fontawesome_icon_map_is_deprecated() {
+        return true;
+    }
+}

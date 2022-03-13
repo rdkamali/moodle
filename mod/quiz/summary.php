@@ -23,14 +23,18 @@
  */
 
 
-require_once(dirname(__FILE__) . '/../../config.php');
+require_once(__DIR__ . '/../../config.php');
 require_once($CFG->dirroot . '/mod/quiz/locallib.php');
 
 $attemptid = required_param('attempt', PARAM_INT); // The attempt to summarise.
+$cmid = optional_param('cmid', null, PARAM_INT);
 
 $PAGE->set_url('/mod/quiz/summary.php', array('attempt' => $attemptid));
+// During quiz attempts, the browser back/forwards buttons should force a reload.
+$PAGE->set_cacheable(false);
+$PAGE->set_secondary_active_tab("modulepage");
 
-$attemptobj = quiz_attempt::create($attemptid);
+$attemptobj = quiz_create_attempt_handling_errors($attemptid, $cmid);
 
 // Check login.
 require_login($attemptobj->get_course(), false, $attemptobj->get_cm());
@@ -76,6 +80,8 @@ if ($attemptobj->is_finished()) {
     redirect($attemptobj->review_url());
 }
 
+\core\session\manager::keepalive(); // Try to prevent sessions expiring during quiz attempts.
+
 // Arrange for the navigation to be displayed.
 if (empty($attemptobj->get_quiz()->showblocks)) {
     $PAGE->blocks->show_only_fake_blocks();
@@ -86,22 +92,11 @@ $regions = $PAGE->blocks->get_regions();
 $PAGE->blocks->add_fake_block($navbc, reset($regions));
 
 $PAGE->navbar->add(get_string('summaryofattempt', 'quiz'));
-$PAGE->set_title($attemptobj->get_quiz_name());
+$PAGE->set_title($attemptobj->summary_page_title());
 $PAGE->set_heading($attemptobj->get_course()->fullname);
-
+$PAGE->activityheader->disable();
 // Display the page.
 echo $output->summary_page($attemptobj, $displayoptions);
 
 // Log this page view.
-$params = array(
-    'objectid' => $attemptobj->get_attemptid(),
-    'relateduserid' => $attemptobj->get_userid(),
-    'courseid' => $attemptobj->get_courseid(),
-    'context' => context_module::instance($attemptobj->get_cmid()),
-    'other' => array(
-        'quizid' => $attemptobj->get_quizid()
-    )
-);
-$event = \mod_quiz\event\attempt_summary_viewed::create($params);
-$event->add_record_snapshot('quiz_attempts', $attemptobj->get_attempt());
-$event->trigger();
+$attemptobj->fire_attempt_summary_viewed_event();

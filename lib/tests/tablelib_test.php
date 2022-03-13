@@ -27,6 +27,7 @@ defined('MOODLE_INTERNAL') || die();
 
 global $CFG;
 require_once($CFG->libdir . '/tablelib.php');
+require_once($CFG->libdir . '/tests/fixtures/testable_flexible_table.php');
 
 /**
  * Test some of tablelib.
@@ -36,7 +37,7 @@ require_once($CFG->libdir . '/tablelib.php');
  * @copyright  2013 Damyon Wiese <damyon@moodle.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class core_tablelib_testcase extends basic_testcase {
+class core_tablelib_testcase extends advanced_testcase {
     protected function generate_columns($cols) {
         $columns = array();
         foreach (range(0, $cols - 1) as $j) {
@@ -140,8 +141,8 @@ class core_tablelib_testcase extends basic_testcase {
         $columns = $this->generate_columns(2);
         $headers = $this->generate_headers(2);
 
-        // Search for pagination controls containing '1.*2</a>.*Next</a>'.
-        $this->expectOutputRegex('/1.*2<\/a>.*' . get_string('next') . '<\/a>/');
+        // Search for pagination controls containing 'page-link"\saria-label="Next"'.
+        $this->expectOutputRegex('/page-link"\saria-label="Next page"/');
 
         $this->run_table_test(
             $columns,
@@ -197,7 +198,7 @@ class core_tablelib_testcase extends basic_testcase {
         );
         $output = ob_get_contents();
         ob_end_clean();
-        $this->assertNotContains(get_string('hide'), $output);
+        $this->assertStringNotContainsString(get_string('hide'), $output);
     }
 
     public function test_has_sort() {
@@ -242,7 +243,7 @@ class core_tablelib_testcase extends basic_testcase {
         );
         $output = ob_get_contents();
         ob_end_clean();
-        $this->assertNotContains(get_string('sortby'), $output);
+        $this->assertStringNotContainsString(get_string('sortby'), $output);
     }
 
     public function test_has_not_next_pagination() {
@@ -267,7 +268,7 @@ class core_tablelib_testcase extends basic_testcase {
 
         $output = ob_get_contents();
         ob_end_clean();
-        $this->assertNotContains(get_string('next'), $output);
+        $this->assertStringNotContainsString(get_string('next'), $output);
     }
 
     public function test_1_col() {
@@ -351,6 +352,67 @@ class core_tablelib_testcase extends basic_testcase {
         );
     }
 
+    /**
+     * Data provider for test_fullname_column
+     *
+     * @return array
+     */
+    public function fullname_column_provider() {
+        return [
+            ['language'],
+            ['alternatename lastname'],
+            ['firstname lastnamephonetic'],
+        ];
+    }
+
+    /**
+     * Test fullname column observes configured alternate fullname format configuration
+     *
+     * @param string $format
+     * @return void
+     *
+     * @dataProvider fullname_column_provider
+     */
+    public function test_fullname_column(string $format) {
+        $this->resetAfterTest();
+        $this->setAdminUser();
+
+        set_config('alternativefullnameformat', $format);
+
+        $user = $this->getDataGenerator()->create_user();
+
+        $table = $this->create_and_setup_table(['fullname'], [], true, false, [], []);
+        $this->assertStringContainsString(fullname($user, true), $table->format_row($user)['fullname']);
+    }
+
+    /**
+     * Test fullname column ignores fullname format configuration for a user with viewfullnames capability prohibited
+     *
+     * @param string $format
+     * @return void
+     *
+     * @dataProvider fullname_column_provider
+     */
+    public function test_fullname_column_prohibit_viewfullnames(string $format) {
+        global $DB, $CFG;
+
+        $this->resetAfterTest();
+
+        set_config('alternativefullnameformat', $format);
+
+        $currentuser = $this->getDataGenerator()->create_user();
+        $this->setUser($currentuser);
+
+        // Prohibit the viewfullnames from the default user role.
+        $userrole = $DB->get_record('role', ['id' => $CFG->defaultuserroleid]);
+        role_change_permission($userrole->id, context_system::instance(), 'moodle/site:viewfullnames', CAP_PROHIBIT);
+
+        $user = $this->getDataGenerator()->create_user();
+
+        $table = $this->create_and_setup_table(['fullname'], [], true, false, [], []);
+        $this->assertStringContainsString(fullname($user, false), $table->format_row($user)['fullname']);
+    }
+
     public function test_get_row_html() {
         $data = $this->generate_data(1, 5);
         $columns = $this->generate_columns(5);
@@ -363,9 +425,9 @@ class core_tablelib_testcase extends basic_testcase {
         $table->define_baseurl('/invalid.php');
 
         $row = $table->get_row_html($data);
-        $this->assertRegExp('/row 0 col 0/', $row);
-        $this->assertRegExp('/<tr class=""/', $row);
-        $this->assertRegExp('/<td class="cell c0"/', $row);
+        $this->assertMatchesRegularExpression('/row 0 col 0/', $row);
+        $this->assertMatchesRegularExpression('/<tr class=""/', $row);
+        $this->assertMatchesRegularExpression('/<td class="cell c0"/', $row);
     }
 
     public function test_persistent_table() {
@@ -498,4 +560,232 @@ class core_tablelib_testcase extends basic_testcase {
 
         $this->assertEquals($table5, $table6);
     }
+
+    /**
+     * Helper method for preparing tables instances in {@link self::test_can_be_reset()}.
+     *
+     * @param string $tableid
+     * @return testable_flexible_table
+     */
+    protected function prepare_table_for_reset_test($tableid) {
+        global $SESSION;
+
+        unset($SESSION->flextable[$tableid]);
+
+        $data = $this->generate_data(25, 3);
+        $columns = array('column0', 'column1', 'column2');
+        $headers = $this->generate_headers(3);
+
+        $table = new testable_flexible_table($tableid);
+        $table->define_baseurl('/invalid.php');
+        $table->define_columns($columns);
+        $table->define_headers($headers);
+        $table->collapsible(true);
+        $table->is_persistent(false);
+
+        return $table;
+    }
+
+    public function test_can_be_reset() {
+        // Table in its default state (as if seen for the first time), nothing to reset.
+        $table = $this->prepare_table_for_reset_test(uniqid('tablelib_test_'));
+        $table->setup();
+        $this->assertFalse($table->can_be_reset());
+
+        // Table in its default state with default sorting defined, nothing to reset.
+        $table = $this->prepare_table_for_reset_test(uniqid('tablelib_test_'));
+        $table->sortable(true, 'column1', SORT_DESC);
+        $table->setup();
+        $this->assertFalse($table->can_be_reset());
+
+        // Table explicitly sorted by the default column & direction, nothing to reset.
+        $table = $this->prepare_table_for_reset_test(uniqid('tablelib_test_'));
+        $table->sortable(true, 'column1', SORT_DESC);
+        $_GET['tsort'] = 'column1';
+        $_GET['tdir'] = SORT_DESC;
+        $table->setup();
+        unset($_GET['tsort']);
+        unset($_GET['tdir']);
+        $this->assertFalse($table->can_be_reset());
+
+        // Table explicitly sorted twice by the default column & direction, nothing to reset.
+        $table = $this->prepare_table_for_reset_test(uniqid('tablelib_test_'));
+        $table->sortable(true, 'column1', SORT_DESC);
+        $_GET['tsort'] = 'column1';
+        $_GET['tdir'] = SORT_DESC;
+        $table->setup();
+        $table->setup(); // Set up again to simulate the second page request.
+        unset($_GET['tsort']);
+        unset($_GET['tdir']);
+        $this->assertFalse($table->can_be_reset());
+
+        // Table sorted by other than default column, can be reset.
+        $table = $this->prepare_table_for_reset_test(uniqid('tablelib_test_'));
+        $table->sortable(true, 'column1', SORT_DESC);
+        $_GET['tsort'] = 'column2';
+        $table->setup();
+        unset($_GET['tsort']);
+        $this->assertTrue($table->can_be_reset());
+
+        // Table sorted by other than default direction, can be reset.
+        $table = $this->prepare_table_for_reset_test(uniqid('tablelib_test_'));
+        $table->sortable(true, 'column1', SORT_DESC);
+        $_GET['tsort'] = 'column1';
+        $_GET['tdir'] = SORT_ASC;
+        $table->setup();
+        unset($_GET['tsort']);
+        unset($_GET['tdir']);
+        $this->assertTrue($table->can_be_reset());
+
+        // Table sorted by the default column after another sorting previously selected.
+        // This leads to different ORDER BY than just having a single sort defined, can be reset.
+        $table = $this->prepare_table_for_reset_test(uniqid('tablelib_test_'));
+        $table->sortable(true, 'column1', SORT_DESC);
+        $_GET['tsort'] = 'column0';
+        $table->setup();
+        $_GET['tsort'] = 'column1';
+        $table->setup();
+        unset($_GET['tsort']);
+        $this->assertTrue($table->can_be_reset());
+
+        // Table having some column collapsed, can be reset.
+        $table = $this->prepare_table_for_reset_test(uniqid('tablelib_test_'));
+        $_GET['thide'] = 'column2';
+        $table->setup();
+        unset($_GET['thide']);
+        $this->assertTrue($table->can_be_reset());
+
+        // Table having some column explicitly expanded, nothing to reset.
+        $table = $this->prepare_table_for_reset_test(uniqid('tablelib_test_'));
+        $_GET['tshow'] = 'column2';
+        $table->setup();
+        unset($_GET['tshow']);
+        $this->assertFalse($table->can_be_reset());
+
+        // Table after expanding a collapsed column, nothing to reset.
+        $table = $this->prepare_table_for_reset_test(uniqid('tablelib_test_'));
+        $_GET['thide'] = 'column0';
+        $table->setup();
+        $_GET['tshow'] = 'column0';
+        $table->setup();
+        unset($_GET['thide']);
+        unset($_GET['tshow']);
+        $this->assertFalse($table->can_be_reset());
+
+        // Table with some name filtering enabled, can be reset.
+        $table = $this->prepare_table_for_reset_test(uniqid('tablelib_test_'));
+        $_GET['tifirst'] = 'A';
+        $table->setup();
+        unset($_GET['tifirst']);
+        $this->assertTrue($table->can_be_reset());
+    }
+
+    /**
+     * Test export in CSV format
+     */
+    public function test_table_export() {
+        $table = new flexible_table('tablelib_test_export');
+        $table->define_baseurl('/invalid.php');
+        $table->define_columns(['c1', 'c2', 'c3']);
+        $table->define_headers(['Col1', 'Col2', 'Col3']);
+
+        ob_start();
+        $table->is_downloadable(true);
+        $table->is_downloading('csv');
+
+        $table->setup();
+        $table->add_data(['column0' => 'a', 'column1' => 'b', 'column2' => 'c']);
+        $output = ob_get_contents();
+        ob_end_clean();
+
+        $this->assertEquals("Col1,Col2,Col3\na,b,c\n", substr($output, 3));
+    }
+
+    /**
+     * Test the initials functionality.
+     *
+     * @dataProvider initials_provider
+     * @param string|null $getvalue
+     * @param string|null $setvalue
+     * @param string|null $finalvalue
+     */
+    public function test_initials_first_set(?string $getvalue, ?string $setvalue, ?string $finalvalue): void {
+        global $_GET;
+
+        $this->resetAfterTest(true);
+
+        $table = new flexible_table('tablelib_test');
+
+        $user = $this->getDataGenerator()->create_user();
+
+        $table->define_columns(['fullname']);
+        $table->define_headers(['Fullname']);
+        $table->define_baseurl('/invalid.php');
+        $table->initialbars(true);
+
+        if ($getvalue !== null) {
+            $_GET['tifirst'] = $getvalue;
+        }
+
+        if ($setvalue !== null) {
+            $table->set_first_initial($setvalue);
+        }
+
+        $table->setup();
+
+        $this->assertEquals($finalvalue, $table->get_initial_first());
+    }
+
+    /**
+     * Test the initials functionality.
+     *
+     * @dataProvider initials_provider
+     * @param string|null $getvalue
+     * @param string|null $setvalue
+     * @param string|null $finalvalue
+     */
+    public function test_initials_last_set(?string $getvalue, ?string $setvalue, ?string $finalvalue): void {
+        global $_GET;
+
+        $this->resetAfterTest(true);
+
+        $table = new flexible_table('tablelib_test');
+
+        $user = $this->getDataGenerator()->create_user();
+
+        $table->define_columns(['fullname']);
+        $table->define_headers(['Fullname']);
+        $table->define_baseurl('/invalid.php');
+        $table->initialbars(true);
+
+        if ($getvalue !== null) {
+            $_GET['tilast'] = $getvalue;
+        }
+
+        if ($setvalue !== null) {
+            $table->set_last_initial($setvalue);
+        }
+
+        $table->setup();
+
+        $this->assertEquals($finalvalue, $table->get_initial_last());
+    }
+
+    /**
+     * Data for testing initials providers.
+     *
+     * @return array
+     */
+    public function initials_provider(): array {
+        return [
+            [null, null, null],
+            ['A', null, 'A'],
+            ['Z', null, 'Z'],
+            [null, 'A', 'A'],
+            [null, 'Z', 'Z'],
+            ['A', 'Z', 'Z'],
+            ['Z', 'A', 'A'],
+        ];
+    }
+
 }

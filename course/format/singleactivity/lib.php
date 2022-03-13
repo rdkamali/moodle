@@ -32,9 +32,12 @@ require_once($CFG->dirroot. '/course/format/lib.php');
  * @copyright  2012 Marina Glancy
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class format_singleactivity extends format_base {
+class format_singleactivity extends core_courseformat\base {
     /** @var cm_info the current activity. Use get_activity() to retrieve it. */
     private $activity = false;
+
+    /** @var int The category ID guessed from the form data. */
+    private $categoryid = false;
 
     /**
      * The URL to use for the specified course
@@ -145,6 +148,30 @@ class format_singleactivity extends format_base {
      */
     public function course_format_options($foreditform = false) {
         static $courseformatoptions = false;
+
+        $fetchtypes = $courseformatoptions === false;
+        $fetchtypes = $fetchtypes || ($foreditform && !isset($courseformatoptions['activitytype']['label']));
+
+        if ($fetchtypes) {
+            $availabletypes = $this->get_supported_activities();
+            if ($this->courseid) {
+                // The course exists. Test against the course.
+                $testcontext = context_course::instance($this->courseid);
+            } else if ($this->categoryid) {
+                // The course does not exist yet, but we have a category ID that we can test against.
+                $testcontext = context_coursecat::instance($this->categoryid);
+            } else {
+                // The course does not exist, and we somehow do not have a category. Test capabilities against the system context.
+                $testcontext = context_system::instance();
+            }
+            foreach (array_keys($availabletypes) as $activity) {
+                $capability = "mod/{$activity}:addinstance";
+                if (!has_capability($capability, $testcontext)) {
+                    unset($availabletypes[$activity]);
+                }
+            }
+        }
+
         if ($courseformatoptions === false) {
             $config = get_config('format_singleactivity');
             $courseformatoptions = array(
@@ -153,9 +180,13 @@ class format_singleactivity extends format_base {
                     'type' => PARAM_TEXT,
                 ),
             );
+
+            if (!empty($availabletypes) && !isset($availabletypes[$config->activitytype])) {
+                $courseformatoptions['activitytype']['default'] = array_keys($availabletypes)[0];
+            }
         }
+
         if ($foreditform && !isset($courseformatoptions['activitytype']['label'])) {
-            $availabletypes = $this->get_supported_activities();
             $courseformatoptionsedit = array(
                 'activitytype' => array(
                     'label' => new lang_string('activitytype', 'format_singleactivity'),
@@ -183,6 +214,11 @@ class format_singleactivity extends format_base {
      */
     public function create_edit_form_elements(&$mform, $forsection = false) {
         global $PAGE;
+
+        if (!$this->course && $submitvalues = $mform->getSubmitValues()) {
+            $this->categoryid = $submitvalues['category'];
+        }
+
         $elements = parent::create_edit_form_elements($mform, $forsection);
         if (!$forsection && ($course = $PAGE->course) && !empty($course->format) &&
                 $course->format !== 'site' && $course->format !== 'singleactivity') {
@@ -230,8 +266,16 @@ class format_singleactivity extends format_base {
         }
 
         // Make sure the current activity is in the 0-section.
+        $changed = false;
         if ($activity && $activity->sectionnum != 0) {
             moveto_module($activity, $modinfo->get_section_info(0));
+            $changed = true;
+        }
+        if ($activity && !$activity->visible) {
+            set_coursemodule_visible($activity->id, 1);
+            $changed = true;
+        }
+        if ($changed) {
             // Cache was reset so get modinfo again.
             $modinfo = get_fast_modinfo($this->courseid);
         }
@@ -333,21 +377,40 @@ class format_singleactivity extends format_base {
     }
 
     /**
-     * Checks if the activity type requires subtypes.
+     * Checks if the activity type has multiple items in the activity chooser.
+     * This may happen as a result of defining callback modulename_get_shortcuts().
      *
      * @return bool|null (null if the check is not possible)
      */
     public function activity_has_subtypes() {
-        global $CFG;
+        global $USER;
         if (!($modname = $this->get_activitytype())) {
             return null;
         }
-        $libfile = "$CFG->dirroot/mod/$modname/lib.php";
-        if (!file_exists($libfile)) {
-            return null;
+        $contentitemservice = \core_course\local\factory\content_item_service_factory::get_content_item_service();
+        $metadata = $contentitemservice->get_content_items_for_user_in_course($USER, $this->get_course());
+
+        // If there are multiple items originating from this mod_xxx component, then it's deemed to have subtypes.
+        // If there is only 1 item, but it's not a reference to the core content item for the module, then it's also deemed to
+        // have subtypes.
+        $count = 0;
+        foreach ($metadata as $key => $moduledata) {
+            if ('mod_'.$modname === $moduledata->componentname) {
+                $count ++;
+            }
         }
-        include_once($libfile);
-        return function_exists($modname. '_get_types');
+        if ($count > 1) {
+            return true;
+        } else {
+            // Get the single item.
+            $itemmetadata = $metadata[array_search('mod_' . $modname, array_column($metadata, 'componentname'))];
+            $urlbase = new \moodle_url('/course/mod.php', ['id' => $this->get_course()->id]);
+            $referenceurl = new \moodle_url($urlbase, ['add' => $modname]);
+            if ($referenceurl->out(false) != $itemmetadata->link) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -397,7 +460,7 @@ class format_singleactivity extends format_base {
                 if ($this->can_add_activity()) {
                     // This is a user who has capability to create an activity.
                     if ($this->activity_has_subtypes()) {
-                        // Activity that requires subtype can not be added automatically.
+                        // Activity has multiple items in the activity chooser, it can not be added automatically.
                         if (optional_param('addactivity', 0, PARAM_INT)) {
                             return;
                         } else {
@@ -468,4 +531,14 @@ class format_singleactivity extends format_base {
         return false;
     }
 
+    /**
+     * Return the plugin configs for external functions.
+     *
+     * @return array the list of configuration settings
+     * @since Moodle 3.5
+     */
+    public function get_config_for_external() {
+        // Return everything (nothing to hide).
+        return $this->get_format_options();
+    }
 }

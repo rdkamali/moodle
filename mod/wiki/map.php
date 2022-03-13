@@ -53,13 +53,13 @@ if (!$wiki = wiki_get_wiki($subwiki->wikiid)) {
     print_error('incorrectwikiid', 'wiki');
 }
 
-require_login($course, true, $cm);
+require_course_login($course, true, $cm);
 
 if (!wiki_user_can_view($subwiki, $wiki)) {
     print_error('cannotviewpage', 'wiki');
 }
 
-$wikipage = new page_wiki_map($wiki, $subwiki, $cm);
+$wikipage = new page_wiki_map($wiki, $subwiki, $cm, 'modulepage');
 
 $context = context_module::instance($cm->id);
 $event = \mod_wiki\event\page_map_viewed::create(

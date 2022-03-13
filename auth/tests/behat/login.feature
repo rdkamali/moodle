@@ -16,8 +16,8 @@ Feature: Authentication
   Scenario: Log in as an existing admin user filling the form
     Given the following "users" exist:
       | username | password | firstname | lastname | email |
-      | testuser | testuser | Test | User | moodle@moodlemoodle.com |
-    And I am on homepage
+      | testuser | testuser | Test | User | moodle@example.com |
+    And I am on site homepage
     When I follow "Log in"
     And I set the field "Username" to "testuser"
     And I set the field "Password" to "testuser"
@@ -27,15 +27,37 @@ Feature: Authentication
   Scenario: Log in as an unexisting user filling the form
     Given the following "users" exist:
       | username | password | firstname | lastname | email |
-      | testuser | testuser | Test | User | moodle@moodlemoodle.com |
-    And I am on homepage
+      | testuser | testuser | Test | User | moodle@example.com |
+    And I am on site homepage
     When I follow "Log in"
     And I set the field "Username" to "testuser"
     And I set the field "Password" to "unexisting"
     And I press "Log in"
     Then I should see "Invalid login, please try again"
 
-  Scenario: Log out
+  Scenario: Log out using the Log out link
     Given I log in as "admin"
-    When I log out
+    When I click on "Log out" "link" in the "#page-footer" "css_element"
     Then I should see "You are not logged in" in the "page-footer" "region"
+
+  @javascript @accessibility
+  Scenario: Login page must be accessible
+    When I am on site homepage
+    # The following tests are all provided to ensure that the accessibility tests themselves are tested.
+    # In normal tests only one of the following is required.
+    Then the page should meet accessibility standards
+    And the page should meet "wcag131, wcag141, wcag412" accessibility standards
+    And the page should meet accessibility standards with "wcag131, wcag141, wcag412" extra tests
+
+    And I follow "Log in"
+    And the page should meet accessibility standards
+    And the page should meet "wcag131, wcag141, wcag412" accessibility standards
+    And the page should meet accessibility standards with "wcag131, wcag141, wcag412" extra tests
+
+  @javascript @accessibility
+  Scenario: The login page must have sufficient colour contrast
+    Given the following config values are set as admin:
+      | custommenuitems | -This is a custom item\|/customurl/ |
+    When I am on site homepage
+    Then the page should meet "wcag143" accessibility standards
+    And the page should meet accessibility standards with "wcag143" extra tests

@@ -24,7 +24,6 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-$plugin->version   = 2015030500;
-$plugin->requires  = 2014110400;
+$plugin->version   = 2022020301;
+$plugin->requires  = 2021052500;
 $plugin->component = 'mod_quiz';
-$plugin->cron      = 60;

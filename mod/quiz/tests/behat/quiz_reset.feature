@@ -6,9 +6,9 @@ Feature: Quiz reset
 
   Background:
     Given the following "users" exist:
-      | username | firstname | lastname | email               |
-      | teacher1 | Terry1    | Teacher1 | teacher1@moodle.com |
-      | student1 | Sam1      | Student1 | student1@moodle.com |
+      | username | firstname | lastname | email                |
+      | teacher1 | Terry1    | Teacher1 | teacher1@example.com |
+      | student1 | Sam1      | Student1 | student1@example.com |
     And the following "courses" exist:
       | fullname | shortname | category |
       | Course 1 | C1        | 0        |
@@ -32,66 +32,41 @@ Feature: Quiz reset
     And quiz "Test quiz name" contains the following questions:
       | question | page |
       | TF1      | 1    |
+    And user "student1" has attempted "Test quiz name" with responses:
+      | slot | response |
+      |   1  | True     |
 
   Scenario: Use course reset to clear all attempt data
-    When I log in as "student1"
-    And I follow "Course 1"
-    And I follow "Test quiz name"
-    And I press "Attempt quiz now"
-    And I set the field "True" to "1"
-    And I press "Next"
-    And I press "Submit all and finish"
-    And I log out
-    And I log in as "teacher1"
-    And I follow "Course 1"
-    And I navigate to "Reset" node in "Course administration"
+    When I log in as "teacher1"
+    And I am on the "Course 1" "reset" page
     And I set the following fields to these values:
-        | Delete all quiz attempts | 1  |
+        | Delete all quiz attempts | 1 |
     And I press "Reset course"
     And I press "Continue"
-    And I follow "Course 1"
-    And I follow "Test quiz name"
-    And I navigate to "Results" node in "Quiz administration"
+    And I am on the "Test quiz name" "mod_quiz > Grades report" page
     Then I should see "Attempts: 0"
 
   Scenario: Use course reset to remove user overrides.
+    Given the following "mod_quiz > user overrides" exist:
+      | quiz           | user     | attempts |
+      | Test quiz name | student1 | 2        |
     When I log in as "teacher1"
-    And I follow "Course 1"
-    And I follow "Test quiz name"
-    And I navigate to "User overrides" node in "Quiz administration"
-    And I press "Add user override"
-    And I set the following fields to these values:
-        | Override user    | Student1  |
-        | Attempts allowed | 2 |
-    And I press "Save"
-    And I should see "Sam1 Student1"
-    And I navigate to "Reset" node in "Course administration"
-    And I set the following fields to these values:
-        | Delete all user overrides | 1  |
+    And I am on the "Course 1" "reset" page
+    And I set the field "Delete all user overrides" to "1"
     And I press "Reset course"
     And I press "Continue"
-    And I follow "Course 1"
-    And I follow "Test quiz name"
-    And I navigate to "User overrides" node in "Quiz administration"
+    And I am on the "Test quiz name" "mod_quiz > User overrides" page
     Then I should not see "Sam1 Student1"
 
-Scenario: Use course reset to remove group overrides.
+  Scenario: Use course reset to remove group overrides.
+    Given the following "mod_quiz > group overrides" exist:
+      | quiz           | group | attempts |
+      | Test quiz name | G1    | 2        |
     When I log in as "teacher1"
-    And I follow "Course 1"
-    And I follow "Test quiz name"
-    And I navigate to "Group overrides" node in "Quiz administration"
-    And I press "Add group override"
+    And I am on the "Course 1" "reset" page
     And I set the following fields to these values:
-        | Override group    | Group 1  |
-        | Attempts allowed | 2 |
-    And I press "Save"
-    And I should see "Group 1"
-    And I navigate to "Reset" node in "Course administration"
-    And I set the following fields to these values:
-        | Delete all group overrides | 1  |
+        | Delete all group overrides | 1 |
     And I press "Reset course"
     And I press "Continue"
-    And I follow "Course 1"
-    And I follow "Test quiz name"
-    And I navigate to "Group overrides" node in "Quiz administration"
+    And I am on the "Test quiz name" "mod_quiz > Group overrides" page
     Then I should not see "Group 1"

@@ -26,6 +26,7 @@
  */
 
 global $CFG;
+use qbank_managecategories\helper;
 require_once("$CFG->libdir/form/selectgroups.php");
 require_once("$CFG->libdir/questionlib.php");
 
@@ -53,15 +54,24 @@ class MoodleQuickForm_questioncategory extends MoodleQuickForm_selectgroups {
      *              from moodlelib.php.
      * @param mixed $attributes Either a typical HTML attribute string or an associative array
      */
-    function MoodleQuickForm_questioncategory($elementName = null, $elementLabel = null, $options = null, $attributes = null) {
-        MoodleQuickForm_selectgroups::MoodleQuickForm_selectgroups($elementName, $elementLabel, array(), $attributes);
+    public function __construct($elementName = null, $elementLabel = null, $options = null, $attributes = null) {
+        parent::__construct($elementName, $elementLabel, array(), $attributes);
         $this->_type = 'questioncategory';
         if (is_array($options)) {
             $this->_options = $options + $this->_options;
             $this->loadArrayOptGroups(
-                        question_category_options($this->_options['contexts'], $this->_options['top'], $this->_options['currentcat'],
-                                                false, $this->_options['nochildrenof']));
+                        helper::question_category_options($this->_options['contexts'], $this->_options['top'],
+                            $this->_options['currentcat'], false, $this->_options['nochildrenof'], false));
         }
     }
 
+    /**
+     * Old syntax of class constructor. Deprecated in PHP7.
+     *
+     * @deprecated since Moodle 3.1
+     */
+    public function MoodleQuickForm_questioncategory($elementName = null, $elementLabel = null, $options = null, $attributes = null) {
+        debugging('Use of class name as constructor is deprecated', DEBUG_DEVELOPER);
+        self::__construct($elementName, $elementLabel, $options, $attributes);
+    }
 }

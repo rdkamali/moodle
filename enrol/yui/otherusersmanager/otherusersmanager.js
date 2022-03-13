@@ -160,8 +160,9 @@ YUI.add('moodle-enrol-otherusersmanager', function(Y) {
             this._loadingNode.addClass(CSS.HIDDEN);
         },
         processSearchResults : function(tid, outcome, args) {
+            var result;
             try {
-                var result = Y.JSON.parse(outcome.responseText);
+                result = Y.JSON.parse(outcome.responseText);
                 if (result.error) {
                     return new M.core.ajaxException(result);
                 }
@@ -186,18 +187,26 @@ YUI.add('moodle-enrol-otherusersmanager', function(Y) {
             }
             this.set(USERCOUNT, count);
             if (!args.append) {
-                var usersstr = (result.response.totalusers == '1')?M.util.get_string('ajaxoneuserfound', 'enrol'):M.util.get_string('ajaxxusersfound','enrol', result.response.totalusers);
+                var usersstr = '';
+                if (this.get(USERCOUNT) === 1) {
+                    usersstr = M.util.get_string('ajaxoneuserfound', 'enrol');
+                } else if (result.response.moreusers) {
+                    usersstr = M.util.get_string('ajaxxmoreusersfound', 'enrol', this.get(USERCOUNT));
+                } else {
+                    usersstr = M.util.get_string('ajaxxusersfound', 'enrol', this.get(USERCOUNT));
+                }
+
                 var content = Y.Node.create('<div class="'+CSS.SEARCHRESULTS+'"></div>')
                     .append(Y.Node.create('<div class="'+CSS.TOTALUSERS+'">'+usersstr+'</div>'))
                     .append(usersnode);
-                if (result.response.totalusers > (this.get(PAGE)+1)*25) {
+                if (result.response.moreusers) {
                     var fetchmore = Y.Node.create('<div class="'+CSS.MORERESULTS+'"><a href="#">'+M.util.get_string('ajaxnext25', 'enrol')+'</a></div>');
                     fetchmore.on('click', this.getUsers, this, true);
                     content.append(fetchmore)
                 }
                 this.setContent(content);
             } else {
-                if (result.response.totalusers <= (this.get(PAGE)+1)*25) {
+                if (!result.response.moreusers) {
                     this.get(BASE).one('.'+CSS.MORERESULTS).remove();
                 }
             }
@@ -314,10 +323,10 @@ YUI.add('moodle-enrol-otherusersmanager', function(Y) {
                     )
                     .append(Y.Node.create('<div class="'+CSS.OPTIONS+'"><span class="label">'+M.util.get_string('assignrole', 'role')+': </span></div>'))
                 );
-            var id = 0, roles = this._manager.get(ASSIGNABLEROLES);
-            for (id in roles) {
-                var role = Y.Node.create('<a href="#" class="'+CSS.ROLEOPTION+'">'+roles[id]+'</a>');
-                role.on('click', this.assignRoleToUser, this, id, role);
+            var roles = this._manager.get(ASSIGNABLEROLES);
+            for (var i in roles) {
+                var role = Y.Node.create('<a href="#" class="' + CSS.ROLEOPTION + '">' + roles[i].name + '</a>');
+                role.on('click', this.assignRoleToUser, this, roles[i].id, role);
                 this._node.one('.'+CSS.OPTIONS).append(role);
             }
             return this._node;

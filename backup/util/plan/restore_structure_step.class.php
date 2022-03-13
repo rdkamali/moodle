@@ -295,6 +295,79 @@ abstract class restore_structure_step extends restore_step {
     }
 
     /**
+     * Add subplugin structure for a given plugin to any element in the structure restore tree
+     *
+     * This method allows the injection of subplugins (of a specific plugin) parsing and proccessing
+     * to any element in the restore structure.
+     *
+     * NOTE: Initially subplugins were only available for activities (mod), so only the
+     * {@link restore_activity_structure_step} class had support for them, always
+     * looking for /mod/modulenanme subplugins. This new method is a generalization of the
+     * existing one for activities, supporting all subplugins injecting information everywhere.
+     *
+     * @param string $subplugintype type of subplugin as defined in plugin's db/subplugins.json.
+     * @param restore_path_element $element element in the structure restore tree that
+     *                              we are going to add subplugin information to.
+     * @param string $plugintype type of the plugin.
+     * @param string $pluginname name of the plugin.
+     * @return void
+     */
+    protected function add_subplugin_structure($subplugintype, $element, $plugintype = null, $pluginname = null) {
+        global $CFG;
+        // This global declaration is required, because where we do require_once($backupfile);
+        // That file may in turn try to do require_once($CFG->dirroot ...).
+        // That worked in the past, we should keep it working.
+
+        // Verify if this is a BC call for an activity restore. See NOTE above for this special case.
+        if ($plugintype === null and $pluginname === null) {
+            $plugintype = 'mod';
+            $pluginname = $this->task->get_modulename();
+            // TODO: Once all the calls have been changed to add both not null plugintype and pluginname, add a debugging here.
+        }
+
+        // Check the requested plugintype is a valid one.
+        if (!array_key_exists($plugintype, core_component::get_plugin_types())) {
+            throw new restore_step_exception('incorrect_plugin_type', $plugintype);
+        }
+
+        // Check the requested pluginname, for the specified plugintype, is a valid one.
+        if (!array_key_exists($pluginname, core_component::get_plugin_list($plugintype))) {
+            throw new restore_step_exception('incorrect_plugin_name', array($plugintype, $pluginname));
+        }
+
+        // Check the requested subplugintype is a valid one.
+        $subplugins = core_component::get_subplugins("{$plugintype}_{$pluginname}");
+        if (null === $subplugins) {
+            throw new restore_step_exception('plugin_missing_subplugins_configuration', array($plugintype, $pluginname));
+        }
+        if (!array_key_exists($subplugintype, $subplugins)) {
+             throw new restore_step_exception('incorrect_subplugin_type', $subplugintype);
+        }
+
+        // Every subplugin optionally can have a common/parent subplugin
+        // class for shared stuff.
+        $parentclass = 'restore_' . $plugintype . '_' . $pluginname . '_' . $subplugintype . '_subplugin';
+        $parentfile = core_component::get_component_directory($plugintype . '_' . $pluginname) .
+            '/backup/moodle2/' . $parentclass . '.class.php';
+        if (file_exists($parentfile)) {
+            require_once($parentfile);
+        }
+
+        // Get all the restore path elements, looking across all the subplugin dirs.
+        $subpluginsdirs = core_component::get_plugin_list($subplugintype);
+        foreach ($subpluginsdirs as $name => $subpluginsdir) {
+            $classname = 'restore_' . $subplugintype . '_' . $name . '_subplugin';
+            $restorefile = $subpluginsdir . '/backup/moodle2/' . $classname . '.class.php';
+            if (file_exists($restorefile)) {
+                require_once($restorefile);
+                $restoresubplugin = new $classname($subplugintype, $name, $this);
+                // Add subplugin paths to the step.
+                $this->prepare_pathelements($restoresubplugin->define_subplugin_structure($element));
+            }
+        }
+    }
+
+    /**
      * Launch all the after_execute methods present in all the processing objects
      *
      * This method will launch all the after_execute methods that can be defined
@@ -423,9 +496,9 @@ abstract class restore_structure_step extends restore_step {
         // Now, for each element not having one processing object, if
         // not child of grouped element, assign $this (the step itself) as processing element
         // Note method must exist or we'll get one @restore_path_element_exception
-        foreach($paths as $key => $pelement) {
+        foreach ($paths as $pelement) {
             if ($pelement->get_processing_object() === null && !$this->grouped_parent_exists($pelement, $paths)) {
-                $paths[$key]->set_processing_object($this);
+                $pelement->set_processing_object($this);
             }
             // Populate $elementsoldid and $elementsoldid based on available pathelements
             $this->elementsoldid[$pelement->get_name()] = null;
@@ -437,18 +510,22 @@ abstract class restore_structure_step extends restore_step {
 
     /**
      * Given one pathelement, return true if grouped parent was found
+     *
+     * @param restore_path_element $pelement the element we are interested in.
+     * @param restore_path_element[] $elements the elements that exist.
+     * @return bool true if this element is inside a grouped parent.
      */
-    protected function grouped_parent_exists($pelement, $elements) {
+    public function grouped_parent_exists($pelement, $elements) {
         foreach ($elements as $element) {
             if ($pelement->get_path() == $element->get_path()) {
-                continue; // Don't compare against itself
+                continue; // Don't compare against itself.
             }
-            // If element is grouped and parent of pelement, return true
+            // If element is grouped and parent of pelement, return true.
             if ($element->is_grouped() and strpos($pelement->get_path() .  '/', $element->get_path()) === 0) {
                 return true;
             }
         }
-        return false; // no grouped parent found
+        return false; // No grouped parent found.
     }
 
     /**

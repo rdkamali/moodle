@@ -55,14 +55,14 @@ class lesson_page_type_cluster extends lesson_page {
     public function get_grayout() {
         return 1;
     }
-    public function callback_on_view($canmanage) {
+    public function callback_on_view($canmanage, $redirect = true) {
         global $USER;
         if (!$canmanage) {
             // Get the next page in the lesson cluster jump
-            return $this->lesson->cluster_jump($this->properties->id);
+            return (int) $this->lesson->cluster_jump($this->properties->id);
         } else {
             // get the next page
-            return $this->properties->nextpageid;
+            return (int) $this->properties->nextpageid;
         }
     }
     public function override_next_page() {
@@ -96,7 +96,7 @@ class lesson_add_page_form_cluster extends lesson_add_page_form_base {
     protected $standard = false;
 
     public function custom_definition() {
-        global $PAGE;
+        global $PAGE, $CFG;
 
         $mform = $this->_form;
         $lesson = $this->_customdata['lesson'];
@@ -109,7 +109,11 @@ class lesson_add_page_form_cluster extends lesson_add_page_form_base {
         $mform->setType('qtype', PARAM_TEXT);
 
         $mform->addElement('text', 'title', get_string("pagetitle", "lesson"), array('size'=>70));
-        $mform->setType('title', PARAM_TEXT);
+        if (!empty($CFG->formatstringstriptags)) {
+            $mform->setType('title', PARAM_TEXT);
+        } else {
+            $mform->setType('title', PARAM_CLEANHTML);
+        }
 
         $this->editoroptions = array('noclean'=>true, 'maxfiles'=>EDITOR_UNLIMITED_FILES, 'maxbytes'=>$PAGE->course->maxbytes);
         $mform->addElement('editor', 'contents_editor', get_string("pagecontents", "lesson"), null, $this->editoroptions);

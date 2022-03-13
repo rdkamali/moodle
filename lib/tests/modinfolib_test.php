@@ -14,26 +14,28 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace core;
+
+use advanced_testcase;
+use cache;
+use cm_info;
+use coding_exception;
+use context_course;
+use context_module;
+use course_modinfo;
+use moodle_exception;
+use moodle_url;
+use Exception;
+
 /**
  * Unit tests for lib/modinfolib.php.
  *
  * @package    core
  * @category   phpunit
  * @copyright  2012 Andrew Davis
- */
-
-defined('MOODLE_INTERNAL') || die();
-
-global $CFG;
-require_once($CFG->libdir . '/modinfolib.php');
-
-/**
- * Unit tests for modinfolib.php
- *
- * @copyright 2012 Andrew Davis
  * @license http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class core_modinfolib_testcase extends advanced_testcase {
+class modinfolib_test extends advanced_testcase {
     public function test_section_info_properties() {
         global $DB, $CFG;
 
@@ -183,6 +185,7 @@ class core_modinfolib_testcase extends advanced_testcase {
         $this->assertEquals($moduledb->indent, $cm->indent);
         $this->assertEquals($moduledb->completion, $cm->completion);
         $this->assertEquals($moduledb->completiongradeitemnumber, $cm->completiongradeitemnumber);
+        $this->assertEquals($moduledb->completionpassgrade, $cm->completionpassgrade);
         $this->assertEquals($moduledb->completionview, $cm->completionview);
         $this->assertEquals($moduledb->completionexpected, $cm->completionexpected);
         $this->assertEquals($moduledb->showdescription, $cm->showdescription);
@@ -200,10 +203,6 @@ class core_modinfolib_testcase extends advanced_testcase {
         $this->assertEquals($modnamesplural['assign'], $cm->modplural);
         $this->assertEquals(new moodle_url('/mod/assign/view.php', array('id' => $moduledb->id)), $cm->url);
         $this->assertEquals($cachedcminfo->customdata, $cm->customdata);
-
-        // Deprecated field.
-        $this->assertEquals(0, $cm->groupmembersonly);
-        $this->assertDebuggingCalled();
 
         // Dynamic fields, just test that they can be retrieved (must be carefully tested in each activity type).
         $this->assertNotEmpty($cm->availableinfo); // Lists all unmet availability conditions.
@@ -261,28 +260,28 @@ class core_modinfolib_testcase extends advanced_testcase {
         rebuild_course_cache($course->id, true);
         $cacherev = $DB->get_field('course', 'cacherev', array('id' => $course->id));
         $this->assertGreaterThan($prevcacherev, $cacherev);
-        $this->assertEmpty($cache->get($course->id));
+        $this->assertEmpty($cache->get_versioned($course->id, $prevcacherev));
         $prevcacherev = $cacherev;
 
         // Build course cache. Cacherev should not change but cache is now not empty. Make sure cacherev is the same everywhere.
         $modinfo = get_fast_modinfo($course->id);
         $cacherev = $DB->get_field('course', 'cacherev', array('id' => $course->id));
         $this->assertEquals($prevcacherev, $cacherev);
-        $cachedvalue = $cache->get($course->id);
+        $cachedvalue = $cache->get_versioned($course->id, $cacherev);
         $this->assertNotEmpty($cachedvalue);
         $this->assertEquals($cacherev, $cachedvalue->cacherev);
         $this->assertEquals($cacherev, $modinfo->get_course()->cacherev);
         $prevcacherev = $cacherev;
 
         // Little trick to check that cache is not rebuilt druing the next step - substitute the value in MUC and later check that it is still there.
-        $cache->set($course->id, (object)array_merge((array)$cachedvalue, array('secretfield' => 1)));
+        $cache->set_versioned($course->id, $cacherev, (object)array_merge((array)$cachedvalue, array('secretfield' => 1)));
 
         // Clear static cache and call get_fast_modinfo() again (pretend we are in another request). Cache should not be rebuilt.
         course_modinfo::clear_instance_cache();
         $modinfo = get_fast_modinfo($course->id);
         $cacherev = $DB->get_field('course', 'cacherev', array('id' => $course->id));
         $this->assertEquals($prevcacherev, $cacherev);
-        $cachedvalue = $cache->get($course->id);
+        $cachedvalue = $cache->get_versioned($course->id, $cacherev);
         $this->assertNotEmpty($cachedvalue);
         $this->assertEquals($cacherev, $cachedvalue->cacherev);
         $this->assertNotEmpty($cachedvalue->secretfield);
@@ -293,7 +292,7 @@ class core_modinfolib_testcase extends advanced_testcase {
         rebuild_course_cache($course->id);
         $cacherev = $DB->get_field('course', 'cacherev', array('id' => $course->id));
         $this->assertGreaterThan($prevcacherev, $cacherev);
-        $cachedvalue = $cache->get($course->id);
+        $cachedvalue = $cache->get_versioned($course->id, $cacherev);
         $this->assertNotEmpty($cachedvalue);
         $this->assertEquals($cacherev, $cachedvalue->cacherev);
         $modinfo = get_fast_modinfo($course->id);
@@ -307,7 +306,7 @@ class core_modinfolib_testcase extends advanced_testcase {
         $modinfo = get_fast_modinfo($course->id);
         $cacherev = $DB->get_field('course', 'cacherev', array('id' => $course->id));
         $this->assertGreaterThan($prevcacherev, $cacherev);
-        $cachedvalue = $cache->get($course->id);
+        $cachedvalue = $cache->get_versioned($course->id, $cacherev);
         $this->assertNotEmpty($cachedvalue);
         $this->assertEquals($cacherev, $cachedvalue->cacherev);
         $this->assertEquals($cacherev, $modinfo->get_course()->cacherev);
@@ -317,10 +316,10 @@ class core_modinfolib_testcase extends advanced_testcase {
         rebuild_course_cache(0, true);
         $cacherev = $DB->get_field('course', 'cacherev', array('id' => $course->id));
         $this->assertGreaterThan($prevcacherev, $cacherev);
-        $this->assertEmpty($cache->get($course->id));
+        $this->assertEmpty($cache->get_versioned($course->id, $cacherev));
         // Rebuild again.
         $modinfo = get_fast_modinfo($course->id);
-        $cachedvalue = $cache->get($course->id);
+        $cachedvalue = $cache->get_versioned($course->id, $cacherev);
         $this->assertNotEmpty($cachedvalue);
         $this->assertEquals($cacherev, $cachedvalue->cacherev);
         $this->assertEquals($cacherev, $modinfo->get_course()->cacherev);
@@ -382,10 +381,12 @@ class core_modinfolib_testcase extends advanced_testcase {
         $this->assertEquals('', $modinfo->get_section_info(2)->sequence);
         $this->assertEquals($page3->cmid, $modinfo->get_section_info(3)->sequence);
         $this->assertEquals($course->id, $modinfo->get_course()->id);
-        $this->assertEquals(array('assign', 'forum', 'page'),
-                array_keys($modinfo->get_used_module_names()));
-        $this->assertEquals(array('assign', 'forum', 'page'),
-                array_keys($modinfo->get_used_module_names(true)));
+        $names = array_keys($modinfo->get_used_module_names());
+        sort($names);
+        $this->assertEquals(array('assign', 'forum', 'page'), $names);
+        $names = array_keys($modinfo->get_used_module_names(true));
+        sort($names);
+        $this->assertEquals(array('assign', 'forum', 'page'), $names);
         // Admin can see hidden modules/sections.
         $this->assertTrue($modinfo->cms[$assign0->cmid]->uservisible);
         $this->assertTrue($modinfo->get_section_info(3)->uservisible);
@@ -471,50 +472,13 @@ class core_modinfolib_testcase extends advanced_testcase {
     }
 
     /**
-     * Tests that various deprecated cm_info methods are throwing debuggign messages
-     */
-    public function test_cm_info_property_deprecations() {
-        global $DB, $CFG;
-
-        $this->resetAfterTest();
-
-        $course = $this->getDataGenerator()->create_course( array('format' => 'topics', 'numsections' => 3),
-                array('createsections' => true));
-        $forum = $this->getDataGenerator()->create_module('forum', array('course' => $course->id));
-        $cm = get_fast_modinfo($course->id)->instances['forum'][$forum->id];
-
-        $cm->get_url();
-        $this->assertDebuggingCalled('cm_info::get_url() is deprecated, please use the property cm_info->url instead.');
-
-        $cm->get_content();
-        $this->assertDebuggingCalled('cm_info::get_content() is deprecated, please use the property cm_info->content instead.');
-
-        $cm->get_extra_classes();
-        $this->assertDebuggingCalled('cm_info::get_extra_classes() is deprecated, please use the property cm_info->extraclasses instead.');
-
-        $cm->get_on_click();
-        $this->assertDebuggingCalled('cm_info::get_on_click() is deprecated, please use the property cm_info->onclick instead.');
-
-        $cm->get_custom_data();
-        $this->assertDebuggingCalled('cm_info::get_custom_data() is deprecated, please use the property cm_info->customdata instead.');
-
-        $cm->get_after_link();
-        $this->assertDebuggingCalled('cm_info::get_after_link() is deprecated, please use the property cm_info->afterlink instead.');
-
-        $cm->get_after_edit_icons();
-        $this->assertDebuggingCalled('cm_info::get_after_edit_icons() is deprecated, please use the property cm_info->afterediticons instead.');
-
-        $cm->obtain_dynamic_data();
-        $this->assertDebuggingCalled('cm_info::obtain_dynamic_data() is deprecated and should not be used.');
-    }
-
-    /**
      * Tests for function cm_info::get_course_module_record()
      */
     public function test_cm_info_get_course_module_record() {
-        global $DB, $CFG;
+        global $DB;
 
         $this->resetAfterTest();
+        $this->setAdminUser();
 
         set_config('enableavailability', 1);
         set_config('enablecompletion', 1);
@@ -845,7 +809,7 @@ class core_modinfolib_testcase extends advanced_testcase {
             get_course_and_cm_from_cmid($page->cmid, 'pigs can fly');
             $this->fail();
         } catch (coding_exception $e) {
-            $this->assertContains('Invalid modulename parameter', $e->getMessage());
+            $this->assertStringContainsString('Invalid modulename parameter', $e->getMessage());
         }
 
         // Doesn't exist.
@@ -934,7 +898,7 @@ class core_modinfolib_testcase extends advanced_testcase {
             get_course_and_cm_from_cmid($page->cmid, '1337 h4x0ring');
             $this->fail();
         } catch (coding_exception $e) {
-            $this->assertContains('Invalid modulename parameter', $e->getMessage());
+            $this->assertStringContainsString('Invalid modulename parameter', $e->getMessage());
         }
 
         // Create a second hidden activity.
@@ -957,5 +921,87 @@ class core_modinfolib_testcase extends advanced_testcase {
         // Manager can see the hidden one too.
         list($course, $cm) = get_course_and_cm_from_cmid($hiddenpage->cmid, 'page', 0, $manager->id);
         $this->assertTrue($cm->uservisible);
+    }
+
+    /**
+     * Test test_get_section_info_by_id method
+     *
+     * @dataProvider get_section_info_by_id_provider
+     * @covers \course_modinfo::get_section_info_by_id
+     *
+     * @param int $sectionnum the section number
+     * @param int $strictness the search strict mode
+     * @param bool $expectnull if the function will return a null
+     * @param bool $expectexception if the function will throw an exception
+     */
+    public function test_get_section_info_by_id(
+        int $sectionnum,
+        int $strictness = IGNORE_MISSING,
+        bool $expectnull = false,
+        bool $expectexception = false
+    ) {
+        global $DB;
+
+        $this->resetAfterTest();
+
+        // Create a course with 4 sections.
+        $course = $this->getDataGenerator()->create_course(['numsections' => 4]);
+
+        // Index sections.
+        $sectionindex = [];
+        $modinfo = get_fast_modinfo($course);
+        $allsections = $modinfo->get_section_info_all();
+        foreach ($allsections as $section) {
+            $sectionindex[$section->section] = $section->id;
+        }
+
+        if ($expectexception) {
+            $this->expectException(moodle_exception::class);
+        }
+
+        $sectionid = $sectionindex[$sectionnum] ?? -1;
+
+        $section = $modinfo->get_section_info_by_id($sectionid, $strictness);
+
+        if ($expectnull) {
+            $this->assertNull($section);
+        } else {
+            $this->assertEquals($sectionid, $section->id);
+            $this->assertEquals($sectionnum, $section->section);
+        }
+    }
+
+    /**
+     * Data provider for test_get_section_info_by_id().
+     *
+     * @return array
+     */
+    public function get_section_info_by_id_provider() {
+        return [
+            'Valid section id' => [
+                'sectionnum' => 1,
+                'strictness' => IGNORE_MISSING,
+                'expectnull' => false,
+                'expectexception' => false,
+            ],
+            'Section zero' => [
+                'sectionnum' => 0,
+                'strictness' => IGNORE_MISSING,
+                'expectnull' => false,
+                'expectexception' => false,
+            ],
+            'invalid section ignore missing' => [
+                'sectionnum' => -1,
+                'strictness' => IGNORE_MISSING,
+                'expectnull' => true,
+                'expectexception' => false,
+            ],
+            'invalid section must exists' => [
+                'sectionnum' => -1,
+                'strictness' => MUST_EXIST,
+                'expectnull' => false,
+                'expectexception' => true,
+            ],
+        ];
     }
 }

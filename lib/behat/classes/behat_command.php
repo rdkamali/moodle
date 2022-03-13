@@ -40,7 +40,23 @@ class behat_command {
     /**
      * Docs url
      */
-    const DOCS_URL = 'http://docs.moodle.org/dev/Acceptance_testing';
+    const DOCS_URL = 'https://docs.moodle.org/dev/Running_acceptance_test';
+
+    /**
+     * Ensures the behat dir exists in moodledata
+     *
+     * @return string Full path
+     */
+    public static function get_parent_behat_dir() {
+        global $CFG;
+
+        // If not set then return empty string.
+        if (!isset($CFG->behat_dataroot_parent)) {
+            return "";
+        }
+
+        return $CFG->behat_dataroot_parent;
+    }
 
     /**
      * Ensures the behat dir exists in moodledata
@@ -55,12 +71,11 @@ class behat_command {
             return "";
         }
 
-        if (empty($runprocess)) {
-            $behatdir = $CFG->behat_dataroot . '/behat';
-        } else if (isset($CFG->behat_parallel_run[$runprocess - 1]['behat_dataroot'])) {
+        // If $CFG->behat_parallel_run starts with index 0 and $runprocess for parallel run starts with 1.
+        if (!empty($runprocess) && isset($CFG->behat_parallel_run[$runprocess - 1]['behat_dataroot'])) {
             $behatdir = $CFG->behat_parallel_run[$runprocess - 1]['behat_dataroot'] . '/behat';;
         } else {
-            $behatdir = $CFG->behat_dataroot . $runprocess . '/behat';
+            $behatdir = $CFG->behat_dataroot . '/behat';
         }
 
         if (!is_dir($behatdir)) {
@@ -86,26 +101,39 @@ class behat_command {
      *
      * @param  bool $custombyterm  If the provided command should depend on the terminal where it runs
      * @param bool $parallelrun If parallel run is installed.
+     * @param bool $absolutepath return command with absolute path.
      * @return string
      */
-    public final static function get_behat_command($custombyterm = false, $parallerun = false) {
+    public final static function get_behat_command($custombyterm = false, $parallerun = false, $absolutepath = false) {
 
         $separator = DIRECTORY_SEPARATOR;
-        if (!$parallerun) {
-            $exec = 'behat';
+        $exec = 'behat';
 
-            // Cygwin uses linux-style directory separators.
-            if ($custombyterm && testing_is_cygwin()) {
-                $separator = '/';
+        // Cygwin uses linux-style directory separators.
+        if ($custombyterm && testing_is_cygwin()) {
+            $separator = '/';
 
-                // MinGW can not execute .bat scripts.
-                if (!testing_is_mingw()) {
-                    $exec = 'behat.bat';
-                }
+            // MinGW can not execute .bat scripts.
+            if (!testing_is_mingw()) {
+                $exec = 'behat.bat';
             }
-            $command = 'vendor' . $separator . 'bin' . $separator . $exec;
+        }
+
+        // If relative path then prefix relative path.
+        if ($absolutepath) {
+            $pathprefix = testing_cli_argument_path('/');
+            if (!empty($pathprefix)) {
+                $pathprefix .= $separator;
+            }
         } else {
-            $command = 'php admin' . $separator . 'tool' . $separator . 'behat' . $separator . 'cli' . $separator . 'run.php';
+            $pathprefix = '';
+        }
+
+        if (!$parallerun) {
+            $command = $pathprefix . 'vendor' . $separator . 'bin' . $separator . $exec;
+        } else {
+            $command = 'php ' . $pathprefix . 'admin' . $separator . 'tool' . $separator . 'behat' . $separator . 'cli'
+                . $separator . 'run.php';
         }
         return $command;
     }
@@ -147,17 +175,21 @@ class behat_command {
 
             // Returning composer error code to avoid conflicts with behat and moodle error codes.
             self::output_msg(get_string('errorcomposer', 'tool_behat'));
-            return BEHAT_EXITCODE_COMPOSER;
+            return TESTING_EXITCODE_COMPOSER;
         }
 
         // Behat test command.
-        list($output, $code) = self::run(' --help');
+        $dirrootconfigpath = $CFG->dirroot . DIRECTORY_SEPARATOR . 'behat.yml';
+        if (file_exists($dirrootconfigpath)) {
+            self::output_msg(get_string('warndirrootconfigfound', 'tool_behat', $dirrootconfigpath));
+        }
+        list($output, $code) = self::run(" --help");
 
         if ($code != 0) {
 
             // Returning composer error code to avoid conflicts with behat and moodle error codes.
             self::output_msg(get_string('errorbehatcommand', 'tool_behat', self::get_behat_command()));
-            return BEHAT_EXITCODE_COMPOSER;
+            return TESTING_EXITCODE_COMPOSER;
         }
 
         // No empty values.
@@ -171,13 +203,19 @@ class behat_command {
         // We only need to check this when the behat site is not running as
         // at this point, when it is running, all $CFG->behat_* vars have
         // already been copied to $CFG->dataroot, $CFG->prefix and $CFG->wwwroot.
-        if (!defined('BEHAT_SITE_RUNNING') &&
-                ($CFG->behat_prefix == $CFG->prefix ||
-                $CFG->behat_dataroot == $CFG->dataroot ||
-                $CFG->behat_wwwroot == $CFG->wwwroot ||
-                (!empty($CFG->phpunit_prefix) && $CFG->phpunit_prefix == $CFG->behat_prefix) ||
-                (!empty($CFG->phpunit_dataroot) && $CFG->phpunit_dataroot == $CFG->behat_dataroot)
-                )) {
+        $phpunitprefix = empty($CFG->phpunit_prefix) ? '' : $CFG->phpunit_prefix;
+        $behatdbname = empty($CFG->behat_dbname) ? $CFG->dbname : $CFG->behat_dbname;
+        $phpunitdbname = empty($CFG->phpunit_dbname) ? $CFG->dbname : $CFG->phpunit_dbname;
+        $behatdbhost = empty($CFG->behat_dbhost) ? $CFG->dbhost : $CFG->behat_dbhost;
+        $phpunitdbhost = empty($CFG->phpunit_dbhost) ? $CFG->dbhost : $CFG->phpunit_dbhost;
+
+        $samedataroot = $CFG->behat_dataroot == $CFG->dataroot;
+        $samedataroot = $samedataroot || (!empty($CFG->phpunit_dataroot) && $CFG->phpunit_dataroot == $CFG->behat_dataroot);
+        $samewwwroot = $CFG->behat_wwwroot == $CFG->wwwroot;
+        $sameprefix = ($CFG->behat_prefix == $CFG->prefix && $behatdbname == $CFG->dbname && $behatdbhost == $CFG->dbhost);
+        $sameprefix = $sameprefix || ($CFG->behat_prefix == $phpunitprefix && $behatdbname == $phpunitdbname &&
+                $behatdbhost == $phpunitdbhost);
+        if (!defined('BEHAT_SITE_RUNNING') && ($samedataroot || $samewwwroot || $sameprefix)) {
             self::output_msg(get_string('erroruniqueconfig', 'tool_behat'));
             return BEHAT_EXITCODE_CONFIG;
         }
@@ -191,11 +229,17 @@ class behat_command {
             return BEHAT_EXITCODE_CONFIG;
         }
 
+        // If app config is supplied, check the value is correct.
+        if (!empty($CFG->behat_ionic_dirroot) && !file_exists($CFG->behat_ionic_dirroot . '/ionic.config.json')) {
+            self::output_msg(get_string('errorapproot', 'tool_behat'));
+            return BEHAT_EXITCODE_CONFIG;
+        }
+
         return 0;
     }
 
     /**
-     * Has the site installed composer with --dev option
+     * Has the site installed composer.
      * @return bool
      */
     public static function are_behat_dependencies_installed() {
@@ -231,7 +275,7 @@ class behat_command {
             // We continue execution after this.
             $clibehaterrorstr = "Ensure you set \$CFG->behat_* vars in config.php " .
                 "and you ran admin/tool/behat/cli/init.php.\n" .
-                "More info in " . self::DOCS_URL . "#Installation\n\n";
+                "More info in " . self::DOCS_URL;
 
             echo 'Error: ' . $msg . "\n\n" . $clibehaterrorstr;
         }

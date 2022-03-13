@@ -1,6 +1,5 @@
 <?php
-
-// This file is part of Moodle - http://moodle.org/
+// This file is part of Moodle - https://moodle.org/
 //
 // Moodle is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -13,7 +12,7 @@
 // GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License
-// along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+// along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 /**
  * Automatically generated strings for Moodle installer
@@ -46,7 +45,7 @@ $string['dmlexceptiononinstall'] = '<p> Ocorreu um erro no banco de dados [{$a->
 $string['downloadedfilecheckfailed'] = 'A verificação do arquivo baixado falhou';
 $string['invalidmd5'] = 'A variável de verificação estava errada - tente novamente';
 $string['missingrequiredfield'] = 'Faltam informações obrigatórias';
-$string['remotedownloaderror'] = 'O download do componente falhou, por favor verifique as configurações do proxy. A extensão cURL do PHP é altamente recomendada.<br /><br />Você precisar baixar o <a href="{$a->url}">arquivo</a> manualmente, copiar para "{$a->dest}" e descompactar lá.';
+$string['remotedownloaderror'] = '<p>O download do componente falhou, por favor verifique as configurações do proxy. A extensão cURL do PHP é altamente recomendada.</p><p>Você precisar baixar o <a href="{$a->url}">arquivo</a> manualmente, copiar para "{$a->dest}" e descompactar lá.</p>';
 $string['wrongdestpath'] = 'Caminho do destino errado';
 $string['wrongsourcebase'] = 'URL do recurso errada';
 $string['wrongzipfilename'] = 'Nome do arquivo ZIP errado';

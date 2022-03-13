@@ -33,6 +33,11 @@ require_once($CFG->libdir . '/outputcomponents.php');
  */
 class core_outputcomponents_testcase extends advanced_testcase {
 
+    /**
+     * Tests user_picture::fields.
+     *
+     * @deprecated since Moodle 3.11 MDL-45242
+     */
     public function test_fields_aliasing() {
         $fields = user_picture::fields();
         $fields = array_map('trim', explode(',', $fields));
@@ -60,10 +65,16 @@ class core_outputcomponents_testcase extends advanced_testcase {
             $this->assertContains($expected, $returned, "Expected pattern '$expected' not returned");
         }
         $this->assertContains("custom1 AS prefixcustom1", $returned, "Expected pattern 'custom1 AS prefixcustom1' not returned");
+
+        // Deprecation warnings for user_picture::fields.
+        $this->assertDebuggingCalledCount(2);
     }
 
+    /**
+     * Tests user_picture::unalias.
+     */
     public function test_fields_unaliasing() {
-        $fields = user_picture::fields();
+        $fields = implode(',', \core_user\fields::get_picture_fields());
         $fields = array_map('trim', explode(',', $fields));
 
         $fakerecord = new stdClass();
@@ -86,8 +97,11 @@ class core_outputcomponents_testcase extends advanced_testcase {
         $this->assertSame('Value of custom1', $returned->custom1);
     }
 
+    /**
+     * Tests user_picture::unalias with null values.
+     */
     public function test_fields_unaliasing_null() {
-        $fields = user_picture::fields();
+        $fields = implode(',', \core_user\fields::get_picture_fields());
         $fields = array_map('trim', explode(',', $fields));
 
         $fakerecord = new stdClass();
@@ -113,7 +127,7 @@ class core_outputcomponents_testcase extends advanced_testcase {
     }
 
     public function test_get_url() {
-        global $DB, $CFG;
+        global $DB, $CFG, $USER;
 
         $this->resetAfterTest();
 
@@ -121,12 +135,11 @@ class core_outputcomponents_testcase extends advanced_testcase {
         $CFG->svgicons = true;
 
         // Verify new install contains expected defaults.
-        $this->assertSame('clean', $CFG->theme);
+        $this->assertSame(theme_config::DEFAULT_THEME, $CFG->theme);
         $this->assertEquals(1, $CFG->slasharguments);
         $this->assertEquals(1, $CFG->themerev);
         $this->assertEquals(0, $CFG->themedesignermode);
-        $this->assertSame('http://www.example.com/moodle', $CFG->wwwroot);
-        $this->assertSame($CFG->wwwroot, $CFG->httpswwwroot);
+        $this->assertSame('https://www.example.com/moodle', $CFG->wwwroot);
         $this->assertEquals(0, $CFG->enablegravatar);
         $this->assertSame('mm', $CFG->gravatardefaulturl);
 
@@ -141,16 +154,22 @@ class core_outputcomponents_testcase extends advanced_testcase {
         $user2 = $this->getDataGenerator()->create_user(array('picture'=>0, 'email'=>'user2@example.com'));
         $context2 = context_user::instance($user2->id);
 
+        // User 3 is deleted.
         $user3 = $this->getDataGenerator()->create_user(array('picture'=>1, 'deleted'=>1, 'email'=>'user3@example.com'));
-        $context3 = context_user::instance($user3->id, IGNORE_MISSING);
+        $this->assertNotEmpty(context_user::instance($user3->id));
         $this->assertEquals(0, $user3->picture);
         $this->assertNotEquals('user3@example.com', $user3->email);
-        $this->assertFalse($context3);
+
+        // User 4 is incorrectly deleted with its context deleted as well (testing legacy code).
+        $user4 = $this->getDataGenerator()->create_user(['picture' => 1, 'deleted' => 1, 'email' => 'user4@example.com']);
+        context_helper::delete_instance(CONTEXT_USER, $user4->id);
+        $this->assertEquals(0, $user4->picture);
+        $this->assertNotEquals('user4@example.com', $user4->email);
 
         // Try legacy picture == 1.
         $user1->picture = 1;
         $up1 = new user_picture($user1);
-        $this->assertSame($CFG->wwwroot.'/pluginfile.php/'.$context1->id.'/user/icon/clean/f2?rev=1', $up1->get_url($page, $renderer)->out(false));
+        $this->assertSame($CFG->wwwroot.'/pluginfile.php/'.$context1->id.'/user/icon/boost/f2?rev=1', $up1->get_url($page, $renderer)->out(false));
         $user1->picture = 11;
 
         // Try valid user with picture when user context is not cached - 1 query expected.
@@ -158,7 +177,7 @@ class core_outputcomponents_testcase extends advanced_testcase {
         $reads = $DB->perf_get_reads();
         $up1 = new user_picture($user1);
         $this->assertEquals($reads, $DB->perf_get_reads());
-        $this->assertSame($CFG->wwwroot.'/pluginfile.php/'.$context1->id.'/user/icon/clean/f2?rev=11', $up1->get_url($page, $renderer)->out(false));
+        $this->assertSame($CFG->wwwroot.'/pluginfile.php/'.$context1->id.'/user/icon/boost/f2?rev=11', $up1->get_url($page, $renderer)->out(false));
         $this->assertEquals($reads+1, $DB->perf_get_reads());
 
         // Try valid user with contextid hint - no queries expected.
@@ -167,7 +186,7 @@ class core_outputcomponents_testcase extends advanced_testcase {
         $reads = $DB->perf_get_reads();
         $up1 = new user_picture($user1);
         $this->assertEquals($reads, $DB->perf_get_reads());
-        $this->assertSame($CFG->wwwroot.'/pluginfile.php/'.$context1->id.'/user/icon/clean/f2?rev=11', $up1->get_url($page, $renderer)->out(false));
+        $this->assertSame($CFG->wwwroot.'/pluginfile.php/'.$context1->id.'/user/icon/boost/f2?rev=11', $up1->get_url($page, $renderer)->out(false));
         $this->assertEquals($reads, $DB->perf_get_reads());
 
         // Try valid user without image - no queries expected.
@@ -175,7 +194,7 @@ class core_outputcomponents_testcase extends advanced_testcase {
         $reads = $DB->perf_get_reads();
         $up2 = new user_picture($user2);
         $this->assertEquals($reads, $DB->perf_get_reads());
-        $this->assertSame($CFG->wwwroot.'/theme/image.php/clean/core/1/u/f2', $up2->get_url($page, $renderer)->out(false));
+        $this->assertSame($CFG->wwwroot.'/theme/image.php/boost/core/1/u/f2', $up2->get_url($page, $renderer)->out(false));
         $this->assertEquals($reads, $DB->perf_get_reads());
 
         // Try guessing of deleted users - no queries expected.
@@ -184,16 +203,17 @@ class core_outputcomponents_testcase extends advanced_testcase {
         $reads = $DB->perf_get_reads();
         $up3 = new user_picture($user3);
         $this->assertEquals($reads, $DB->perf_get_reads());
-        $this->assertSame($CFG->wwwroot.'/theme/image.php/clean/core/1/u/f2', $up3->get_url($page, $renderer)->out(false));
+        $this->assertSame($CFG->wwwroot.'/theme/image.php/boost/core/1/u/f2', $up3->get_url($page, $renderer)->out(false));
         $this->assertEquals($reads, $DB->perf_get_reads());
 
-        // Try incorrectly deleted users (with valid email and pciture flag) - some DB reads expected.
-        $user3->email = 'user3@example.com';
-        $user3->picture = 1;
+        // Try incorrectly deleted users (with valid email and picture flag, but user context removed) - some DB reads expected.
+        unset($user4->deleted);
+        $user4->email = 'user4@example.com';
+        $user4->picture = 1;
         $reads = $DB->perf_get_reads();
-        $up3 = new user_picture($user3);
+        $up4 = new user_picture($user4);
         $this->assertEquals($reads, $DB->perf_get_reads());
-        $this->assertSame($CFG->wwwroot.'/theme/image.php/clean/core/1/u/f2', $up3->get_url($page, $renderer)->out(false));
+        $this->assertSame($CFG->wwwroot.'/theme/image.php/boost/core/1/u/f2', $up4->get_url($page, $renderer)->out(false));
         $this->assertGreaterThan($reads, $DB->perf_get_reads());
 
         // Test gravatar.
@@ -203,7 +223,14 @@ class core_outputcomponents_testcase extends advanced_testcase {
         $user3->email = 'deleted';
         $user3->picture = 0;
         $up3 = new user_picture($user3);
-        $this->assertSame($CFG->wwwroot.'/theme/image.php/clean/core/1/u/f2', $up3->get_url($page, $renderer)->out(false));
+        $this->assertSame($CFG->wwwroot.'/theme/image.php/boost/core/1/u/f2', $up3->get_url($page, $renderer)->out(false));
+        $user4->email = 'deleted';
+        $user4->picture = 0;
+        $up4 = new user_picture($user4);
+        $this->assertSame($CFG->wwwroot.'/theme/image.php/boost/core/1/u/f2', $up4->get_url($page, $renderer)->out(false));
+
+        // Http version.
+        $CFG->wwwroot = str_replace('https:', 'http:', $CFG->wwwroot);
 
         // Verify defaults to misteryman (mm).
         $up2 = new user_picture($user2);
@@ -215,23 +242,37 @@ class core_outputcomponents_testcase extends advanced_testcase {
         $this->assertSame('http://www.gravatar.com/avatar/ab53a2911ddf9b4817ac01ddcd3d975f?s=35&d=http%3A%2F%2Fwww.example.com%2Fmoodle%2Fpix%2Fu%2Ff2.png', $up2->get_url($page, $renderer)->out(false));
         // Uploaded image takes precedence before gravatar.
         $up1 = new user_picture($user1);
-        $this->assertSame($CFG->wwwroot.'/pluginfile.php/'.$context1->id.'/user/icon/clean/f2?rev=11', $up1->get_url($page, $renderer)->out(false));
+        $this->assertSame($CFG->wwwroot.'/pluginfile.php/'.$context1->id.'/user/icon/boost/f2?rev=11', $up1->get_url($page, $renderer)->out(false));
+
+        // Uploaded image with token-based access for current user.
+        $up1 = new user_picture($user1);
+        $up1->includetoken = true;
+        $token = get_user_key('core_files', $USER->id);
+        $this->assertSame($CFG->wwwroot.'/tokenpluginfile.php/'.$token.'/'.$context1->id.'/user/icon/boost/f2?rev=11', $up1->get_url($page, $renderer)->out(false));
+
+        // Uploaded image with token-based access for other user.
+        $up1 = new user_picture($user1);
+        $up1->includetoken = $user2->id;
+        $token = get_user_key('core_files', $user2->id);
+        $this->assertSame($CFG->wwwroot.'/tokenpluginfile.php/'.$token.'/'.$context1->id.'/user/icon/boost/f2?rev=11', $up1->get_url($page, $renderer)->out(false));
 
         // Https version.
-        $CFG->httpswwwroot = str_replace('http:', 'https:', $CFG->wwwroot);
+        $CFG->wwwroot = str_replace('http:', 'https:', $CFG->wwwroot);
 
         $up1 = new user_picture($user1);
-        $this->assertSame($CFG->httpswwwroot.'/pluginfile.php/'.$context1->id.'/user/icon/clean/f2?rev=11', $up1->get_url($page, $renderer)->out(false));
-
-        $up3 = new user_picture($user3);
-        $this->assertSame($CFG->httpswwwroot.'/theme/image.php/clean/core/1/u/f2', $up3->get_url($page, $renderer)->out(false));
+        $this->assertSame($CFG->wwwroot.'/pluginfile.php/'.$context1->id.'/user/icon/boost/f2?rev=11', $up1->get_url($page, $renderer)->out(false));
 
         $up2 = new user_picture($user2);
         $this->assertSame('https://secure.gravatar.com/avatar/ab53a2911ddf9b4817ac01ddcd3d975f?s=35&d=https%3A%2F%2Fwww.example.com%2Fmoodle%2Fpix%2Fu%2Ff2.png', $up2->get_url($page, $renderer)->out(false));
 
+        $up3 = new user_picture($user3);
+        $this->assertSame($CFG->wwwroot.'/theme/image.php/boost/core/1/u/f2', $up3->get_url($page, $renderer)->out(false));
+
+        $up4 = new user_picture($user4);
+        $this->assertSame($CFG->wwwroot.'/theme/image.php/boost/core/1/u/f2', $up4->get_url($page, $renderer)->out(false));
+
         // TODO MDL-44792 Rewrite those tests to use a fixture.
         // Now test gravatar with one theme having own images (afterburner).
-        // $CFG->httpswwwroot = $CFG->wwwroot;
         // $this->assertFileExists("$CFG->dirroot/theme/afterburner/config.php");
         // set_config('theme', 'afterburner');
         // $page = new moodle_page();
@@ -242,9 +283,6 @@ class core_outputcomponents_testcase extends advanced_testcase {
         // $up2 = new user_picture($user2);
         // $this->assertEquals('http://www.gravatar.com/avatar/ab53a2911ddf9b4817ac01ddcd3d975f?s=35&d=http%3A%2F%2Fwww.example.com%2Fmoodle%2Ftheme%2Fafterburner%2Fpix_core%2Fu%2Ff2.png', $up2->get_url($page, $renderer)->out(false));
 
-        // // Https version.
-        // $CFG->httpswwwroot = str_replace('http:', 'https:', $CFG->wwwroot);
-
         // $up2 = new user_picture($user2);
         // $this->assertSame('https://secure.gravatar.com/avatar/ab53a2911ddf9b4817ac01ddcd3d975f?s=35&d=https%3A%2F%2Fwww.example.com%2Fmoodle%2Ftheme%2Fafterburner%2Fpix_core%2Fu%2Ff2.png', $up2->get_url($page, $renderer)->out(false));
         // End of gravatar tests.
@@ -253,7 +291,6 @@ class core_outputcomponents_testcase extends advanced_testcase {
         // set_config('enablegravatar', 0);
         // $this->assertFileExists("$CFG->dirroot/theme/formal_white/config.php"); // Use any other theme.
         // set_config('theme', 'formal_white');
-        // $CFG->httpswwwroot = $CFG->wwwroot;
         // $page = new moodle_page();
         // $page->set_url('/user/profile.php');
         // $page->set_context(context_system::instance());
@@ -266,8 +303,8 @@ class core_outputcomponents_testcase extends advanced_testcase {
         // $this->assertSame($CFG->wwwroot.'/theme/image.php/formal_white/core/1/u/f2', $up2->get_url($page, $renderer)->out(false));
 
         // Test non-slashargument images.
-        set_config('theme', 'clean');
-        $CFG->httpswwwroot = $CFG->wwwroot;
+        set_config('theme', 'classic');
+        $CFG->wwwroot = str_replace('https:', 'http:', $CFG->wwwroot);
         $CFG->slasharguments = 0;
         $page = new moodle_page();
         $page->set_url('/user/profile.php');
@@ -275,7 +312,7 @@ class core_outputcomponents_testcase extends advanced_testcase {
         $renderer = $page->get_renderer('core');
 
         $up3 = new user_picture($user3);
-        $this->assertSame($CFG->wwwroot.'/theme/image.php?theme=clean&component=core&rev=1&image=u%2Ff2', $up3->get_url($page, $renderer)->out(false));
+        $this->assertSame($CFG->wwwroot.'/theme/image.php?theme=classic&component=core&rev=1&image=u%2Ff2', $up3->get_url($page, $renderer)->out(false));
     }
 
     public function test_empty_menu() {
@@ -312,7 +349,7 @@ EOF;
         $itemurl = $item->get_url();
         $this->assertTrue($itemurl instanceof moodle_url);
         $this->assertEquals('http://moodle.org', $itemurl->out());
-        $this->assertEquals($item->get_text(), $item->get_title()); // Implicit title.
+        $this->assertNull($item->get_title()); // Implicit title.
 
         /** @var custom_menu_item $item */
         $item = array_shift($firstlevel);
@@ -433,5 +470,227 @@ EOF;
 
         $this->assertEquals($expecteda, $pbara->pagelinks);
         $this->assertEquals($expectedb, $pbarb->pagelinks);
+    }
+
+    public function test_pix_icon() {
+        $this->resetAfterTest();
+
+        $page = new moodle_page();
+
+        set_config('theme', 'boost');
+        // Need to reset after changing theme.
+        $page->reset_theme_and_output();
+        $renderer = $page->get_renderer('core');
+
+        $reason = 'An icon with no alt text is hidden from screenreaders.';
+        $this->assertStringContainsString('aria-hidden="true"', $renderer->pix_icon('t/print', ''), $reason);
+
+        $reason = 'An icon with alt text is not hidden from screenreaders.';
+        $this->assertStringNotContainsString('aria-hidden="true"', $renderer->pix_icon('t/print', 'Print'), $reason);
+
+        // Test another theme with a different icon system.
+        set_config('theme', 'classic');
+        // Need to reset after changing theme.
+        $page->reset_theme_and_output();
+        $renderer = $page->get_renderer('core');
+
+        $reason = 'An icon with no alt text is hidden from screenreaders.';
+        $this->assertStringContainsString('aria-hidden="true"', $renderer->pix_icon('t/print', ''), $reason);
+
+        $reason = 'An icon with alt text is not hidden from screenreaders.';
+        $this->assertStringNotContainsString('aria-hidden="true"', $renderer->pix_icon('t/print', 'Print'), $reason);
+    }
+
+    /**
+     * Test for checking the template context data for the single_select element.
+     */
+    public function test_single_select() {
+        global $PAGE;
+
+        $fakename = 'fakename';
+        $fakeclass = 'fakeclass';
+        $faketitle = 'faketitle';
+        $fakedisabled = true;
+        $fakefor = 'fakefor';
+
+        $someid = 'someid';
+        $realname = 'realname';
+        $realclass = 'realclass';
+        $realtitle = 'realtitle';
+        $realdisabled = false;
+        $reallabel = 'Some cool label';
+        $labelclass = 'somelabelclass';
+        $labelstyle = 'font-weight: bold';
+
+        $dataaction = 'actiondata';
+        $dataother = 'otherdata';
+
+        $attributes = [
+            'id' => $someid,
+            'class' => $fakeclass,
+            'title' => $faketitle,
+            'disabled' => $fakedisabled,
+            'name' => $fakename,
+            'data-action' => $dataaction,
+            'data-other' => $dataother,
+        ];
+        $labelattributes = [
+            'for' => $fakefor,
+            'class' => $labelclass,
+            'style' => $labelstyle
+        ];
+
+        $options = [ "Option A", "Option B", "Option C" ];
+        $nothing = ['' => 'choosedots'];
+
+        $url = new moodle_url('/');
+
+        $singleselect = new single_select($url, $realname, $options, null, $nothing, 'someformid');
+        $singleselect->class = $realclass;
+        $singleselect->tooltip = $realtitle;
+        $singleselect->disabled = $realdisabled;
+        $singleselect->attributes = $attributes;
+        $singleselect->label = $reallabel;
+        $singleselect->labelattributes = $labelattributes;
+
+        $renderer = $PAGE->get_renderer('core');
+        $data = $singleselect->export_for_template($renderer);
+
+        $this->assertEquals($realtitle, $data->title);
+        $this->assertEquals($singleselect->class, $data->classes);
+        $this->assertEquals($realname, $data->name);
+        $this->assertEquals($reallabel, $data->label);
+        $this->assertEquals($realdisabled, $data->disabled);
+        $this->assertEquals($someid, $data->id);
+
+        // Validate attributes array.
+        // The following should not be included: id, class, name, disabled.
+        $this->assertFalse(in_array(['name' => 'id', 'value' => $someid], $data->attributes));
+        $this->assertFalse(in_array(['name' => 'class', 'value' => $fakeclass], $data->attributes));
+        $this->assertFalse(in_array(['name' => 'name', 'value' => $fakeclass], $data->attributes));
+        $this->assertFalse(in_array(['name' => 'disabled', 'value' => $fakedisabled], $data->attributes));
+        // The rest should be fine.
+        $this->assertTrue(in_array(['name' => 'data-action', 'value' => $dataaction], $data->attributes));
+        $this->assertTrue(in_array(['name' => 'data-other', 'value' => $dataother], $data->attributes));
+
+        // Validate label attributes.
+        // The for attribute should not be included.
+        $this->assertFalse(in_array(['name' => 'for', 'value' => $someid], $data->labelattributes));
+        // The rest should be fine.
+        $this->assertTrue(in_array(['name' => 'class', 'value' => $labelclass], $data->labelattributes));
+        $this->assertTrue(in_array(['name' => 'style', 'value' => $labelstyle], $data->labelattributes));
+    }
+
+    /**
+     * Test for checking the template context data for the url_select element.
+     */
+    public function test_url_select() {
+        global $PAGE;
+
+        $fakename = 'fakename';
+        $fakeclass = 'fakeclass';
+        $faketitle = 'faketitle';
+        $fakedisabled = true;
+        $fakefor = 'fakefor';
+
+        $someid = 'someid';
+        $realclass = 'realclass';
+        $realtitle = 'realtitle';
+        $realdisabled = false;
+        $reallabel = 'Some cool label';
+        $labelclass = 'somelabelclass';
+        $labelstyle = 'font-weight: bold';
+
+        $dataaction = 'actiondata';
+        $dataother = 'otherdata';
+
+        $attributes = [
+            'id' => $someid,
+            'class' => $fakeclass,
+            'title' => $faketitle,
+            'disabled' => $fakedisabled,
+            'name' => $fakename,
+            'data-action' => $dataaction,
+            'data-other' => $dataother,
+        ];
+        $labelattributes = [
+            'for' => $fakefor,
+            'class' => $labelclass,
+            'style' => $labelstyle
+        ];
+
+        $url1 = new moodle_url("/#a");
+        $url2 = new moodle_url("/#b");
+        $url3 = new moodle_url("/#c");
+
+        $urls = [
+            $url1->out() => 'A',
+            $url2->out() => 'B',
+            $url3->out() => 'C',
+        ];
+        $nothing = ['' => 'choosedots'];
+
+        $urlselect = new url_select($urls, null, $nothing, 'someformid');
+        $urlselect->class = $realclass;
+        $urlselect->tooltip = $realtitle;
+        $urlselect->disabled = $realdisabled;
+        $urlselect->attributes = $attributes;
+        $urlselect->label = $reallabel;
+        $urlselect->labelattributes = $labelattributes;
+
+        $renderer = $PAGE->get_renderer('core');
+        $data = $urlselect->export_for_template($renderer);
+
+        $this->assertEquals($realtitle, $data->title);
+        $this->assertEquals($urlselect->class, $data->classes);
+        $this->assertEquals($reallabel, $data->label);
+        $this->assertEquals($realdisabled, $data->disabled);
+        $this->assertEquals($someid, $data->id);
+
+        // Validate attributes array.
+        // The following should not be included: id, class, name, disabled.
+        $this->assertFalse(in_array(['name' => 'id', 'value' => $someid], $data->attributes));
+        $this->assertFalse(in_array(['name' => 'class', 'value' => $fakeclass], $data->attributes));
+        $this->assertFalse(in_array(['name' => 'name', 'value' => $fakeclass], $data->attributes));
+        $this->assertFalse(in_array(['name' => 'disabled', 'value' => $fakedisabled], $data->attributes));
+        // The rest should be fine.
+        $this->assertTrue(in_array(['name' => 'data-action', 'value' => $dataaction], $data->attributes));
+        $this->assertTrue(in_array(['name' => 'data-other', 'value' => $dataother], $data->attributes));
+
+        // Validate label attributes.
+        // The for attribute should not be included.
+        $this->assertFalse(in_array(['name' => 'for', 'value' => $someid], $data->labelattributes));
+        // The rest should be fine.
+        $this->assertTrue(in_array(['name' => 'class', 'value' => $labelclass], $data->labelattributes));
+        $this->assertTrue(in_array(['name' => 'style', 'value' => $labelstyle], $data->labelattributes));
+    }
+
+    /**
+     * Data provider for test_block_contents_is_fake().
+     *
+     * @return array
+     */
+    public function block_contents_is_fake_provider() {
+        return [
+            'Null' => [null, false],
+            'Not set' => [false, false],
+            'Fake' => ['_fake', true],
+            'Real block' => ['activity_modules', false],
+        ];
+    }
+
+    /**
+     * Test block_contents is_fake() method.
+     *
+     * @dataProvider block_contents_is_fake_provider
+     * @param mixed $value Value for the data-block attribute
+     * @param boolean $expected The expected result
+     */
+    public function test_block_contents_is_fake($value, $expected) {
+        $bc = new block_contents(array());
+        if ($value !== false) {
+            $bc->attributes['data-block'] = $value;
+        }
+        $this->assertEquals($expected, $bc->is_fake());
     }
 }

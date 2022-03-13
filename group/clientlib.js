@@ -97,7 +97,7 @@ function UpdatableMembersCombo(wwwRoot, courseId) {
                             var optionEl = document.createElement("option");
                             optionEl.setAttribute("value", roles[i].users[j].id);
                             optionEl.title = roles[i].users[j].name;
-                            optionEl.innerHTML = roles[i].users[j].name;
+                            optionEl.innerHTML = Y.Escape.html(roles[i].users[j].name);
                             optgroupEl.appendChild(optionEl);
                         }
                         selectEl.appendChild(optgroupEl);
@@ -208,7 +208,9 @@ var removeLoaderImgs = function (elClass, parentId) {
     var parentEl = document.getElementById(parentId);
     if (parentEl) {
         var loader = document.getElementById("loaderImg");
-        parentEl.removeChild(loader);
+        if (loader) {
+            parentEl.removeChild(loader);
+        }
     }
 };
 

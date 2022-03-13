@@ -323,14 +323,18 @@ class cache_config {
      * @throws cache_exception
      */
     protected function include_configuration() {
-        $configuration = array();
+        $configuration = null;
         // We need to allow for late static bindings to allow for class path mudling happending for unit tests.
         $cachefile = static::get_config_file_path();
 
         if (!file_exists($cachefile)) {
             throw new cache_exception('Default cache config could not be found. It should have already been created by now.');
         }
-        include($cachefile);
+
+        if (!include($cachefile)) {
+            throw new cache_exception('Unable to load the cache configuration file');
+        }
+
         if (!is_array($configuration)) {
             throw new cache_exception('Invalid cache configuration file');
         }

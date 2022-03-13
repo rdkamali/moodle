@@ -74,11 +74,8 @@ foreach ($modinfo->cms as $cm) {
     if (!in_array($cm->modname, $availableresources)) {
         continue;
     }
-    if (!$cm->uservisible) {
-        continue;
-    }
-    if (!$cm->has_view()) {
-        // Exclude label and similar
+    // Exclude activities that aren't visible or have no view link (e.g. label). Account for folder being displayed inline.
+    if (!$cm->uservisible || (!$cm->has_view() && strcmp($cm->modname, 'folder') !== 0)) {
         continue;
     }
     $cms[$cm->id] = $cm;
@@ -134,15 +131,17 @@ foreach ($cms as $cm) {
     $icon = '<img src="'.$cm->get_icon_url().'" class="activityicon" alt="'.$cm->get_module_type_name().'" /> ';
 
     if (isset($resource->intro) && isset($resource->introformat)) {
-        $intro = format_module_intro('resource', $resource, $cm->id);
+        $intro = format_module_intro($cm->modname, $resource, $cm->id);
     } else {
         $intro = '';
     }
 
     $class = $cm->visible ? '' : 'class="dimmed"'; // hidden modules are dimmed
+    $url = $cm->url ?: new moodle_url("/mod/{$cm->modname}/view.php", ['id' => $cm->id]);
+
     $table->data[] = array (
         $printsection,
-        "<a $class $extra href=\"".$cm->url."\">".$icon.$cm->get_formatted_name()."</a>",
+        "<a $class $extra href=\"" . $url ."\">" . $icon . $cm->get_formatted_name() . "</a>",
         $intro);
 }
 

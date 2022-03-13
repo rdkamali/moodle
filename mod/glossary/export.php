@@ -50,20 +50,20 @@ $PAGE->set_url('/mod/glossary/export.php', array('id'=>$cm->id));
 $PAGE->navbar->add($strexportentries);
 $PAGE->set_title($glossary->name);
 $PAGE->set_heading($course->fullname);
+$PAGE->set_secondary_active_tab('modulepage');
+$PAGE->activityheader->disable();
 
 echo $OUTPUT->header();
+$backlink = html_writer::link(new moodle_url('view.php', ['id' => $cm->id]),
+    get_string('back'), ['class' => 'btn btn-secondary']);
+echo html_writer::tag('div', $backlink, ['class' => 'tertiary-navigation']);
 echo $OUTPUT->heading($strexportentries);
 echo $OUTPUT->box_start('glossarydisplay generalbox');
 $exporturl = moodle_url::make_pluginfile_url($context->id, 'mod_glossary', 'export', 0, "/$cat/", 'export.xml', true);
 
 ?>
     <form action="<?php echo $exporturl->out(); ?>" method="post">
-    <table border="0" cellpadding="6" cellspacing="6" width="100%">
-    <tr><td align="center">
-        <input type="submit" value="<?php p($strexportfile)?>" />
-    </td></tr></table>
-    <div>
-    </div>
+        <input class="btn btn-primary" type="submit" value="<?php p($strexportfile)?>" />
     </form>
 <?php
     // don't need cap check here, we share with the general export.

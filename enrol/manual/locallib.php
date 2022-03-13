@@ -270,6 +270,8 @@ class enrol_manual_editselectedusers_operation extends enrol_bulk_enrolment_oper
                     $event->trigger();
                 }
             }
+            // Delete cached course contacts for this course because they may be affected.
+            cache::make('core', 'coursecontacts')->delete($manager->get_context()->instanceid);
             return true;
         }
 
@@ -348,19 +350,23 @@ class enrol_manual_deleteselectedusers_operation extends enrol_bulk_enrolment_op
      * @param stdClass $properties The data returned by the form.
      */
     public function process(course_enrolment_manager $manager, array $users, stdClass $properties) {
-        global $DB;
-
         if (!has_capability("enrol/manual:unenrol", $manager->get_context())) {
             return false;
         }
+        $counter = 0;
         foreach ($users as $user) {
             foreach ($user->enrolments as $enrolment) {
                 $plugin = $enrolment->enrolmentplugin;
                 $instance = $enrolment->enrolmentinstance;
                 if ($plugin->allow_unenrol_user($instance, $enrolment)) {
                     $plugin->unenrol_user($instance, $user->id);
+                    $counter++;
                 }
             }
+        }
+        // Display a notification message after the bulk user unenrollment.
+        if ($counter > 0) {
+            \core\notification::info(get_string('totalunenrolledusers', 'enrol', $counter));
         }
         return true;
     }

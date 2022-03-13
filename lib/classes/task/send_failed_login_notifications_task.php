@@ -115,8 +115,10 @@ class send_failed_login_notifications_task extends scheduled_task {
 
         // Now, select all the login error logged records belonging to the ips and infos
         // since lastnotifyfailure, that we have stored in the cache_flags table.
+        $userfieldsapi = \core_user\fields::for_name();
+        $namefields = $userfieldsapi->get_sql('u', false, '', '', false)->selects;
         $sql = "SELECT * FROM (
-                        SELECT l.*, u.username
+                        SELECT l.*, u.username, $namefields
                           FROM {" . $logtable . "} l
                           JOIN {cache_flags} cf ON l.ip = cf.name
                      LEFT JOIN {user} u         ON l.userid = u.id
@@ -124,7 +126,7 @@ class send_failed_login_notifications_task extends scheduled_task {
                                AND l.timecreated > ?
                                AND cf.flagtype = 'login_failure_by_ip'
                     UNION ALL
-                        SELECT l.*, u.username
+                        SELECT l.*, u.username, $namefields
                           FROM {" . $logtable . "} l
                           JOIN {cache_flags} cf ON l.userid = " . $DB->sql_cast_char2int('cf.name') . "
                      LEFT JOIN {user} u         ON l.userid = u.id
@@ -144,10 +146,12 @@ class send_failed_login_notifications_task extends scheduled_task {
             $a->time = userdate($log->timecreated);
             if (empty($log->username)) {
                 // Entries with no valid username. We get attempted username from the event's other field.
-                $other = unserialize($log->other);
+                $other = \tool_log\helper\reader::decode_other($log->other);
                 $a->info = empty($other['username']) ? '' : $other['username'];
+                $a->name = get_string('unknownuser');
             } else {
                 $a->info = $log->username;
+                $a->name = fullname($log);
             }
             $a->ip = $log->ip;
             $messages .= get_string('notifyloginfailuresmessage', '', $a)."\n";
@@ -171,7 +175,7 @@ class send_failed_login_notifications_task extends scheduled_task {
             mtrace('Emailing admins about '. $count .' failed login attempts');
             foreach ($recip as $admin) {
                 // Emailing the admins directly rather than putting these through the messaging system.
-                email_to_user($admin, \core_user::get_support_user(), $subject, $body);
+                email_to_user($admin, \core_user::get_noreply_user(), $subject, $body);
             }
         }
 

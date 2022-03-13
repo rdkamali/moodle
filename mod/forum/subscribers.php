@@ -34,9 +34,13 @@ $url = new moodle_url('/mod/forum/subscribers.php', array('id'=>$id));
 if ($group !== 0) {
     $url->param('group', $group);
 }
-if ($edit !== 0) {
-    $url->param('edit', $edit);
+
+if ($edit === 1) {
+    $url->param('edit', 'on');
+} else {
+    $url->param('edit', 'off');
 }
+
 $PAGE->set_url($url);
 
 $forum = $DB->get_record('forum', array('id'=>$id), '*', MUST_EXIST);
@@ -97,26 +101,60 @@ if (data_submitted()) {
 }
 
 $strsubscribers = get_string("subscribers", "forum");
-$PAGE->navbar->add($strsubscribers);
+$PAGE->navbar->add($strsubscribers, $url);
 $PAGE->set_title($strsubscribers);
 $PAGE->set_heading($COURSE->fullname);
-if (has_capability('mod/forum:managesubscriptions', $context)) {
-    if ($edit != -1) {
-        $USER->subscriptionsediting = $edit;
-    }
-    $PAGE->set_button(forum_update_subscriptions_button($course->id, $id));
-} else {
-    unset($USER->subscriptionsediting);
-}
+
+// Activate the secondary nav tab.
+$PAGE->set_secondary_active_tab("forumsubscriptions");
+
+// Output starts from here.
+$actionbar = new \mod_forum\output\subscription_actionbar($id, $url, $forum, $edit);
+$PAGE->activityheader->disable();
 echo $OUTPUT->header();
-echo $OUTPUT->heading(get_string('forum', 'forum').' '.$strsubscribers);
-if (empty($USER->subscriptionsediting)) {
-    $subscribers = \mod_forum\subscriptions::fetch_subscribed_users($forum, $currentgroup, $context);
-    echo $forumoutput->subscriber_overview($subscribers, $forum, $course);
-} else if (\mod_forum\subscriptions::is_forcesubscribed($forum)) {
-    $subscriberselector->set_force_subscribed(true);
-    echo $forumoutput->subscribed_users($subscriberselector);
-} else {
-    echo $forumoutput->subscriber_selection_form($existingselector, $subscriberselector);
+if (!$PAGE->has_secondary_navigation()) {
+    echo $OUTPUT->heading(get_string('forum', 'forum') . ' ' . $strsubscribers);
 }
+echo $forumoutput->subscription_actionbar($actionbar);
+
+if ($edit === 1 && !\mod_forum\subscriptions::is_forcesubscribed($forum)) {
+    echo $OUTPUT->heading(get_string('managesubscriptionson', 'forum'), 2);
+    echo $forumoutput->subscriber_selection_form($existingselector, $subscriberselector);
+} else {
+    echo $OUTPUT->heading(get_string('subscribers', 'forum'), 2);
+    $subscribers = \mod_forum\subscriptions::fetch_subscribed_users($forum, $currentgroup, $context);
+    if (\mod_forum\subscriptions::is_forcesubscribed($forum)) {
+        $subscribers = mod_forum_filter_hidden_users($cm, $context, $subscribers);
+    }
+    echo $forumoutput->subscriber_overview($subscribers, $forum, $course);
+}
+
 echo $OUTPUT->footer();
+
+/**
+ * Filters a list of users for whether they can see a given activity.
+ * If the course module is hidden (closed-eye icon), then only users who have
+ * the permission to view hidden activities will appear in the output list.
+ *
+ * @todo MDL-48625 This filtering should be handled in core libraries instead.
+ *
+ * @param stdClass $cm the course module record of the activity.
+ * @param context_module $context the activity context, to save re-fetching it.
+ * @param array $users the list of users to filter.
+ * @return array the filtered list of users.
+ */
+function mod_forum_filter_hidden_users(stdClass $cm, context_module $context, array $users) {
+    if ($cm->visible) {
+        return $users;
+    } else {
+        // Filter for users that can view hidden activities.
+        $filteredusers = array();
+        $hiddenviewers = get_users_by_capability($context, 'moodle/course:viewhiddenactivities');
+        foreach ($hiddenviewers as $hiddenviewer) {
+            if (array_key_exists($hiddenviewer->id, $users)) {
+                $filteredusers[$hiddenviewer->id] = $users[$hiddenviewer->id];
+            }
+        }
+        return $filteredusers;
+    }
+}

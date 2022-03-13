@@ -53,6 +53,10 @@ abstract class base {
     public $versiondb;
     /** @var int|float|string required version of Moodle core  */
     public $versionrequires;
+    /** @var array explicitly supported branches of Moodle core  */
+    public $pluginsupported;
+    /** @var int first incompatible branch of Moodle core  */
+    public $pluginincompatible;
     /** @var mixed human-readable release information */
     public $release;
     /** @var array other plugins that this one depends on, lazy-loaded by {@link get_other_required_plugins()} */
@@ -61,8 +65,11 @@ abstract class base {
     public $instances;
     /** @var int order of the plugin among other plugins of the same type - not supported yet */
     public $sortorder;
+    /** @var core_plugin_manager the plugin manager this plugin info is part of */
+    public $pluginman;
+
     /** @var array|null array of {@link \core\update\info} for this plugin */
-    public $availableupdates;
+    protected $availableupdates;
 
     /**
      * Finds all enabled plugins, the result may include missing plugins.
@@ -73,26 +80,55 @@ abstract class base {
     }
 
     /**
+     * Enable or disable a plugin.
+     * When possible, the change will be stored into the config_log table, to let admins check when/who has modified it.
+     *
+     * @param string $pluginname The plugin name to enable/disable.
+     * @param int $enabled Whether the pluginname should be enabled (1) or not (0). This is an integer because some plugins, such
+     * as filters or repositories, might support more statuses than just enabled/disabled.
+     *
+     * @return bool Whether $pluginname has been updated or not.
+     */
+    public static function enable_plugin(string $pluginname, int $enabled): bool {
+        return false;
+    }
+
+    /**
+     * Returns current status for a pluginname.
+     *
+     * @param string $pluginname The plugin name to check.
+     * @return int The current status (enabled, disabled...) of $pluginname.
+     */
+    public static function get_enabled_plugin(string $pluginname): int {
+        $enabledplugins = static::get_enabled_plugins();
+        $value = $enabledplugins && array_key_exists($pluginname, $enabledplugins);
+        return (int) $value;
+    }
+
+    /**
      * Gathers and returns the information about all plugins of the given type,
      * either on disk or previously installed.
+     *
+     * This is supposed to be used exclusively by the plugin manager when it is
+     * populating its tree of plugins.
      *
      * @param string $type the name of the plugintype, eg. mod, auth or workshopform
      * @param string $typerootdir full path to the location of the plugin dir
      * @param string $typeclass the name of the actually called class
+     * @param core_plugin_manager $pluginman the plugin manager calling this method
      * @return array of plugintype classes, indexed by the plugin name
      */
-    public static function get_plugins($type, $typerootdir, $typeclass) {
+    public static function get_plugins($type, $typerootdir, $typeclass, $pluginman) {
         // Get the information about plugins at the disk.
         $plugins = core_component::get_plugin_list($type);
         $return = array();
         foreach ($plugins as $pluginname => $pluginrootdir) {
             $return[$pluginname] = self::make_plugin_instance($type, $typerootdir,
-                $pluginname, $pluginrootdir, $typeclass);
+                $pluginname, $pluginrootdir, $typeclass, $pluginman);
         }
 
         // Fetch missing incorrectly uninstalled plugins.
-        $manager = core_plugin_manager::instance();
-        $plugins = $manager->get_installed_plugins($type);
+        $plugins = $pluginman->get_installed_plugins($type);
 
         foreach ($plugins as $name => $version) {
             if (isset($return[$name])) {
@@ -105,6 +141,7 @@ abstract class base {
             $plugin->rootdir     = null;
             $plugin->displayname = $name;
             $plugin->versiondb   = $version;
+            $plugin->pluginman   = $pluginman;
             $plugin->init_is_standard();
 
             $return[$name] = $plugin;
@@ -121,14 +158,16 @@ abstract class base {
      * @param string $name the plugin name, eg. 'workshop'
      * @param string $namerootdir full path to the location of the plugin
      * @param string $typeclass the name of class that holds the info about the plugin
+     * @param core_plugin_manager $pluginman the plugin manager of the new instance
      * @return base the instance of $typeclass
      */
-    protected static function make_plugin_instance($type, $typerootdir, $name, $namerootdir, $typeclass) {
+    protected static function make_plugin_instance($type, $typerootdir, $name, $namerootdir, $typeclass, $pluginman) {
         $plugin              = new $typeclass();
         $plugin->type        = $type;
         $plugin->typerootdir = $typerootdir;
         $plugin->name        = $name;
         $plugin->rootdir     = $namerootdir;
+        $plugin->pluginman   = $pluginman;
 
         $plugin->init_display_name();
         $plugin->load_disk_version();
@@ -147,10 +186,8 @@ abstract class base {
             return false;
         }
         if ($this->versiondb === null and $this->versiondisk === null) {
-            // There is no version.php or version info inside,
-            // for now let's pretend it is ok.
-            // TODO: return false once we require version in each plugin.
-            return true;
+            // There is no version.php or version info inside it.
+            return false;
         }
 
         return ((float)$this->versiondb === (float)$this->versiondisk);
@@ -207,10 +244,12 @@ abstract class base {
      * data) or is missing from disk.
      */
     public function load_disk_version() {
-        $versions = core_plugin_manager::instance()->get_present_plugins($this->type);
+        $versions = $this->pluginman->get_present_plugins($this->type);
 
         $this->versiondisk = null;
         $this->versionrequires = null;
+        $this->pluginsupported = null;
+        $this->pluginincompatible = null;
         $this->dependencies = array();
 
         if (!isset($versions[$this->name])) {
@@ -231,6 +270,28 @@ abstract class base {
         if (isset($plugin->dependencies)) {
             $this->dependencies = $plugin->dependencies;
         }
+
+        // Check that supports and incompatible are wellformed, exception otherwise.
+        if (isset($plugin->supported)) {
+            // Checks for structure of supported.
+            $isint = (is_int($plugin->supported[0]) && is_int($plugin->supported[1]));
+            $isrange = ($plugin->supported[0] <= $plugin->supported[1] && count($plugin->supported) == 2);
+
+            if (is_array($plugin->supported) && $isint && $isrange) {
+                $this->pluginsupported = $plugin->supported;
+            } else {
+                throw new coding_exception('Incorrect syntax in plugin supported declaration in '."$this->name");
+            }
+        }
+
+        if (isset($plugin->incompatible) && $plugin->incompatible !== null) {
+            if ((ctype_digit($plugin->incompatible) || is_int($plugin->incompatible)) && (int) $plugin->incompatible > 0) {
+                $this->pluginincompatible = intval($plugin->incompatible);
+            } else {
+                throw new coding_exception('Incorrect syntax in plugin incompatible declaration in '."$this->name");
+            }
+        }
+
     }
 
     /**
@@ -261,7 +322,7 @@ abstract class base {
      * @return string|bool false if not a subplugin, name of the parent otherwise
      */
     public function get_parent_plugin() {
-        return $this->get_plugin_manager()->get_parent_of_subplugin($this->type);
+        return $this->pluginman->get_parent_of_subplugin($this->type);
     }
 
     /**
@@ -273,7 +334,7 @@ abstract class base {
      * data) or has not been installed yet.
      */
     public function load_db_version() {
-        $versions = core_plugin_manager::instance()->get_installed_plugins($this->type);
+        $versions = $this->pluginman->get_installed_plugins($this->type);
 
         if (isset($versions[$this->name])) {
             $this->versiondb = $versions[$this->name];
@@ -292,14 +353,15 @@ abstract class base {
      */
     public function init_is_standard() {
 
-        $standard = core_plugin_manager::standard_plugins_list($this->type);
+        $pluginman = $this->pluginman;
+        $standard = $pluginman::standard_plugins_list($this->type);
 
         if ($standard !== false) {
             $standard = array_flip($standard);
             if (isset($standard[$this->name])) {
                 $this->source = core_plugin_manager::PLUGIN_SOURCE_STANDARD;
             } else if (!is_null($this->versiondb) and is_null($this->versiondisk)
-                and core_plugin_manager::is_deleted_standard_plugin($this->type, $this->name)) {
+                and $pluginman::is_deleted_standard_plugin($this->type, $this->name)) {
                 $this->source = core_plugin_manager::PLUGIN_SOURCE_STANDARD; // To be deleted.
             } else {
                 $this->source = core_plugin_manager::PLUGIN_SOURCE_EXTENSION;
@@ -334,11 +396,27 @@ abstract class base {
     }
 
     /**
+     * Returns true if the the given moodle branch is not stated incompatible with the plugin
+     *
+     * @param int $branch the moodle branch number
+     * @return bool true if not incompatible with moodle branch
+     */
+    public function is_core_compatible_satisfied(int $branch) : bool {
+        if (!empty($this->pluginincompatible) && ($branch >= $this->pluginincompatible)) {
+            return false;
+        } else {
+            return true;
+        }
+    }
+
+    /**
      * Returns the status of the plugin
      *
      * @return string one of core_plugin_manager::PLUGIN_STATUS_xxx constants
      */
     public function get_status() {
+
+        $pluginman = $this->pluginman;
 
         if (is_null($this->versiondb) and is_null($this->versiondisk)) {
             return core_plugin_manager::PLUGIN_STATUS_NODB;
@@ -347,7 +425,7 @@ abstract class base {
             return core_plugin_manager::PLUGIN_STATUS_NEW;
 
         } else if (!is_null($this->versiondb) and is_null($this->versiondisk)) {
-            if (core_plugin_manager::is_deleted_standard_plugin($this->type, $this->name)) {
+            if ($pluginman::is_deleted_standard_plugin($this->type, $this->name)) {
                 return core_plugin_manager::PLUGIN_STATUS_DELETE;
             } else {
                 return core_plugin_manager::PLUGIN_STATUS_MISSING;
@@ -386,7 +464,7 @@ abstract class base {
             return false;
         }
 
-        $enabled = core_plugin_manager::instance()->get_enabled_plugins($this->type);
+        $enabled = $this->pluginman->get_enabled_plugins($this->type);
 
         if (!is_array($enabled)) {
             return null;
@@ -396,37 +474,26 @@ abstract class base {
     }
 
     /**
-     * Populates the property {@link $availableupdates} with the information provided by
-     * available update checker
-     *
-     * @param \core\update\checker $provider the class providing the available update info
-     */
-    public function check_available_updates(\core\update\checker $provider) {
-        global $CFG;
-
-        if (isset($CFG->updateminmaturity)) {
-            $minmaturity = $CFG->updateminmaturity;
-        } else {
-            // This can happen during the very first upgrade to 2.3 .
-            $minmaturity = MATURITY_STABLE;
-        }
-
-        $this->availableupdates = $provider->get_update_info($this->component,
-            array('minmaturity' => $minmaturity));
-    }
-
-    /**
      * If there are updates for this plugin available, returns them.
      *
      * Returns array of {@link \core\update\info} objects, if some update
      * is available. Returns null if there is no update available or if the update
      * availability is unknown.
      *
+     * Populates the property {@link $availableupdates} on first call (lazy
+     * loading).
+     *
      * @return array|null
      */
     public function available_updates() {
 
+        if ($this->availableupdates === null) {
+            // Lazy load the information about available updates.
+            $this->availableupdates = $this->pluginman->load_available_updates_for_plugin($this->component);
+        }
+
         if (empty($this->availableupdates) or !is_array($this->availableupdates)) {
+            $this->availableupdates = array();
             return null;
         }
 
@@ -462,19 +529,18 @@ abstract class base {
      *
      * @return null|moodle_url
      */
-    public function get_settings_url() {
+    public function get_settings_url(): ?moodle_url {
         $section = $this->get_settings_section_name();
         if ($section === null) {
             return null;
         }
+
         $settings = admin_get_root()->locate($section);
-        if ($settings && $settings instanceof \admin_settingpage) {
-            return new moodle_url('/admin/settings.php', array('section' => $section));
-        } else if ($settings && $settings instanceof \admin_externalpage) {
-            return new moodle_url($settings->url);
-        } else {
-            return null;
+        if ($settings && $settings instanceof \core_admin\local\settings\linkable_settings_page) {
+            return $settings->get_settings_page_url();
         }
+
+        return null;
     }
 
     /**
@@ -580,19 +646,9 @@ abstract class base {
      */
     public final function get_default_uninstall_url($return = 'overview') {
         return new moodle_url('/admin/plugins.php', array(
-            'sesskey' => sesskey(),
             'uninstall' => $this->component,
             'confirm' => 0,
             'return' => $return,
         ));
-    }
-
-    /**
-     * Provides access to the core_plugin_manager singleton.
-     *
-     * @return core_plugin_manager
-     */
-    protected function get_plugin_manager() {
-        return core_plugin_manager::instance();
     }
 }

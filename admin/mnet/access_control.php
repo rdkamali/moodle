@@ -2,7 +2,7 @@
 
 // Allows the admin to control user logins from remote moodles.
 
-require_once dirname(dirname(dirname(__FILE__))) . '/config.php';
+require_once(__DIR__ . '/../../config.php');
 require_once($CFG->libdir.'/adminlib.php');
 include_once($CFG->dirroot.'/mnet/lib.php');
 
@@ -11,8 +11,6 @@ $dir          = optional_param('dir', 'ASC', PARAM_ALPHA);
 $page         = optional_param('page', 0, PARAM_INT);
 $perpage      = optional_param('perpage', 30, PARAM_INT);
 $action       = trim(strtolower(optional_param('action', '', PARAM_ALPHA)));
-
-require_login();
 
 admin_externalpage_setup('ssoaccesscontrol');
 
@@ -119,6 +117,7 @@ if ($form = data_submitted() and confirm_sesskey()) {
 }
 
 echo $OUTPUT->header();
+echo $OUTPUT->render(mnet_get_deprecation_notice());
 
 // Explain
 echo $OUTPUT->box(get_string('ssoacldescr','mnet'));
@@ -150,7 +149,7 @@ foreach ($columns as $column) {
     } else {
         $columndir = $dir == "ASC" ? "DESC" : "ASC";
         $columnicon = $dir == "ASC" ? "down" : "up";
-        $columnicon = " <img src=\"" . $OUTPUT->pix_url('t/' . $columnicon) . "\" alt=\"\" />";
+        $columnicon = " " . $OUTPUT->pix_icon('t/' . $columnicon, get_string('sort'));
     }
     $headings[$column] = "<a href=\"?sort=$column&amp;dir=$columndir&amp;\">".$string[$column]."</a>$columnicon";
 }

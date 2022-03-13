@@ -33,8 +33,10 @@ require_once($CFG->libdir . '/outputlib.php');
  *
  * @copyright 2012 Sam Hemelryk
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @covers \theme_config
+ * @coversDefaultClass \theme_config
  */
-class core_theme_config_testcase extends advanced_testcase {
+class theme_config_test extends advanced_testcase {
     /**
      * This function will test directives used to serve SVG images to make sure
      * this are making the right decisions.
@@ -129,6 +131,8 @@ class core_theme_config_testcase extends advanced_testcase {
 
     /**
      * This function will test custom device detection regular expression setting.
+     *
+     * @covers \core_useragent
      */
     public function test_devicedetectregex() {
         global $CFG;
@@ -152,5 +156,79 @@ class core_theme_config_testcase extends advanced_testcase {
         core_useragent::instance(true); // Clears singleton cache.
         $this->assertTrue(core_useragent::set_user_device_type('tablet'));
         $this->assertTrue(core_useragent::set_user_device_type('featurephone'));
+    }
+
+    /**
+     * Confirm that the editor_css_url contains the theme revision and the
+     * theme subrevision if not in theme designer mode.
+     */
+    public function test_editor_css_url_has_revision_and_subrevision() {
+        global $CFG;
+
+        $this->resetAfterTest();
+        $theme = theme_config::load(theme_config::DEFAULT_THEME);
+        $themename = $theme->name;
+        $themerevision = 1234;
+        $themesubrevision = 5678;
+
+        $CFG->themedesignermode = false;
+        $CFG->themerev = $themerevision;
+
+        theme_set_sub_revision_for_theme($themename, $themesubrevision);
+        $url = $theme->editor_css_url();
+
+        $this->assertMatchesRegularExpression("/{$themerevision}_{$themesubrevision}/", $url->out(false));
+    }
+
+    /**
+     * Confirm that editor_scss_to_css is correctly compiling for themes with no parent.
+     */
+    public function test_editor_scss_to_css_root_theme() {
+        global $CFG;
+
+        $this->resetAfterTest();
+        $theme = theme_config::load('boost');
+        $editorscss = $CFG->dirroot.'/theme/boost/scss/editor.scss';
+
+        $this->assertTrue(file_exists($editorscss));
+        $compiler = new core_scss();
+        $compiler->set_file($editorscss);
+        $cssexpected = $compiler->to_css();
+        $cssactual = $theme->editor_scss_to_css();
+
+        $this->assertEquals($cssexpected, $cssactual);
+    }
+
+    /**
+     * Confirm that editor_scss_to_css is compiling for a child theme not overriding its parent's editor SCSS.
+     */
+    public function test_editor_scss_to_css_child_theme() {
+        global $CFG;
+
+        $this->resetAfterTest();
+        $theme = theme_config::load('classic');
+        $editorscss = $CFG->dirroot.'/theme/boost/scss/editor.scss';
+
+        $this->assertTrue(file_exists($editorscss));
+        $compiler = new core_scss();
+        $compiler->set_file($editorscss);
+        $cssexpected = $compiler->to_css();
+        $cssactual = $theme->editor_scss_to_css();
+
+        $this->assertEquals($cssexpected, $cssactual);
+    }
+
+    /**
+     * Test that {@see theme_config::get_all_block_regions()} returns localised list of region names.
+     *
+     * @covers ::get_all_block_regions
+     */
+    public function test_get_all_block_regions() {
+        $this->resetAfterTest();
+
+        $theme = theme_config::load(theme_config::DEFAULT_THEME);
+        $regions = $theme->get_all_block_regions();
+
+        $this->assertEquals('Right', $regions['side-pre']);
     }
 }

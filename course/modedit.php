@@ -31,7 +31,7 @@ require_once($CFG->libdir.'/completionlib.php');
 require_once($CFG->libdir.'/plagiarismlib.php');
 require_once($CFG->dirroot . '/course/modlib.php');
 
-$add    = optional_param('add', '', PARAM_ALPHA);     // module name
+$add    = optional_param('add', '', PARAM_ALPHANUM);     // Module name.
 $update = optional_param('update', 0, PARAM_INT);
 $return = optional_param('return', 0, PARAM_BOOL);    //return to course/view.php if false or mod/modname/view.php if true
 $type   = optional_param('type', '', PARAM_ALPHANUM); //TODO: hopefully will be removed in 2.0
@@ -60,48 +60,19 @@ if (!empty($add)) {
     // will be the closest match we have.
     navigation_node::override_active_url(course_get_url($course, $section));
 
-    list($module, $context, $cw) = can_add_moduleinfo($course, $add, $section);
-
-    $cm = null;
-
-    $data = new stdClass();
-    $data->section          = $section;  // The section number itself - relative!!! (section column in course_sections)
-    $data->visible          = $cw->visible;
-    $data->course           = $course->id;
-    $data->module           = $module->id;
-    $data->modulename       = $module->name;
-    $data->groupmode        = $course->groupmode;
-    $data->groupingid       = $course->defaultgroupingid;
-    $data->id               = '';
-    $data->instance         = '';
-    $data->coursemodule     = '';
-    $data->add              = $add;
-    $data->return           = 0; //must be false if this is an add, go back to course view on cancel
-    $data->sr               = $sectionreturn;
-
-    if (plugin_supports('mod', $data->modulename, FEATURE_MOD_INTRO, true)) {
-        $draftid_editor = file_get_submitted_draft_itemid('introeditor');
-        file_prepare_draft_area($draftid_editor, null, null, null, null, array('subdirs'=>true));
-        $data->introeditor = array('text'=>'', 'format'=>FORMAT_HTML, 'itemid'=>$draftid_editor); // TODO: add better default
+    // MDL-69431 Validate that $section (url param) does not exceed the maximum for this course / format.
+    // If too high (e.g. section *id* not number) non-sequential sections inserted in course_sections table.
+    // Then on import, backup fills 'gap' with empty sections (see restore_rebuild_course_cache). Avoid this.
+    $courseformat = course_get_format($course);
+    $maxsections = $courseformat->get_max_sections();
+    if ($section > $maxsections) {
+        print_error('maxsectionslimit', 'moodle', '', $maxsections);
     }
 
-    if (plugin_supports('mod', $data->modulename, FEATURE_ADVANCED_GRADING, false)
-            and has_capability('moodle/grade:managegradingforms', $context)) {
-        require_once($CFG->dirroot.'/grade/grading/lib.php');
-
-        $data->_advancedgradingdata['methods'] = grading_manager::available_methods();
-        $areas = grading_manager::available_areas('mod_'.$module->name);
-
-        foreach ($areas as $areaname => $areatitle) {
-            $data->_advancedgradingdata['areas'][$areaname] = array(
-                'title'  => $areatitle,
-                'method' => '',
-            );
-            $formfield = 'advancedgradingmethod_'.$areaname;
-            $data->{$formfield} = '';
-        }
-    }
-
+    list($module, $context, $cw, $cm, $data) = prepare_new_moduleinfo_data($course, $add, $section);
+    $data->return = 0;
+    $data->sr = $sectionreturn;
+    $data->add = $add;
     if (!empty($type)) { //TODO: hopefully will be removed in 2.0
         $data->type = $type;
     }
@@ -136,86 +107,10 @@ if (!empty($add)) {
     // require_login
     require_login($course, false, $cm); // needed to setup proper $COURSE
 
-    list($cm, $context, $module, $data, $cw) = can_update_moduleinfo($cm);
-
-    $data->coursemodule       = $cm->id;
-    $data->section            = $cw->section;  // The section number itself - relative!!! (section column in course_sections)
-    $data->visible            = $cm->visible; //??  $cw->visible ? $cm->visible : 0; // section hiding overrides
-    $data->cmidnumber         = $cm->idnumber;          // The cm IDnumber
-    $data->groupmode          = groups_get_activity_groupmode($cm); // locked later if forced
-    $data->groupingid         = $cm->groupingid;
-    $data->course             = $course->id;
-    $data->module             = $module->id;
-    $data->modulename         = $module->name;
-    $data->instance           = $cm->instance;
-    $data->return             = $return;
-    $data->sr                 = $sectionreturn;
-    $data->update             = $update;
-    $data->completion         = $cm->completion;
-    $data->completionview     = $cm->completionview;
-    $data->completionexpected = $cm->completionexpected;
-    $data->completionusegrade = is_null($cm->completiongradeitemnumber) ? 0 : 1;
-    $data->showdescription    = $cm->showdescription;
-    if (!empty($CFG->enableavailability)) {
-        $data->availabilityconditionsjson = $cm->availability;
-    }
-
-    if (plugin_supports('mod', $data->modulename, FEATURE_MOD_INTRO, true)) {
-        $draftid_editor = file_get_submitted_draft_itemid('introeditor');
-        $currentintro = file_prepare_draft_area($draftid_editor, $context->id, 'mod_'.$data->modulename, 'intro', 0, array('subdirs'=>true), $data->intro);
-        $data->introeditor = array('text'=>$currentintro, 'format'=>$data->introformat, 'itemid'=>$draftid_editor);
-    }
-
-    if (plugin_supports('mod', $data->modulename, FEATURE_ADVANCED_GRADING, false)
-            and has_capability('moodle/grade:managegradingforms', $context)) {
-        require_once($CFG->dirroot.'/grade/grading/lib.php');
-        $gradingman = get_grading_manager($context, 'mod_'.$data->modulename);
-        $data->_advancedgradingdata['methods'] = $gradingman->get_available_methods();
-        $areas = $gradingman->get_available_areas();
-
-        foreach ($areas as $areaname => $areatitle) {
-            $gradingman->set_area($areaname);
-            $method = $gradingman->get_active_method();
-            $data->_advancedgradingdata['areas'][$areaname] = array(
-                'title'  => $areatitle,
-                'method' => $method,
-            );
-            $formfield = 'advancedgradingmethod_'.$areaname;
-            $data->{$formfield} = $method;
-        }
-    }
-
-    if ($items = grade_item::fetch_all(array('itemtype'=>'mod', 'itemmodule'=>$data->modulename,
-                                             'iteminstance'=>$data->instance, 'courseid'=>$course->id))) {
-        // add existing outcomes
-        foreach ($items as $item) {
-            if (!empty($item->gradepass)) {
-                $decimalpoints = $item->get_decimals();
-                $data->gradepass = format_float($item->gradepass, $decimalpoints);
-            }
-            if (!empty($item->outcomeid)) {
-                $data->{'outcome_'.$item->outcomeid} = 1;
-            }
-        }
-
-        // set category if present
-        $gradecat = false;
-        foreach ($items as $item) {
-            if ($gradecat === false) {
-                $gradecat = $item->categoryid;
-                continue;
-            }
-            if ($gradecat != $item->categoryid) {
-                //mixed categories
-                $gradecat = false;
-                break;
-            }
-        }
-        if ($gradecat !== false) {
-            // do not set if mixed categories present
-            $data->gradecat = $gradecat;
-        }
-    }
+    list($cm, $context, $module, $data, $cw) = get_moduleinfo_data($cm, $course);
+    $data->return = $return;
+    $data->sr = $sectionreturn;
+    $data->update = $update;
 
     $sectionname = get_section_name($course, $cw);
     $fullmodulename = get_string('modulename', $module->name);
@@ -243,6 +138,8 @@ if (!empty($type)) { //TODO: hopefully will be removed in 2.0
 }
 $PAGE->set_pagetype($pagepath);
 $PAGE->set_pagelayout('admin');
+$PAGE->add_body_class('limitedwidth');
+
 
 $modmoodleform = "$CFG->dirroot/mod/$module->name/mod_form.php";
 if (file_exists($modmoodleform)) {
@@ -257,12 +154,16 @@ $mform->set_data($data);
 
 if ($mform->is_cancelled()) {
     if ($return && !empty($cm->id)) {
-        redirect("$CFG->wwwroot/mod/$module->name/view.php?id=$cm->id");
+        $urlparams = [
+            'id' => $cm->id, // We always need the activity id.
+            'forceview' => 1, // Stop file downloads in resources.
+        ];
+        $activityurl = new moodle_url("/mod/$module->name/view.php", $urlparams);
+        redirect($activityurl);
     } else {
         redirect(course_get_url($course, $cw->section, array('sr' => $sectionreturn)));
     }
 } else if ($fromform = $mform->get_data()) {
-
     if (!empty($fromform->update)) {
         list($cm, $fromform) = update_moduleinfo($cm, $fromform, $course, $mform);
     } else if (!empty($fromform->add)) {
@@ -272,11 +173,11 @@ if ($mform->is_cancelled()) {
     }
 
     if (isset($fromform->submitbutton)) {
+        $url = new moodle_url("/mod/$module->name/view.php", array('id' => $fromform->coursemodule, 'forceview' => 1));
         if (empty($fromform->showgradingmanagement)) {
-            redirect("$CFG->wwwroot/mod/$module->name/view.php?id=$fromform->coursemodule");
+            redirect($url);
         } else {
-            $returnurl = new moodle_url("/mod/$module->name/view.php", array('id' => $fromform->coursemodule));
-            redirect($fromform->gradingman->get_management_url($returnurl));
+            redirect($fromform->gradingman->get_management_url($url));
         }
     } else {
         redirect(course_get_url($course, $cw->section, array('sr' => $sectionreturn)));
@@ -301,6 +202,7 @@ if ($mform->is_cancelled()) {
     if (isset($navbaraddition)) {
         $PAGE->navbar->add($navbaraddition);
     }
+    $PAGE->activityheader->disable();
 
     echo $OUTPUT->header();
 

@@ -221,6 +221,11 @@ class block_base {
     public function get_content_for_output($output) {
         global $CFG;
 
+        // We can exit early if the current user doesn't have the capability to view the block.
+        if (!has_capability('moodle/block:view', $this->context)) {
+            return null;
+        }
+
         $bc = new block_contents($this->html_attributes());
         $bc->attributes['data-block'] = $this->name();
         $bc->blockinstanceid = $this->instance->id;
@@ -232,7 +237,7 @@ class block_base {
                 $bc->footer = $this->content->footer;
             }
         } else {
-            $bc->add_class('invisible');
+            $bc->add_class('invisibleblock');
         }
 
         if (!$this->hide_header()) {
@@ -244,7 +249,7 @@ class block_base {
             $this->arialabel = $bc->arialabel;
         }
 
-        if ($this->page->user_is_editing()) {
+        if ($this->page->user_is_editing() && $this->instance_can_be_edited()) {
             $bc->controls = $this->page->blocks->edit_controls($this);
         } else {
             // we must not use is_empty on hidden blocks
@@ -270,6 +275,54 @@ class block_base {
         $bc->annotation = ''; // TODO MDL-19398 need to work out what to say here.
 
         return $bc;
+    }
+
+
+    /**
+     * Return an object containing all the block content to be returned by external functions.
+     *
+     * If your block is returning formatted content or provide files for download, you should override this method to use the
+     * external_format_text, external_format_string functions for formatting or external_util::get_area_files for files.
+     *
+     * @param  core_renderer $output the rendered used for output
+     * @return stdClass      object containing the block title, central content, footer and linked files (if any).
+     * @since  Moodle 3.6
+     */
+    public function get_content_for_external($output) {
+        $bc = new stdClass;
+        $bc->title = null;
+        $bc->content = null;
+        $bc->contentformat = FORMAT_HTML;
+        $bc->footer = null;
+        $bc->files = [];
+
+        if ($this->instance->visible) {
+            $bc->content = $this->formatted_contents($output);
+            if (!empty($this->content->footer)) {
+                $bc->footer = $this->content->footer;
+            }
+        }
+
+        if (!$this->hide_header()) {
+            $bc->title = $this->title;
+        }
+
+        return $bc;
+    }
+
+    /**
+     * Return the plugin config settings for external functions.
+     *
+     * In some cases the configs will need formatting or be returned only if the current user has some capabilities enabled.
+     *
+     * @return stdClass the configs for both the block instance and plugin (as object with name -> value)
+     * @since Moodle 3.8
+     */
+    public function get_config_for_external() {
+        return (object) [
+            'instance' => new stdClass(),
+            'plugin' => new stdClass(),
+        ];
     }
 
     /**
@@ -344,16 +397,9 @@ class block_base {
      * You don't need to override this if you 're satisfied with the above
      *
      * @deprecated since Moodle 2.9 MDL-49385 - Please use Admin Settings functionality to save block configuration.
-     * @todo MDL-49553 This will be deleted in Moodle 3.1
-     * @param array $data
-     * @return boolean
      */
     function config_save($data) {
-        debugging('config_save($data) is deprecated, use Admin Settings functionality to save block configuration.', DEBUG_DEVELOPER);
-        foreach ($data as $name => $value) {
-            set_config($name, $value);
-        }
-        return true;
+        throw new coding_exception('config_save() can not be used any more, use Admin Settings functionality to save block configuration.');
     }
 
     /**
@@ -403,13 +449,13 @@ class block_base {
     function html_attributes() {
         $attributes = array(
             'id' => 'inst' . $this->instance->id,
-            'class' => 'block_' . $this->name(). '  block',
+            'class' => 'block_' . $this->name() . ' block',
             'role' => $this->get_aria_role()
         );
         if ($this->hide_header()) {
             $attributes['class'] .= ' no-header';
         }
-        if ($this->instance_can_be_docked() && get_user_preferences('docked_block_instance_'.$this->instance->id, 0)) {
+        if ($this->instance_can_be_docked() && get_user_preferences('docked_block_instance_' . $this->instance->id, 0)) {
             $attributes['class'] .= ' dock_on_load';
         }
         return $attributes;
@@ -424,7 +470,7 @@ class block_base {
      */
     function _load_instance($instance, $page) {
         if (!empty($instance->configdata)) {
-            $this->config = unserialize(base64_decode($instance->configdata));
+            $this->config = unserialize_object(base64_decode($instance->configdata));
         }
         $this->instance = $instance;
         $this->context = context_block::instance($instance->id);
@@ -436,11 +482,10 @@ class block_base {
      * Allows the block to load any JS it requires into the page.
      *
      * By default this function simply permits the user to dock the block if it is dockable.
+     *
+     * Left null as of MDL-64506.
      */
     function get_required_javascript() {
-        if ($this->instance_can_be_docked() && !$this->hide_header()) {
-            user_preference_allow_ajax_update('docked_block_instance_'.$this->instance->id, PARAM_INT);
-        }
     }
 
     /**
@@ -481,8 +526,8 @@ class block_base {
      */
     function instance_config_save($data, $nolongerused = false) {
         global $DB;
-        $DB->set_field('block_instances', 'configdata', base64_encode(serialize($data)),
-                array('id' => $this->instance->id));
+        $DB->update_record('block_instances', ['id' => $this->instance->id,
+                'configdata' => base64_encode(serialize($data)), 'timemodified' => time()]);
     }
 
     /**
@@ -498,6 +543,15 @@ class block_base {
      * @return boolean
      */
     function instance_create() {
+        return true;
+    }
+
+    /**
+     * Copy any block-specific data when copying to a new block instance.
+     * @param int $fromid the id number of the block instance to copy from
+     * @return boolean
+     */
+    public function instance_copy($fromid) {
         return true;
     }
 
@@ -543,16 +597,14 @@ class block_base {
      * @return boolean
      */
     function user_can_addto($page) {
-        global $USER;
+        // List of formats this block supports.
+        $formats = $this->applicable_formats();
 
         // The blocks in My Moodle are a special case and use a different capability.
-        if (!empty($USER->id)
-            && $page->context->contextlevel == CONTEXT_USER // Page belongs to a user
-            && $page->context->instanceid == $USER->id // Page belongs to this user
-            && $page->pagetype == 'my-index') { // Ensure we are on the My Moodle page
+        $mypagetypes = my_page_type_list($page->pagetype); // Get list of possible my page types.
 
+        if (array_key_exists($page->pagetype, $mypagetypes)) { // Ensure we are on a page with a my page type.
             // If the block cannot be displayed on /my it is ok if the myaddinstance capability is not defined.
-            $formats = $this->applicable_formats();
             // Is 'my' explicitly forbidden?
             // If 'all' has not been allowed, has 'my' been explicitly allowed?
             if ((isset($formats['my']) && $formats['my'] == false)
@@ -565,6 +617,12 @@ class block_base {
                 return $this->has_add_block_capability($page, $capability)
                        && has_capability('moodle/my:manageblocks', $page->context);
             }
+        }
+        // Check if this is a block only used on /my.
+        unset($formats['my']);
+        if (empty($formats)) {
+            // Block can only be added to /my - return false.
+            return false;
         }
 
         $capability = 'block/' . $this->name() . ':addinstance';
@@ -608,10 +666,11 @@ class block_base {
      * Can be overridden by the block to prevent the block from being dockable.
      *
      * @return bool
+     *
+     * Return false as per MDL-64506
      */
     public function instance_can_be_docked() {
-        global $CFG;
-        return (!empty($CFG->allowblockstodock) && $this->page->theme->enable_dock);
+        return false;
     }
 
     /**
@@ -630,6 +689,15 @@ class block_base {
      * @return bool
      */
     public function instance_can_be_collapsed() {
+        return true;
+    }
+
+    /**
+     * If overridden and set to false by the block it will not be editable.
+     *
+     * @return bool
+     */
+    public function instance_can_be_edited() {
         return true;
     }
 
@@ -678,6 +746,18 @@ EOD;
      */
     public function get_aria_role() {
         return 'complementary';
+    }
+
+    /**
+     * This method can be overriden to add some extra checks to decide whether the block can be added or not to a page.
+     * It doesn't need to do the standard capability checks as they will be performed by has_add_block_capability().
+     * This method is user agnostic. If you want to check if a user can add a block or not, you should use user_can_addto().
+     *
+     * @param moodle_page $page The page where this block will be added.
+     * @return bool Whether the block can be added or not to the given page.
+     */
+    public function can_block_be_added(moodle_page $page): bool {
+        return true;
     }
 }
 

@@ -24,7 +24,7 @@
  */
 require_once($CFG->dirroot . '/repository/lib.php');
 require_once($CFG->libdir.'/flickrlib.php');
-require_once(dirname(__FILE__) . '/image.php');
+require_once(__DIR__ . '/image.php');
 
 /**
  * repository_flickr_public class
@@ -296,13 +296,16 @@ class repository_flickr_public extends repository {
         $text = !empty($SESSION->{$this->sess_text}) ? $SESSION->{$this->sess_text} : null;
         $nsid = !empty($this->nsid) ? $this->nsid : null;
 
-        $photos = $this->flickr->photos_search(array(
-            'tags'=>$tag,
-            'page'=>$page,
-            'per_page'=>24,
-            'user_id'=>$nsid,
-            'license'=>$licenses,
-            'text'=>$text
+        $photos = $this->flickr->photos_search(
+            array(
+                'tags' => $tag,
+                'page' => $page,
+                'per_page' => 24,
+                'user_id' => $nsid,
+                'license' => $licenses,
+                'text' => $text,
+                'extras' => 'original_format,license,date_upload,last_update',
+                'media' => 'photos'
             )
         );
         $ret['total'] = $photos['total'];
@@ -326,7 +329,8 @@ class repository_flickr_public extends repository {
     public function get_listing($path = '', $page = 1) {
         $people = $this->flickr->people_findByEmail($this->flickr_account);
         $this->nsid = $people['nsid'];
-        $photos = $this->flickr->people_getPublicPhotos($people['nsid'], 'original_format', 24, $page);
+        $photos = $this->flickr->people_getPublicPhotos($people['nsid'], 'original_format,license,date_upload,last_update',
+            24, $page);
         $ret = array();
 
         return $this->build_list($photos, $page, $ret);
@@ -339,7 +343,9 @@ class repository_flickr_public extends repository {
      * @param int $page
      * @return array
      */
-    private function build_list($photos, $page = 1, &$ret) {
+    private function build_list($photos, $page, &$ret) {
+        global $OUTPUT;
+
         if (!empty($this->nsid)) {
             $photos_url = $this->flickr->urls_getUserPhotos($this->nsid);
             $ret['manage'] = $photos_url;
@@ -371,16 +377,34 @@ class repository_flickr_public extends repository {
                     // append file extension
                     $p['title'] .= $format;
                 }
+                // Get the thumbnail source URL.
+                $thumbnailsource = $this->flickr->buildPhotoURL($p, 'Square');
+                if (!@getimagesize($thumbnailsource)) {
+                    // Use the file extension icon as a thumbnail if the original thumbnail does not exist to avoid
+                    // displaying broken thumbnails in the repository.
+                    $thumbnailsource = $OUTPUT->image_url(file_extension_icon($p['title'], 90))->out(false);
+                }
+
+                // Perform a HEAD request to the image to obtain it's Content-Length.
+                $curl = new curl();
+                $curl->head($this->get_link($p['id']));
+
+                // The photo sizes are statically cached, so we can retrieve image dimensions without another API call.
+                $bestsize = $this->get_best_size($p['id']);
+
                 $ret['list'][] = array(
-                    'title'=>$p['title'],
-                    'source'=>$p['id'],
-                    'id'=>$p['id'],
-                    'thumbnail'=>$this->flickr->buildPhotoURL($p, 'Square'),
-                    'date'=>'',
-                    'size'=>'unknown',
-                    'url'=>'http://www.flickr.com/photos/'.$p['owner'].'/'.$p['id'],
-                    'haslicense'=>true,
-                    'hasauthor'=>true
+                    'title' => $p['title'],
+                    'source' => $p['id'],
+                    'id' => $p['id'],
+                    'thumbnail' => $thumbnailsource,
+                    'datecreated' => $p['dateupload'],
+                    'datemodified' => $p['lastupdate'],
+                    'size' => (int)($curl->get_info()['download_content_length']),
+                    'image_width' => $bestsize['width'],
+                    'image_height' => $bestsize['height'],
+                    'url' => 'http://www.flickr.com/photos/' . $p['owner'] . '/' . $p['id'],
+                    'license' => $this->license4moodle($p['license']),
+                    'author' => $p['owner'],
                 );
             }
         }
@@ -452,13 +476,8 @@ class repository_flickr_public extends repository {
      */
     public function get_file($photoid, $file = '') {
         global $CFG;
+
         $info = $this->flickr->photos_getInfo($photoid);
-        if ($info['owner']['realname']) {
-            $author = $info['owner']['realname'];
-        } else {
-            $author = $info['owner']['username'];
-        }
-        $copyright = get_string('author', 'repository') . ': ' . $author;
 
         // If we can read the original secret, it means that we have access to the original picture.
         if (isset($info['originalsecret'])) {
@@ -466,6 +485,17 @@ class repository_flickr_public extends repository {
         } else {
             $source = $this->build_photo_url($photoid);
         }
+        // Make sure the source image exists.
+        if (!@getimagesize($source)) {
+            throw new moodle_exception('cannotdownload', 'repository');
+        }
+
+        if ($info['owner']['realname']) {
+            $author = $info['owner']['realname'];
+        } else {
+            $author = $info['owner']['username'];
+        }
+        $copyright = get_string('author', 'repository') . ': ' . $author;
 
         $result = parent::get_file($source, $file);
         $path = $result['path'];

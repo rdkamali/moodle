@@ -25,7 +25,7 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-require_once(dirname(dirname(__FILE__)) . '/lib.php');  // interface definition
+require_once(__DIR__ . '/../lib.php');  // interface definition
 require_once($CFG->libdir . '/gradelib.php');           // to handle float vs decimal issues
 
 /**
@@ -117,7 +117,7 @@ class workshop_accumulative_strategy implements workshop_strategy {
         global $CFG;    // needed because the included files use it
         global $PAGE;
 
-        require_once(dirname(__FILE__) . '/edit_form.php');
+        require_once(__DIR__ . '/edit_form.php');
 
         $fields             = $this->prepare_form_fields($this->dimensions);
         $nodimensions       = count($this->dimensions);
@@ -208,7 +208,7 @@ class workshop_accumulative_strategy implements workshop_strategy {
         global $CFG;    // needed because the included files use it
         global $PAGE;
         global $DB;
-        require_once(dirname(__FILE__) . '/assessment_form.php');
+        require_once(__DIR__ . '/assessment_form.php');
 
         $fields         = $this->prepare_form_fields($this->dimensions);
         $nodimensions   = count($this->dimensions);
@@ -269,7 +269,9 @@ class workshop_accumulative_strategy implements workshop_strategy {
             $grade->assessmentid = $assessment->id;
             $grade->strategy = 'accumulative';
             $grade->dimensionid = $data->{'dimensionid__idx_' . $i};
-            $grade->grade = $data->{'grade__idx_' . $i};
+            if (isset($data->{'grade__idx_' . $i})) {
+                $grade->grade = $data->{'grade__idx_' . $i};
+            }
             $grade->peercomment = $data->{'peercomment__idx_' . $i};
             $grade->peercommentformat = FORMAT_MOODLE;
             if (empty($grade->id)) {
@@ -346,6 +348,7 @@ class workshop_accumulative_strategy implements workshop_strategy {
                 // the dimension uses a scale
                 $diminfo[$dimid]->min = 1;
                 $diminfo[$dimid]->max = count(explode(',', $dimrecord->scale));
+                $diminfo[$dimid]->scale = $dimrecord->scale;
             } else {
                 // the dimension uses points
                 $diminfo[$dimid]->min = 0;

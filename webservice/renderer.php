@@ -96,7 +96,7 @@ class core_webservice_renderer extends plugin_renderer_base {
     }
 
     /**
-     * Display list of authorised users
+     * Display list of authorised users for the given external service.
      *
      * @param array $users authorised users
      * @param int $serviceid service id
@@ -104,25 +104,43 @@ class core_webservice_renderer extends plugin_renderer_base {
      */
     public function admin_authorised_user_list($users, $serviceid) {
         global $CFG;
-        $html = $this->output->box_start('generalbox', 'alloweduserlist');
+
+        $listitems = [];
+        $extrafields = \core_user\fields::get_identity_fields(context_system::instance());
+
         foreach ($users as $user) {
-            $modifiedauthoriseduserurl = new moodle_url('/' . $CFG->admin . '/webservice/service_user_settings.php',
-                            array('userid' => $user->id, 'serviceid' => $serviceid));
-            $html .= html_writer::tag('a', $user->firstname . " "
-                            . $user->lastname . ", " . $user->email,
-                            array('href' => $modifiedauthoriseduserurl));
-            //add missing capabilities
-            if (!empty($user->missingcapabilities)) {
-                $html .= html_writer::tag('div',
-                                get_string('usermissingcaps', 'webservice', $user->missingcapabilities)
-                                . '&nbsp;' . $this->output->help_icon('missingcaps', 'webservice'),
-                                array('class' => 'missingcaps', 'id' => 'usermissingcaps'));
-                $html .= html_writer::empty_tag('br');
-            } else {
-                $html .= html_writer::empty_tag('br') . html_writer::empty_tag('br');
+            $settingsurl = new moodle_url('/admin/webservice/service_user_settings.php',
+                ['userid' => $user->id, 'serviceid' => $serviceid]);
+
+            $identity = [];
+            foreach ($extrafields as $extrafield) {
+                if (isset($user->{$extrafield})) {
+                    $identity[] = s($user->{$extrafield});
+                }
             }
+            $identity = $identity ? html_writer::div(implode(', ', $identity), 'small') : '';
+
+            $link = html_writer::link($settingsurl, fullname($user));
+
+            if (!empty($user->missingcapabilities)) {
+                $count = html_writer::span(count($user->missingcapabilities), 'badge badge-danger');
+                $links = array_map(function($capname) {
+                    return get_capability_docs_link((object)['name' => $capname]) . html_writer::div($capname, 'text-muted');
+                }, $user->missingcapabilities);
+                $list = html_writer::alist($links);
+                $help = $this->output->help_icon('missingcaps', 'webservice');
+                $missingcaps = print_collapsible_region(html_writer::div($list . $help, 'missingcaps'), 'small',
+                    html_writer::random_id('usermissingcaps'), get_string('usermissingcaps', 'webservice', $count), '', true, true);
+
+            } else {
+                $missingcaps = '';
+            }
+
+            $listitems[] = $link . $identity . $missingcaps;
         }
-        $html .= $this->output->box_end();
+
+        $html = html_writer::div(html_writer::alist($listitems), 'alloweduserlist');
+
         return $html;
     }
 
@@ -167,29 +185,6 @@ class core_webservice_renderer extends plugin_renderer_base {
     }
 
     /**
-     * Display a confirmation page to delete a token
-     *
-     * @param stdClass $token Required properties: id (token id), firstname (user firstname), lastname (user lastname), name (service name)
-     * @return string html
-     */
-    public function admin_delete_token_confirmation($token) {
-        global $CFG;
-        $optionsyes = array('tokenid' => $token->id, 'action' => 'delete',
-            'confirm' => 1, 'sesskey' => sesskey());
-        $optionsno = array('section' => 'webservicetokens', 'sesskey' => sesskey());
-        $formcontinue = new single_button(
-                        new moodle_url('/' . $CFG->admin . '/webservice/tokens.php', $optionsyes),
-                        get_string('delete'));
-        $formcancel = new single_button(
-                        new moodle_url('/' . $CFG->admin . '/settings.php', $optionsno),
-                        get_string('cancel'), 'get');
-        return $this->output->confirm(get_string('deletetokenconfirm', 'webservice',
-                        (object) array('user' => $token->firstname . " "
-                            . $token->lastname, 'service' => $token->name)),
-                $formcontinue, $formcancel);
-    }
-
-    /**
      * Display a list of functions for a given service
      * If the service is built-in, do not display remove/add operation (read-only)
      *
@@ -216,7 +211,7 @@ class core_webservice_renderer extends plugin_renderer_base {
 
             $anydeprecated = false;
             foreach ($functions as $function) {
-                $function = external_function_info($function);
+                $function = external_api::external_function_info($function);
 
                 if (!empty($function->deprecated)) {
                     $anydeprecated = true;
@@ -268,15 +263,10 @@ class core_webservice_renderer extends plugin_renderer_base {
      * @return string html
      */
     public function user_reset_token_confirmation($token) {
-        global $CFG;
-        $managetokenurl = $CFG->wwwroot . "/user/managetoken.php?sesskey=" . sesskey();
-        $optionsyes = array('tokenid' => $token->id, 'action' => 'resetwstoken', 'confirm' => 1,
-            'sesskey' => sesskey());
-        $optionsno = array('section' => 'webservicetokens', 'sesskey' => sesskey());
-        $formcontinue = new single_button(new moodle_url($managetokenurl, $optionsyes),
-                        get_string('reset'));
-        $formcancel = new single_button(new moodle_url($managetokenurl, $optionsno),
-                        get_string('cancel'), 'get');
+        $managetokenurl = '/user/managetoken.php';
+        $optionsyes = ['tokenid' => $token->id, 'action' => 'resetwstoken', 'confirm' => 1];
+        $formcontinue = new single_button(new moodle_url($managetokenurl, $optionsyes), get_string('reset'));
+        $formcancel = new single_button(new moodle_url($managetokenurl), get_string('cancel'), 'get');
         $html = $this->output->confirm(get_string('resettokenconfirm', 'webservice',
                                 (object) array('user' => $token->firstname . " " .
                                     $token->lastname, 'service' => $token->name)),
@@ -323,9 +313,10 @@ class core_webservice_renderer extends plugin_renderer_base {
             foreach ($tokens as $token) {
 
                 if ($token->creatorid == $userid) {
-                    $reset = "<a href=\"" . $CFG->wwwroot . "/user/managetoken.php?sesskey="
-                            . sesskey() . "&amp;action=resetwstoken&amp;tokenid=" . $token->id . "\">";
-                    $reset .= get_string('reset') . "</a>";
+                    $reset = html_writer::link(new moodle_url('/user/managetoken.php', [
+                        'action' => 'resetwstoken',
+                        'tokenid' => $token->id,
+                    ]), get_string('reset'));
                     $creator = $token->firstname . " " . $token->lastname;
                 } else {
                     //retrieve administrator name
@@ -352,7 +343,7 @@ class core_webservice_renderer extends plugin_renderer_base {
 
                 if ($documentation) {
                     $doclink = new moodle_url('/webservice/wsdoc.php',
-                            array('id' => $token->id, 'sesskey' => sesskey()));
+                            array('id' => $token->id));
                     $row[] = html_writer::tag('a', get_string('doc', 'webservice'),
                             array('href' => $doclink));
                 }
@@ -373,7 +364,7 @@ class core_webservice_renderer extends plugin_renderer_base {
      * ws description object can be 'external_multiple_structure', 'external_single_structure'
      * or 'external_value'
      *
-     * Example of documentation for moodle_group_create_groups function:
+     * Example of documentation for core_group_create_groups function:
      * list of (
      *     object {
      *         courseid int //id of course
@@ -410,7 +401,7 @@ class core_webservice_renderer extends plugin_renderer_base {
             $paramdesc .= html_writer::start_tag('i', array());
             $paramdesc .= "//";
 
-            $paramdesc .= $params->desc;
+            $paramdesc .= s($params->desc);
 
             $paramdesc .= html_writer::end_tag('i');
 
@@ -685,7 +676,7 @@ EOF;
             $documentationhtml .= html_writer::start_tag('div',
                             array('style' => 'border:solid 1px #DEDEDE;background:#E2E0E0;
                         color:#222222;padding:4px;'));
-            $documentationhtml .= $description->description;
+            $documentationhtml .= s($description->description);
             $documentationhtml .= html_writer::end_tag('div');
             $documentationhtml .= $br . $br;
 
@@ -719,7 +710,7 @@ EOF;
                 $documentationhtml .= " (" . $required . ")"; // argument is required or optional ?
                 $documentationhtml .= $br;
                 $documentationhtml .= "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"
-                        . $paramdesc->desc; // argument description
+                        . s($paramdesc->desc); // Argument description.
                 $documentationhtml .= $br . $br;
                 // general structure of the argument
                 $documentationhtml .= $this->colored_box_with_pre_tag(
@@ -810,6 +801,13 @@ EOF;
 
                 $documentationhtml .= html_writer::end_tag('span');
             }
+            $documentationhtml .= $br . $br;
+
+            // Login required info.
+            $documentationhtml .= html_writer::start_tag('span', array('style' => 'color:#EA33A6'));
+            $documentationhtml .= get_string('loginrequired', 'webservice') . $br;
+            $documentationhtml .= html_writer::end_tag('span');
+            $documentationhtml .= $description->loginrequired ? get_string('yes') : get_string('no');
             $documentationhtml .= $br . $br;
 
             // Ajax info.

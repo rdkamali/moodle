@@ -71,6 +71,16 @@ $capabilities = array(
         )
     ),
 
+    // When the user arrives at the external tool, if they have this capability
+    // in Moodle, then they are given the Administrator role in the remote system,
+    // otherwise they are given Learner. See the lti_get_ims_role function.
+    'mod/lti:admin' => array(
+        'riskbitmask' => RISK_PERSONAL, // A bit of a guess, but seems likely.
+
+        'captype' => 'write',
+        'contextlevel' => CONTEXT_MODULE
+    ),
+
     // The ability to create or edit tool configurations for particular courses.
     'mod/lti:addcoursetool' => array(
         'captype' => 'write',
@@ -79,6 +89,28 @@ $capabilities = array(
             'editingteacher' => CAP_ALLOW,
             'manager' => CAP_ALLOW
         )
+    ),
+
+    // The ability to a preconfigured instance to the course.
+    'mod/lti:addpreconfiguredinstance' => array(
+        'captype' => 'write',
+        'contextlevel' => CONTEXT_COURSE,
+        'archetypes' => array(
+            'editingteacher' => CAP_ALLOW,
+            'manager' => CAP_ALLOW
+        ),
+        'clonepermissionsfrom' => 'mod/lti:addinstance',
+    ),
+
+    // The ability to add a manual instance (i.e. not from a preconfigured tool) to the course.
+    'mod/lti:addmanualinstance' => array(
+        'captype' => 'write',
+        'contextlevel' => CONTEXT_COURSE,
+        'archetypes' => array(
+            'editingteacher' => CAP_ALLOW,
+            'manager' => CAP_ALLOW
+        ),
+        'clonepermissionsfrom' => 'mod/lti:addinstance',
     ),
 
     // The ability to request the administrator to configure a particular

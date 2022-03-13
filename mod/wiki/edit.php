@@ -40,7 +40,7 @@ require_once($CFG->dirroot . '/mod/wiki/pagelib.php');
 $pageid = required_param('pageid', PARAM_INT);
 $contentformat = optional_param('contentformat', '', PARAM_ALPHA);
 $option = optional_param('editoption', '', PARAM_TEXT);
-$section = optional_param('section', "", PARAM_TEXT);
+$section = optional_param('section', "", PARAM_RAW);
 $version = optional_param('version', -1, PARAM_INT);
 $attachments = optional_param('attachments', 0, PARAM_INT);
 $deleteuploads = optional_param('deleteuploads', 0, PARAM_RAW);
@@ -93,7 +93,7 @@ if ($option == get_string('save', 'wiki')) {
         if (!confirm_sesskey()) {
             print_error(get_string('invalidsesskey', 'wiki'));
         }
-        $wikipage = new page_wiki_preview($wiki, $subwiki, $cm);
+        $wikipage = new page_wiki_preview($wiki, $subwiki, $cm, 'modulepage');
         $wikipage->set_page($page);
     } else {
         if ($option == get_string('cancel')) {
@@ -102,7 +102,7 @@ if ($option == get_string('save', 'wiki')) {
 
             redirect($CFG->wwwroot . '/mod/wiki/view.php?pageid=' . $pageid);
         } else {
-            $wikipage = new page_wiki_edit($wiki, $subwiki, $cm);
+            $wikipage = new page_wiki_edit($wiki, $subwiki, $cm, 'modulepage');
             $wikipage->set_page($page);
             $wikipage->set_upload($option == get_string('upload', 'wiki'));
         }

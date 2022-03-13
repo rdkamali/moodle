@@ -7,8 +7,8 @@ Feature: In a lesson activity, students can see questions in random order
   Background:
     Given the following "users" exist:
       | username | firstname | lastname | email |
-      | teacher1 | Teacher | 1 | teacher1@asd.com |
-      | student1 | Student | 1 | student1@asd.com |
+      | teacher1 | Teacher | 1 | teacher1@example.com |
+      | student1 | Student | 1 | student1@example.com |
     And the following "courses" exist:
       | fullname | shortname | category |
       | Course 1 | C1 | 0 |
@@ -16,15 +16,13 @@ Feature: In a lesson activity, students can see questions in random order
       | user | course | role |
       | teacher1 | C1 | editingteacher |
       | student1 | C1 | student |
+    And the following "activities" exist:
+      | activity | name                 | intro                    | course | idnumber | section |
+      | lesson   | Lesson with clusters | Test lesson description  | C1     | lesson1  | 1       |
     And I log in as "teacher1"
-    And I follow "Course 1"
-    And I turn editing mode on
 
-  @javascript
   Scenario: Lesson with two clusters
-    Given I add a "Lesson" to section "1" and I fill the form with:
-      | Name | Lesson with clusters |
-      | Description | Test lesson description |
+    Given I am on "Course 1" course homepage with editing mode on
     And I follow "Lesson with clusters"
     And I follow "Add a content page"
     And I set the following fields to these values:
@@ -33,7 +31,7 @@ Feature: In a lesson activity, students can see questions in random order
       | id_answer_editor_0 | Next page |
       | id_jumpto_0 | Next page |
     And I press "Save page"
-    And I set the field "qtype" to "Add a content page"
+    And I select "Add a content page" from the "qtype" singleselect
     And I set the following fields to these values:
       | Page title | Second page name |
       | Page contents | Second page contents |
@@ -42,7 +40,7 @@ Feature: In a lesson activity, students can see questions in random order
       | id_answer_editor_1 | Next page |
       | id_jumpto_1 | Next page |
     And I press "Save page"
-    And I follow "Expanded"
+    And I select edit type "Expanded"
     And I click on "Add a cluster" "link" in the "//div[contains(concat(' ', normalize-space(@class), ' '), ' addlinks ')][3]" "xpath_element"
     And I click on "Add a question page here" "link" in the "//div[contains(concat(' ', normalize-space(@class), ' '), ' addlinks ')][4]" "xpath_element"
     And I set the field "Select a question type" to "Multichoice"
@@ -76,7 +74,7 @@ Feature: In a lesson activity, students can see questions in random order
     And I press "Save page"
     And I click on "Add an end of cluster" "link" in the "//div[contains(concat(' ', normalize-space(@class), ' '), ' addlinks ')][6]" "xpath_element"
     And I click on "Add a content page" "link" in the "//div[contains(concat(' ', normalize-space(@class), ' '), ' addlinks ')][7]" "xpath_element"
-        And I set the following fields to these values:
+    And I set the following fields to these values:
       | Page title | Third page name |
       | Page contents | Content page after cluster 1 |
       | id_answer_editor_0 | Next page |
@@ -115,7 +113,7 @@ Feature: In a lesson activity, students can see questions in random order
     And I press "Save page"
     And I click on "Add an end of cluster" "link" in the "//div[contains(concat(' ', normalize-space(@class), ' '), ' addlinks ')][11]" "xpath_element"
     And I click on "Add a content page" "link" in the "//div[contains(concat(' ', normalize-space(@class), ' '), ' addlinks ')][12]" "xpath_element"
-        And I set the following fields to these values:
+    And I set the following fields to these values:
       | Page title | Fourth page name |
       | Page contents | Content page after cluster 2 |
       | id_answer_editor_0 | Next page |
@@ -123,7 +121,7 @@ Feature: In a lesson activity, students can see questions in random order
     And I press "Save page"
     And I log out
     And I log in as "student1"
-    And I follow "Course 1"
+    And I am on "Course 1" course homepage
     When I follow "Lesson with clusters"
     Then I should see "First page contents"
     And I press "Next page"

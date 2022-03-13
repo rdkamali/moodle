@@ -1,5 +1,158 @@
 This files describes API changes for code that uses the question API.
 
+=== 4.0 ==
+
+1) Previously, the questionbank api classes were coupled in one place. Now the classes
+   are divided in two different parts, base classes and feature classes. All the base
+   classes are moved classes/local/bank and all the feature classes will be moved to
+   the plugin for that feature.
+
+2) submit_tags_form and associated external services for question tag, tags_form in question/type,
+   core_question_output_fragment_tags_form method in lib is deprecated and moved to the tagquestion plugin.
+
+3) Function question_get_export_single_question_url() in questionlib has been deprecated
+   and moved to qbank_exporttoxml plugin, the new location is:
+   qbank_exporttoxml\helper::question_get_export_single_question_url().
+
+4) The following methods are deprecated in previewlib and moved to the previewquestion plugin:
+   restart_preview(), question_preview_form_url(), question_preview_action_url(),
+   question_preview_question_pluginfile()
+   The following classes are deprecated in previewlib and moves the previewquestion plugin:
+   question_preview_options, preview_options_form.
+
+5) submit_tags_form and associated external services for question tag, tags_form in question/type,
+   core_question_output_fragment_tags_form method in lib is deprecated and moved to the tagquestion plugin.
+
+6) Function question_get_export_single_question_url() in questionlib has been deprecated
+   and moved to qbank_exporttoxml plugin, the new location is:
+   qbank_exporttoxml\exporttoxml_helper::question_get_export_single_question_url().
+
+7) The following classes are deleted and available in the new location:
+   'core_question\bank\action_column_base' => 'core_question\local\bank\action_column_base',
+   'core_question\bank\checkbox_column' => 'core_question\local\bank\checkbox_column',
+   'core_question\bank\column_base' => 'core_question\local\bank\column_base',
+   'core_question\bank\edit_menu_column' => 'core_question\local\bank\edit_menu_column',
+   'core_question\bank\menu_action_column_base' => 'core_question\local\bank\menu_action_column_base',
+   'core_question\bank\menuable_action' => 'core_question\local\bank\menuable_action',
+   'core_question\bank\random_question_loader' => 'core_question\local\bank\random_question_loader',
+   'core_question\bank\row_base' => 'core_question\local\bank\row_base',
+   'core_question\bank\view' => 'core_question\local\bank\view',
+   'core_question\bank\copy_action_column' => 'qbank_editquestion\copy_action_column',
+   'core_question\bank\edit_action_column' => 'qbank_editquestion\edit_action_column',
+   'core_question\bank\creator_name_column' => 'qbank_viewcreator\creator_name_column',
+   'core_question\bank\question_name_column' => 'qbank_viewquestionname\viewquestionname_column_helper',
+   'core_question\bank\question_name_idnumber_tags_column' => 'qbank_viewquestionname\question_name_idnumber_tags_column',
+   'core_question\bank\delete_action_column' => 'qbank_deletequestion\delete_action_column',
+   'core_question\bank\export_xml_action_column' => 'qbank_exporttoxml\export_xml_action_column',
+   'core_question\bank\preview_action_column' => 'qbank_previewquestion\preview_action_column',
+   'core_question\bank\question_text_row' => 'qbank_viewquestiontext\question_text_row',
+   'core_question\bank\question_type_column' => 'qbank_viewquestiontype\question_type_column',
+   'core_question\bank\tags_action_column' => 'qbank_tagquestion\tags_action_column',
+   'core_question\form\tags' => '\qbank_tagquestion\form\tags_form',
+   'core_question\output\qbank_chooser' => 'qbank_editquestion\qbank_chooser',
+   'core_question\output\qbank_chooser_item' => 'qbank_editquestion\qbank_chooser_item',
+
+8) The following classes are deprecated and moved to a new location. These are marked for final deprecation on 4.4:
+   'question_category_list' => 'qbank_managecategories\question_category_list',
+   'question_category_list_item' => 'qbank_managecategories\question_category_list_item',
+   'question_category_object' => 'qbank_managecategories\question_category_object',
+   'question_category_edit_form' => 'qbank_managecategories\form\category_form',
+   'question_export_form' => 'qbank_exportquestions\form\export_form',
+   'question_import_form' => 'qbank_importquestions\form\question_import_form',
+   'question_move_form' => 'qbank_managecategories\form\question_move_form',
+   'preview_options_form' => 'qbank_previewquestion\form\preview_options_form',
+   'question_preview_options' => 'qbank_previewquestion\output\question_preview_options',
+   'category_form' => 'qbank_managecategories\form\category_form',
+   'export_form' => 'qbank_exportquestions\form\export_form'.
+
+9) The following functions are deprecated and moved to the new location:
+   question_preview_question_pluginfile() => qbank_previewquestion\helper::question_preview_question_pluginfile(),
+   question_preview_action_url() => qbank_previewquestion\helper::question_preview_action_url(),
+   question_preview_form_url() => qbank_previewquestion\helper::question_preview_form_url(),
+   restart_preview() => qbank_previewquestion\helper::restart_preview(),
+   core_question_output_fragment_tags_form() => /question/bank/qbank_tagquestion/lib.php.
+
+10)The qbank api now allows bulk actions from qbank plugins. Its possible to implement a qbank plugin and pass the bulk
+   bulk action object from the plugin feature using the get_bulk_actions(). The base class for this feature is bulk_action_base.
+   The following methods are deprecated as a part of bulk actions ui implementation and its no more required to call these methods
+   anymore as the api is now self sufficient, calling the api will fetch all the features:
+   process_actions(), process_actions_needing_ui().
+
+=== 3.9 ==
+
+1) For years, the ..._questions_in_use callback has been the right way for plugins to
+   tell the core question system if questions are required. Previously this callback
+   only worked in mods. Now it works in all plugins.
+
+   At the same time, if you are still relying on the legacy ..._question_list_instances
+   callback for this, you will now get a debugging warning telling you to upgrade.
+
+2) Previously, the functions question_delete_activity, question_delete_course and
+   question_delete_course_category would echo output. This was not correct behaviour for
+   a low-level API function. Now, they no longer output. Related to this, the helper
+   function they use, question_delete_context, now always returns an empty array.
+
+   This probably won't acutally cause you any problems. However, you may previously
+   have had to add expectOutputRegex calls to your unit tests to avoid warnings about
+   risky tests. If you have done that, those tests will now fail until you delete that expectation.
+
+
+=== 3.8 ===
+
+If you have customised the display of the question bank (using $CFG->questionbankcolumns)
+then be aware that the default configuration has changed, and you may wish to make
+equivalent changes in your customised version. The old column question_name_column
+has been replaced by question_name_idnumber_tags_column. The old question_name_column
+still exists, so it is safe to continue using it.
+
+There is a new question bank column edit_menu_column which displays all actions
+in a drop-down menu, instead of as separate icons. This is now used by default.
+Specifically, it gathers all other columns which implement the new interface
+menuable_action. If you have made a custom subclasses of action_column_base,
+you probably want to implement the new interface. If your column is a simple action,
+the easiest way to do this will be to subclass menu_action_column_base. If your action
+is more complex, and does not follow the simple pattern that menu_action_column_base
+uses, then you will need to implement menuable_action yourself. The commit for
+MDL-66816 updates all the core action columns. Looking at that change should make
+it clearly the changes you need to make to your columns.
+
+
+=== 3.7 ===
+
+The code for the is_valid_number function that was duplicated in the
+qtype_numerical and qtype_multianswer plugins in the qtype_numerical_edit_form
+and qtype_multianswer_edit_form classes has been moved to a static function
+in the qtype_numerical class of the qtype_numerical plugin.
+
+The exportprocess function of the qformat_default class doesn't output a blank line
+if the result of the writequestion function is null. This permit to qformat plugins
+to ignore some questions without the need to overwrite this function.
+
+* The question_preview_cron() has been deleted. Please use \core\task\question_cron_task::execute().
+* The question_usage_statistics_cron() has been deleted. Please use \core\task\question_cron_task::execute().
+* The method question_bank::cron() has been deleted, please use question related scheduled tasks.
+
+=== 3.5 ===
+
+1) The question format exportprocess function now adds a
+   $checkcapabilities boolean to allow questions to be exported in
+   certain circumstances.
+
+=== 3.2 ===
+
+1) The following renderers have been deprecated in favour of the renderable
+   core_question\output\qbank_chooser and associated render_* method.
+    * qbank_chooser
+    * qbank_chooser_types
+    * qbank_chooser_qtype
+    * qbank_chooser_title
+
+=== 3.1 ===
+
+1) The argument $requirecourseid was removed from question_edit_setup() and
+   is no longer respected. The behaviour was found to be buggy and now throws
+   debugging notices if passed.
+
 === 2.9 ===
 
 1) Some functions in questionlib.php which were deprecated in the past have now
@@ -22,7 +175,7 @@ This files describes API changes for code that uses the question API.
 
 === 2.8 ===
 
-1) This is jsut a warning that some methods of the question_engine_data_mapper
+1) This is just a warning that some methods of the question_engine_data_mapper
    class have changed. All these methods are ones that you should not have been
    calling directly from your code, so this should not cause any problems.
    The changed methods are:

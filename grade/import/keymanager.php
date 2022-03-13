@@ -23,7 +23,7 @@
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-require_once(dirname(__FILE__).'/../../config.php');
+require_once(__DIR__.'/../../config.php');
 require_once($CFG->dirroot.'/grade/lib.php');
 
 $id = required_param('id', PARAM_INT); // course id
@@ -31,7 +31,7 @@ $id = required_param('id', PARAM_INT); // course id
 $PAGE->set_url('/grade/import/keymanager.php', array('id' => $id));
 
 if (!$course = $DB->get_record('course', array('id'=>$id))) {
-    print_error('nocourseid');
+    print_error('invalidcourseid');
 }
 
 require_login($course);
@@ -45,7 +45,9 @@ if (!isset($plugins['keymanager'])) {
     print_error('nopermissions');
 }
 
-print_grade_page_head($course->id, 'import', 'keymanager', get_string('keymanager', 'grades'));
+$actionbar = new \core_grades\output\import_key_manager_action_bar($context);
+print_grade_page_head($course->id, 'import', 'keymanager', get_string('keymanager', 'grades'),
+    false, false, true, 'importcsv', 'grades', null, $actionbar);
 
 $stredit   = get_string('edit');
 $strdelete = get_string('delete');
@@ -78,10 +80,5 @@ $table->align = array('left', 'left', 'left', 'center');
 $table->width = '90%';
 $table->data  = $data;
 echo html_writer::table($table);
-
-echo $OUTPUT->container_start('buttons mdl-align');
-echo $OUTPUT->single_button(new moodle_url('key.php', array('courseid'=>$course->id)), get_string('newuserkey', 'userkey'));
-echo $OUTPUT->container_end();
-
 echo $OUTPUT->footer();
 

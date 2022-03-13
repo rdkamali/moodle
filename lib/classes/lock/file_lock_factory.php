@@ -108,9 +108,13 @@ class file_lock_factory implements lock_factory {
 
     /**
      * Multiple locks for the same resource cannot be held from a single process.
+     *
+     * @deprecated since Moodle 3.10.
      * @return boolean - False
      */
     public function supports_recursion() {
+        debugging('The function supports_recursion() is deprecated, please do not use it anymore.',
+            DEBUG_DEVELOPER);
         return false;
     }
 
@@ -152,7 +156,7 @@ class file_lock_factory implements lock_factory {
             // Will block on windows. So sad.
             $wouldblock = false;
             $locked = flock($filehandle, LOCK_EX | LOCK_NB, $wouldblock);
-            if (!$locked && $wouldblock) {
+            if (!$locked && $wouldblock && $timeout > 0) {
                 usleep(rand(10000, 250000)); // Sleep between 10 and 250 milliseconds.
             }
             // Try until the giveup time.
@@ -188,11 +192,15 @@ class file_lock_factory implements lock_factory {
 
     /**
      * Extend a lock that was previously obtained with @lock.
+     *
+     * @deprecated since Moodle 3.10.
      * @param lock $lock - not used
      * @param int $maxlifetime - not used
      * @return boolean - true if the lock was extended.
      */
     public function extend_lock(lock $lock, $maxlifetime = 86400) {
+        debugging('The function extend_lock() is deprecated, please do not use it anymore.',
+            DEBUG_DEVELOPER);
         // Not supported by this factory.
         return false;
     }

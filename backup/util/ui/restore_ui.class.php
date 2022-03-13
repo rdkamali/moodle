@@ -185,11 +185,11 @@ class restore_ui extends base_ui {
      * there are long-running tasks even though there is no restore controller
      * in use.
      *
-     * @return \core\progress\null
+     * @return \core\progress\none
      */
     public function get_progress_reporter() {
         if (!$this->progressreporter) {
-            $this->progressreporter = new \core\progress\null();
+            $this->progressreporter = new \core\progress\none();
         }
         return $this->progressreporter;
     }
@@ -215,12 +215,7 @@ class restore_ui extends base_ui {
         if ($this->stage->get_stage() < self::STAGE_PROCESS) {
             throw new restore_ui_exception('restoreuifinalisedbeforeexecute');
         }
-        if ($this->controller->get_target() == backup::TARGET_CURRENT_DELETING || $this->controller->get_target() == backup::TARGET_EXISTING_DELETING) {
-            $options = array();
-            $options['keep_roles_and_enrolments'] = $this->get_setting_value('keep_roles_and_enrolments');
-            $options['keep_groups_and_groupings'] = $this->get_setting_value('keep_groups_and_groupings');
-            restore_dbops::delete_course_content($this->controller->get_courseid(), $options);
-        }
+
         $this->controller->execute_plan();
         $this->progress = self::PROGRESS_EXECUTED;
         $this->stage = new restore_ui_stage_complete($this, $this->stage->get_params(), $this->controller->get_results());
@@ -231,9 +226,11 @@ class restore_ui extends base_ui {
      * Delete course which is created by restore process
      */
     public function cleanup() {
+        global $DB;
         $courseid = $this->controller->get_courseid();
-        if ($this->is_temporary_course_created($courseid)) {
-            delete_course($courseid, false);
+        if ($this->is_temporary_course_created($courseid) && $course = $DB->get_record('course', array('id' => $courseid))) {
+            $course->deletesource = 'restore';
+            delete_course($course, false);
         }
     }
 

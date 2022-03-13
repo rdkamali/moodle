@@ -26,6 +26,8 @@ namespace core\session;
 
 defined('MOODLE_INTERNAL') || die();
 
+use html_writer;
+
 /**
  * Session manager, this is the public Moodle API for sessions.
  *
@@ -40,11 +42,58 @@ defined('MOODLE_INTERNAL') || die();
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class manager {
+    /** @var int A hard cutoff of maximum stored history */
+    const MAXIMUM_STORED_SESSION_HISTORY = 50;
+
+    /** @var int The recent session locks array is reset if there is a time gap more than this value in seconds */
+    const SESSION_RESET_GAP_THRESHOLD = 1;
+
     /** @var handler $handler active session handler instance */
     protected static $handler;
 
     /** @var bool $sessionactive Is the session active? */
     protected static $sessionactive = null;
+
+    /** @var string $logintokenkey Key used to get and store request protection for login form. */
+    protected static $logintokenkey = 'core_auth_login';
+
+    /** @var array Stores the the SESSION before a request is performed, used to check incorrect read-only modes */
+    private static $priorsession = [];
+
+    /**
+     * @var bool Used to trigger the SESSION mutation warning without actually preventing SESSION mutation.
+     * This variable is used to "copy" what the $requireslock parameter  does in start_session().
+     * Once requireslock is set in start_session it's later accessible via $handler->requires_write_lock,
+     * When using $CFG->enable_read_only_sessions_debug mode, this variable serves the same purpose without
+     * actually setting the handler as requiring a write lock.
+     */
+    private static $requireslockdebug;
+
+    /**
+     * If the current session is not writeable, abort it, and re-open it
+     * requesting (and blocking) until a write lock is acquired.
+     * If current session was already opened with an intentional write lock,
+     * this call will not do anything.
+     * NOTE: Even when using a session handler that does not support non-locking sessions,
+     * if the original session was not opened with the explicit intention of being locked,
+     * this will still restart your session so that code behaviour matches as closely
+     * as practical across environments.
+     *
+     * @param bool $readonlysession Used by debugging logic to determine if whatever
+     *                              triggered the restart (e.g., a webservice) declared
+     *                              itself as read only.
+     */
+    public static function restart_with_write_lock(bool $readonlysession) {
+        global $CFG;
+
+        self::$requireslockdebug = !$readonlysession;
+
+        if (self::$sessionactive && !self::$handler->requires_write_lock()) {
+            @self::$handler->abort();
+            self::$sessionactive = false;
+            self::start_session(true);
+        }
+    }
 
     /**
      * Start user session.
@@ -52,13 +101,15 @@ class manager {
      * Note: This is intended to be called only from lib/setup.php!
      */
     public static function start() {
-        global $CFG, $DB;
+        global $CFG, $DB, $PERF;
 
         if (isset(self::$sessionactive)) {
             debugging('Session was already started!', DEBUG_DEVELOPER);
             return;
         }
 
+        // Grab the time before session lock starts.
+        $PERF->sessionlock['start'] = microtime(true);
         self::load_handler();
 
         // Init the session handler only if everything initialised properly in lib/setup.php file
@@ -69,15 +120,63 @@ class manager {
             return;
         }
 
+        if (defined('READ_ONLY_SESSION') && !empty($CFG->enable_read_only_sessions)) {
+            $requireslock = !READ_ONLY_SESSION;
+        } else {
+            $requireslock = true; // For backwards compatibility, we default to assuming that a lock is needed.
+        }
+
+        // By default make the two variables the same. This means that when they are
+        // checked below in start_session and write_close there is no possibility for
+        // the debug version to "accidentally" execute the debug mode.
+        self::$requireslockdebug = $requireslock;
+        if (defined('READ_ONLY_SESSION') && !empty($CFG->enable_read_only_sessions_debug)) {
+            // Only change the debug variable if READ_ONLY_SESSION is declared,
+            // as would happen with the real requireslock variable.
+            self::$requireslockdebug = !READ_ONLY_SESSION;
+        }
+
+        self::start_session($requireslock);
+    }
+
+    /**
+     * Handles starting a session.
+     *
+     * @param bool $requireslock If this is false then no write lock will be acquired,
+     *                           and the session will be read-only.
+     */
+    private static function start_session(bool $requireslock) {
+        global $PERF, $CFG;
+
         try {
             self::$handler->init();
+            self::$handler->set_requires_write_lock($requireslock);
             self::prepare_cookies();
-            $newsid = empty($_COOKIE[session_name()]);
+            $isnewsession = empty($_COOKIE[session_name()]);
 
-            self::$handler->start();
+            if (!self::$handler->start()) {
+                // Could not successfully start/recover session.
+                throw new \core\session\exception(get_string('servererror'));
+            }
 
-            self::initialise_user_session($newsid);
+            // Grab the time when session lock starts.
+            $PERF->sessionlock['gained'] = microtime(true);
+            $PERF->sessionlock['wait'] = $PERF->sessionlock['gained'] - $PERF->sessionlock['start'];
+            self::initialise_user_session($isnewsession);
+            self::$sessionactive = true; // Set here, so the session can be cleared if the security check fails.
             self::check_security();
+
+            if (!$requireslock || !self::$requireslockdebug) {
+                self::$priorsession = (array) $_SESSION['SESSION'];
+            }
+
+            if (!empty($CFG->enable_read_only_sessions) && isset($_SESSION['SESSION']->cachestore_session)) {
+                $caches = join(', ', array_keys($_SESSION['SESSION']->cachestore_session));
+                $caches = str_replace('default_session-', '', $caches);
+                throw new \moodle_exception("The session caches can not be in the session store when "
+                    . "enable_read_only_sessions is enabled. Please map all session mode caches to be outside of the "
+                    . "default session store before enabling this features. Found these definitions in the session: $caches");
+            }
 
             // Link global $USER and $SESSION,
             // this is tricky because PHP does not allow references to references
@@ -90,13 +189,10 @@ class manager {
             $_SESSION['SESSION'] =& $GLOBALS['SESSION'];
 
         } catch (\Exception $ex) {
-            @session_write_close();
             self::init_empty_session();
             self::$sessionactive = false;
             throw $ex;
         }
-
-        self::$sessionactive = true;
     }
 
     /**
@@ -105,6 +201,8 @@ class manager {
      * @return array perf info
      */
     public static function get_performance_info() {
+        global $CFG, $PERF;
+
         if (!session_id()) {
             return array();
         }
@@ -115,35 +213,58 @@ class manager {
 
         $info = array();
         $info['size'] = $size;
-        $info['html'] = "<span class=\"sessionsize\">Session ($handler): $size</span> ";
+        $info['html'] = html_writer::div("Session ($handler): $size", "sessionsize");
         $info['txt'] = "Session ($handler): $size ";
 
+        if (!empty($CFG->debugsessionlock)) {
+            $sessionlock = self::get_session_lock_info();
+            if (!empty($sessionlock['held'])) {
+                // The page displays the footer and the session has been closed.
+                $sessionlocktext = "Session lock held: ".number_format($sessionlock['held'], 3)." secs";
+            } else {
+                // The session hasn't yet been closed and so we assume now with microtime.
+                $sessionlockheld = microtime(true) - $PERF->sessionlock['gained'];
+                $sessionlocktext = "Session lock open: ".number_format($sessionlockheld, 3)." secs";
+            }
+            $info['txt'] .= $sessionlocktext;
+            $info['html'] .= html_writer::div($sessionlocktext, "sessionlockstart");
+            $sessionlockwaittext = "Session lock wait: ".number_format($sessionlock['wait'], 3)." secs";
+            $info['txt'] .= $sessionlockwaittext;
+            $info['html'] .= html_writer::div($sessionlockwaittext, "sessionlockwait");
+        }
+
         return $info;
+    }
+
+    /**
+     * Get fully qualified name of session handler class.
+     *
+     * @return string The name of the handler class
+     */
+    public static function get_handler_class() {
+        global $CFG, $DB;
+
+        if (PHPUNIT_TEST) {
+            return '\core\session\file';
+        } else if (!empty($CFG->session_handler_class)) {
+            return $CFG->session_handler_class;
+        } else if (!empty($CFG->dbsessions) and $DB->session_lock_supported()) {
+            return '\core\session\database';
+        }
+
+        return '\core\session\file';
     }
 
     /**
      * Create handler instance.
      */
     protected static function load_handler() {
-        global $CFG, $DB;
-
         if (self::$handler) {
             return;
         }
 
         // Find out which handler to use.
-        if (PHPUNIT_TEST) {
-            $class = '\core\session\file';
-
-        } else if (!empty($CFG->session_handler_class)) {
-            $class = $CFG->session_handler_class;
-
-        } else if (!empty($CFG->dbsessions) and $DB->session_lock_supported()) {
-            $class = '\core\session\database';
-
-        } else {
-            $class = '\core\session\file';
-        }
+        $class = self::get_handler_class();
         self::$handler = new $class();
     }
 
@@ -153,14 +274,28 @@ class manager {
      * This is intended for installation scripts, unit tests and other
      * special areas. Do NOT use for logout and session termination
      * in normal requests!
+     *
+     * @param mixed $newsid only used after initialising a user session, is this a new user session?
      */
-    public static function init_empty_session() {
+    public static function init_empty_session(?bool $newsid = null) {
         global $CFG;
 
+        if (isset($GLOBALS['SESSION']->notifications)) {
+            // Backup notifications. These should be preserved across session changes until the user fetches and clears them.
+            $notifications = $GLOBALS['SESSION']->notifications;
+        }
         $GLOBALS['SESSION'] = new \stdClass();
+        if (isset($newsid)) {
+            $GLOBALS['SESSION']->isnewsessioncookie = $newsid;
+        }
 
         $GLOBALS['USER'] = new \stdClass();
         $GLOBALS['USER']->id = 0;
+
+        if (!empty($notifications)) {
+            // Restore notifications.
+            $GLOBALS['SESSION']->notifications = $notifications;
+        }
         if (isset($CFG->mnet_localhost_id)) {
             $GLOBALS['USER']->mnethostid = $CFG->mnet_localhost_id;
         } else {
@@ -180,9 +315,7 @@ class manager {
     protected static function prepare_cookies() {
         global $CFG;
 
-        if (!isset($CFG->cookiesecure) or (!is_https() and empty($CFG->sslproxy))) {
-            $CFG->cookiesecure = 0;
-        }
+        $cookiesecure = is_moodle_cookie_secure();
 
         if (!isset($CFG->cookiehttponly)) {
             $CFG->cookiehttponly = 0;
@@ -243,10 +376,24 @@ class manager {
 
         // Set configuration.
         session_name($sessionname);
-        session_set_cookie_params(0, $CFG->sessioncookiepath, $CFG->sessioncookiedomain, $CFG->cookiesecure, $CFG->cookiehttponly);
+
+        $sessionoptions = [
+            'lifetime' => 0,
+            'path' => $CFG->sessioncookiepath,
+            'domain' => $CFG->sessioncookiedomain,
+            'secure' => $cookiesecure,
+            'httponly' => $CFG->cookiehttponly,
+        ];
+
+        if (self::should_use_samesite_none()) {
+            // If $samesite is empty, we don't want there to be any SameSite attribute.
+            $sessionoptions['samesite'] = 'None';
+        }
+
+        session_set_cookie_params($sessionoptions);
+
         ini_set('session.use_trans_sid', '0');
         ini_set('session.use_only_cookies', '1');
-        ini_set('session.hash_function', '0');        // For now MD5 - we do not have room for sha-1 in sessions table.
         ini_set('session.use_strict_mode', '0');      // We have custom protection in session init.
         ini_set('session.serialize_handler', 'php');  // We can move to 'php_serialize' after we require PHP 5.5.4 form Moodle.
 
@@ -271,7 +418,7 @@ class manager {
         if (!$sid) {
             // No session, very weird.
             error_log('Missing session ID, session not started!');
-            self::init_empty_session();
+            self::init_empty_session($newsid);
             return;
         }
 
@@ -315,6 +462,9 @@ class manager {
             }
 
             if ($timeout) {
+                if (defined('NO_SESSION_UPDATE') && NO_SESSION_UPDATE) {
+                    return;
+                }
                 session_regenerate_id(true);
                 $_SESSION = array();
                 $DB->delete_records('sessions', array('id'=>$record->id));
@@ -349,7 +499,7 @@ class manager {
                     $updated = true;
                 }
 
-                if ($updated) {
+                if ($updated && (!defined('NO_SESSION_UPDATE') || !NO_SESSION_UPDATE)) {
                     $update->id = $record->id;
                     $DB->update_record('sessions', $update);
                 }
@@ -376,15 +526,16 @@ class manager {
 
         $user = null;
 
-        if (!empty($CFG->opentogoogle)) {
-            if (is_web_crawler()) {
+        if (!empty($CFG->opentowebcrawlers)) {
+            if (\core_useragent::is_web_crawler()) {
                 $user = guest_user();
             }
-            if (!empty($CFG->guestloginbutton) and !$user and !empty($_SERVER['HTTP_REFERER'])) {
+            $referer = get_local_referer(false);
+            if (!empty($CFG->guestloginbutton) and !$user and !empty($referer)) {
                 // Automatically log in users coming from search engine results.
-                if (strpos($_SERVER['HTTP_REFERER'], 'google') !== false ) {
+                if (strpos($referer, 'google') !== false ) {
                     $user = guest_user();
-                } else if (strpos($_SERVER['HTTP_REFERER'], 'altavista') !== false ) {
+                } else if (strpos($referer, 'altavista') !== false ) {
                     $user = guest_user();
                 }
             }
@@ -395,7 +546,7 @@ class manager {
             self::set_user($user);
             self::add_session_record($user->id);
         } else {
-            self::init_empty_session();
+            self::init_empty_session($newsid);
             self::add_session_record(0);
         }
 
@@ -428,6 +579,7 @@ class manager {
      * Do various session security checks.
      *
      * WARNING: $USER and $SESSION are set up later, do not use them yet!
+     * @throws \core\session\exception
      */
     protected static function check_security() {
         global $CFG;
@@ -471,6 +623,27 @@ class manager {
     }
 
     /**
+     * Returns a valid setting for the SameSite cookie attribute.
+     *
+     * @return string The desired setting for the SameSite attribute on the cookie. Empty string indicates the SameSite attribute
+     * should not be set at all.
+     */
+    private static function should_use_samesite_none(): bool {
+        // We only want None or no attribute at this point. When we have cookie handling compatible with Lax,
+        // we can look at checking a setting.
+
+        // Browser support for none is not consistent yet. There are known issues with Safari, and IE11.
+        // Things are stablising, however as they're not stable yet we will deal specifically with the version of chrome
+        // that introduces a default of lax, setting it to none for the current version of chrome (2 releases before the change).
+        // We also check you are using secure cookies and HTTPS because if you are not running over HTTPS
+        // then setting SameSite=None will cause your session cookie to be rejected.
+        if (\core_useragent::is_chrome() && \core_useragent::check_chrome_version('78') && is_moodle_cookie_secure()) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
      * Terminate current user session.
      * @return void
      */
@@ -502,8 +675,7 @@ class manager {
         $DB->delete_records('sessions', array('sid'=>$sid));
         self::init_empty_session();
         self::add_session_record($_SESSION['USER']->id); // Do not use $USER here because it may not be set up yet.
-        session_write_close();
-        self::$sessionactive = false;
+        self::write_close();
     }
 
     /**
@@ -511,13 +683,55 @@ class manager {
      * Unblocks the sessions, other scripts may start executing in parallel.
      */
     public static function write_close() {
+        global $PERF, $ME, $CFG;
+
         if (self::$sessionactive) {
-            session_write_close();
-        } else {
-            if (session_id()) {
-                @session_write_close();
+            // Grab the time when session lock is released.
+            $PERF->sessionlock['released'] = microtime(true);
+            if (!empty($PERF->sessionlock['gained'])) {
+                $PERF->sessionlock['held'] = $PERF->sessionlock['released'] - $PERF->sessionlock['gained'];
+            }
+            $PERF->sessionlock['url'] = me();
+            self::update_recent_session_locks($PERF->sessionlock);
+            self::sessionlock_debugging();
+
+            $requireslock = self::$handler->requires_write_lock();
+            if (!$requireslock || !self::$requireslockdebug) {
+                // Compare the array of the earlier session data with the array now, if
+                // there is a difference then a lock is required.
+                $arraydiff = self::array_session_diff(
+                    self::$priorsession,
+                    (array) $_SESSION['SESSION']
+                );
+
+                if ($arraydiff) {
+                    $error = "Script $ME defined READ_ONLY_SESSION but the following SESSION attributes were changed:";
+                    foreach ($arraydiff as $key => $value) {
+                        $error .= ' $SESSION->' . $key;
+                    }
+                    // This will emit an error if debugging is on, even if $CFG->enable_read_only_sessions
+                    // is not true as we need to surface this class of errors.
+                    error_log($error); // phpcs:ignore
+                }
             }
         }
+
+        // More control over whether session data
+        // is persisted or not.
+        if (self::$sessionactive && session_id()) {
+            // Write session and release lock only if
+            // indication session start was clean.
+            self::$handler->write_close();
+        } else {
+            // Otherwise, if possible lock exists want
+            // to clear it, but do not write session.
+            // If the $handler has not been set then
+            // there is no session to abort.
+            if (isset(self::$handler)) {
+                @self::$handler->abort();
+            }
+        }
+
         self::$sessionactive = false;
     }
 
@@ -554,6 +768,31 @@ class manager {
         // There is no need the existence of handler storage in public API.
         self::load_handler();
         return self::$handler->session_exists($sid);
+    }
+
+    /**
+     * Return the number of seconds remaining in the current session.
+     * @param string $sid
+     */
+    public static function time_remaining($sid) {
+        global $DB, $CFG;
+
+        if (empty($CFG->version)) {
+            // Not installed yet, do not try to access database.
+            return ['userid' => 0, 'timeremaining' => $CFG->sessiontimeout];
+        }
+
+        // Note: add sessions->state checking here if it gets implemented.
+        if (!$record = $DB->get_record('sessions', array('sid' => $sid), 'id, userid, timemodified')) {
+            return ['userid' => 0, 'timeremaining' => $CFG->sessiontimeout];
+        }
+
+        if (empty($record->userid) or isguestuser($record->userid)) {
+            // Ignore guest and not-logged-in timeouts, there is very little risk here.
+            return ['userid' => 0, 'timeremaining' => $CFG->sessiontimeout];
+        } else {
+            return ['userid' => $record->userid, 'timeremaining' => $CFG->sessiontimeout - (time() - $record->timemodified)];
+        }
     }
 
     /**
@@ -684,6 +923,7 @@ class manager {
      * @param \stdClass $user record
      */
     public static function set_user(\stdClass $user) {
+        global $ADMIN;
         $GLOBALS['USER'] = $user;
         unset($GLOBALS['USER']->description); // Conserve memory.
         unset($GLOBALS['USER']->password);    // Improve security.
@@ -694,6 +934,9 @@ class manager {
 
         // Relink session with global $USER just in case it got unlinked somehow.
         $_SESSION['USER'] =& $GLOBALS['USER'];
+
+        // Nullify the $ADMIN tree global. If we're changing users, then this is now stale and must be generated again if needed.
+        $ADMIN = null;
 
         // Init session key.
         sesskey();
@@ -719,12 +962,12 @@ class manager {
             $rs->close();
 
             // Kill sessions of users with disabled plugins.
-            $auth_sequence = get_enabled_auth_plugins(true);
-            $auth_sequence = array_flip($auth_sequence);
-            unset($auth_sequence['nologin']); // No login means user cannot login.
-            $auth_sequence = array_flip($auth_sequence);
+            $authsequence = get_enabled_auth_plugins();
+            $authsequence = array_flip($authsequence);
+            unset($authsequence['nologin']); // No login means user cannot login.
+            $authsequence = array_flip($authsequence);
 
-            list($notplugins, $params) = $DB->get_in_or_equal($auth_sequence, SQL_PARAMS_QM, '', false);
+            list($notplugins, $params) = $DB->get_in_or_equal($authsequence, SQL_PARAMS_QM, '', false);
             $rs = $DB->get_recordset_select('sessions', "userid IN (SELECT id FROM {user} WHERE auth $notplugins)", $params, 'id DESC', 'id, sid');
             foreach ($rs as $session) {
                 self::kill_session($session->sid);
@@ -739,7 +982,7 @@ class manager {
             $params = array('purgebefore' => (time() - $maxlifetime), 'guestid'=>$CFG->siteguest);
 
             $authplugins = array();
-            foreach ($auth_sequence as $authname) {
+            foreach ($authsequence as $authname) {
                 $authplugins[$authname] = get_auth_plugin($authname);
             }
             $rs = $DB->get_recordset_sql($sql, $params);
@@ -747,7 +990,7 @@ class manager {
                 foreach ($authplugins as $authplugin) {
                     /** @var \auth_plugin_base $authplugin*/
                     if ($authplugin->ignore_timeout_hook($user, $user->sid, $user->s_timecreated, $user->s_timemodified)) {
-                        continue;
+                        continue 2;
                     }
                 }
                 self::kill_session($user->sid);
@@ -807,9 +1050,10 @@ class manager {
      * Login as another user - no security checks here.
      * @param int $userid
      * @param \context $context
+     * @param bool $generateevent Set to false to prevent the loginas event to be generated
      * @return void
      */
-    public static function loginas($userid, \context $context) {
+    public static function loginas($userid, \context $context, $generateevent = true) {
         global $USER;
 
         if (self::is_loggedinas()) {
@@ -831,21 +1075,37 @@ class manager {
         // Let enrol plugins deal with new enrolments if necessary.
         enrol_check_plugins($user);
 
-        // Create event before $USER is updated.
-        $event = \core\event\user_loggedinas::create(
-            array(
-                'objectid' => $USER->id,
-                'context' => $context,
-                'relateduserid' => $userid,
-                'other' => array(
-                    'originalusername' => fullname($USER, true),
-                    'loggedinasusername' => fullname($user, true)
+        if ($generateevent) {
+            // Create event before $USER is updated.
+            $event = \core\event\user_loggedinas::create(
+                array(
+                    'objectid' => $USER->id,
+                    'context' => $context,
+                    'relateduserid' => $userid,
+                    'other' => array(
+                        'originalusername' => fullname($USER, true),
+                        'loggedinasusername' => fullname($user, true)
+                    )
                 )
-            )
-        );
+            );
+        }
+
         // Set up global $USER.
         \core\session\manager::set_user($user);
-        $event->trigger();
+
+        if ($generateevent) {
+            $event->trigger();
+        }
+
+        // Queue migrating the messaging data, if we need to.
+        if (!get_user_preferences('core_message_migrate_data', false, $userid)) {
+            // Check if there are any legacy messages to migrate.
+            if (\core_message\helper::legacy_messages_exist($userid)) {
+                \core_message\task\migrate_message_data::queue_task($userid);
+            } else {
+                set_user_preference('core_message_migrate_data', true, $userid);
+            }
+        }
     }
 
     /**
@@ -858,9 +1118,10 @@ class manager {
      * @param string $identifier The string identifier for the message to show on failure.
      * @param string $component The string component for the message to show on failure.
      * @param int $frequency The update frequency in seconds.
+     * @param int $timeout The timeout of each request in seconds.
      * @throws coding_exception IF the frequency is longer than the session lifetime.
      */
-    public static function keepalive($identifier = 'sessionerroruser', $component = 'error', $frequency = null) {
+    public static function keepalive($identifier = 'sessionerroruser', $component = 'error', $frequency = null, $timeout = 0) {
         global $CFG, $PAGE;
 
         if ($frequency) {
@@ -869,19 +1130,276 @@ class manager {
                 throw new \coding_exception('Keepalive frequency is longer than the session lifespan.');
             }
         } else {
-            // A frequency of sessiontimeout / 3 allows for one missed request whilst still preserving the session.
-            $frequency = $CFG->sessiontimeout / 3;
+            // A frequency of sessiontimeout / 10 matches the timeouts in core/network amd module.
+            $frequency = $CFG->sessiontimeout / 10;
         }
 
-        // Add the session keepalive script to the list of page output requirements.
-        $sessionkeepaliveurl = new \moodle_url('/lib/sessionkeepalive_ajax.php');
-        $PAGE->requires->string_for_js($identifier, $component);
-        $PAGE->requires->yui_module('moodle-core-checknet', 'M.core.checknet.init', array(array(
-            // The JS config takes this is milliseconds rather than seconds.
-            'frequency' => $frequency * 1000,
-            'message' => array($identifier, $component),
-            'uri' => $sessionkeepaliveurl->out(),
-        )));
+        $PAGE->requires->js_call_amd('core/network', 'keepalive', array(
+                $frequency,
+                $timeout,
+                get_string($identifier, $component)
+            ));
     }
 
+    /**
+     * Generate a new login token and store it in the session.
+     *
+     * @return array The current login state.
+     */
+    private static function create_login_token() {
+        global $SESSION;
+
+        $state = [
+            'token' => random_string(32),
+            'created' => time() // Server time - not user time.
+        ];
+
+        if (!isset($SESSION->logintoken)) {
+            $SESSION->logintoken = [];
+        }
+
+        // Overwrite any previous values.
+        $SESSION->logintoken[self::$logintokenkey] = $state;
+
+        return $state;
+    }
+
+    /**
+     * Get the current login token or generate a new one.
+     *
+     * All login forms generated from Moodle must include a login token
+     * named "logintoken" with the value being the result of this function.
+     * Logins will be rejected if they do not include this token as well as
+     * the username and password fields.
+     *
+     * @return string The current login token.
+     */
+    public static function get_login_token() {
+        global $CFG, $SESSION;
+
+        $state = false;
+
+        if (!isset($SESSION->logintoken)) {
+            $SESSION->logintoken = [];
+        }
+
+        if (array_key_exists(self::$logintokenkey, $SESSION->logintoken)) {
+            $state = $SESSION->logintoken[self::$logintokenkey];
+        }
+        if (empty($state)) {
+            $state = self::create_login_token();
+        }
+
+        // Check token lifespan.
+        if ($state['created'] < (time() - $CFG->sessiontimeout)) {
+            $state = self::create_login_token();
+        }
+
+        // Return the current session login token.
+        if (array_key_exists('token', $state)) {
+            return $state['token'];
+        } else {
+            return false;
+        }
+    }
+
+    /**
+     * Check the submitted value against the stored login token.
+     *
+     * @param mixed $token The value submitted in the login form that we are validating.
+     *                     If false is passed for the token, this function will always return true.
+     * @return boolean If the submitted token is valid.
+     */
+    public static function validate_login_token($token = false) {
+        global $CFG;
+
+        if (!empty($CFG->alternateloginurl) || !empty($CFG->disablelogintoken)) {
+            // An external login page cannot generate the login token we need to protect CSRF on
+            // login requests.
+            // Other custom login workflows may skip this check by setting disablelogintoken in config.
+            return true;
+        }
+        if ($token === false) {
+            // authenticate_user_login is a core function was extended to validate tokens.
+            // For existing uses other than the login form it does not
+            // validate that a token was generated.
+            // Some uses that do not validate the token are login/token.php,
+            // or an auth plugin like auth/ldap/auth.php.
+            return true;
+        }
+
+        $currenttoken = self::get_login_token();
+
+        // We need to clean the login token so the old one is not valid again.
+        self::create_login_token();
+
+        if ($currenttoken !== $token) {
+            // Fail the login.
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Get the recent session locks array.
+     *
+     * @return array Recent session locks array.
+     */
+    public static function get_recent_session_locks() {
+        global $SESSION;
+
+        if (!isset($SESSION->recentsessionlocks)) {
+            // This will hold the pages that blocks other page.
+            $SESSION->recentsessionlocks = array();
+        }
+
+        return $SESSION->recentsessionlocks;
+    }
+
+    /**
+     * Updates the recent session locks.
+     *
+     * This function will store session lock info of all the pages visited.
+     *
+     * @param array $sessionlock Session lock array.
+     */
+    public static function update_recent_session_locks($sessionlock) {
+        global $CFG, $SESSION;
+
+        if (empty($CFG->debugsessionlock)) {
+            return;
+        }
+
+        $readonlysession = defined('READ_ONLY_SESSION') && READ_ONLY_SESSION;
+        $readonlydebugging = !empty($CFG->enable_read_only_sessions) || !empty($CFG->enable_read_only_sessions_debug);
+        if ($readonlysession && $readonlydebugging) {
+            return;
+        }
+
+        $SESSION->recentsessionlocks = self::get_recent_session_locks();
+        array_push($SESSION->recentsessionlocks, $sessionlock);
+
+        self::cleanup_recent_session_locks();
+    }
+
+    /**
+     * Reset recent session locks array if there is a time gap more than SESSION_RESET_GAP_THRESHOLD.
+     */
+    public static function cleanup_recent_session_locks() {
+        global $SESSION;
+
+        $locks = self::get_recent_session_locks();
+
+        if (count($locks) > self::MAXIMUM_STORED_SESSION_HISTORY) {
+            // Keep the last MAXIMUM_STORED_SESSION_HISTORY locks and ignore the rest.
+            $locks = array_slice($locks, -1 * self::MAXIMUM_STORED_SESSION_HISTORY);
+        }
+
+        if (count($locks) > 2) {
+            for ($i = count($locks) - 1; $i > 0; $i--) {
+                // Calculate the gap between session locks.
+                $gap = $locks[$i]['released'] - $locks[$i - 1]['start'];
+                if ($gap >= self::SESSION_RESET_GAP_THRESHOLD) {
+                    // Remove previous locks if the gap is 1 second or more.
+                    $SESSION->recentsessionlocks = array_slice($locks, $i);
+                    break;
+                }
+            }
+        }
+    }
+
+    /**
+     * Get the page that blocks other pages at a specific timestamp.
+     *
+     * Look for a page whose lock was gained before that timestamp, and released after that timestamp.
+     *
+     * @param  float $time Time before session lock starts.
+     * @return array|null
+     */
+    public static function get_locked_page_at($time) {
+        $recentsessionlocks = self::get_recent_session_locks();
+        foreach ($recentsessionlocks as $recentsessionlock) {
+            if ($time >= $recentsessionlock['gained'] &&
+                $time <= $recentsessionlock['released']) {
+                return $recentsessionlock;
+            }
+        }
+    }
+
+    /**
+     * Display the page which blocks other pages.
+     *
+     * @return string
+     */
+    public static function display_blocking_page() {
+        global $PERF;
+
+        $page = self::get_locked_page_at($PERF->sessionlock['start']);
+        $output = "Script ".me()." was blocked for ";
+        $output .= number_format($PERF->sessionlock['wait'], 3);
+        if ($page != null) {
+            $output .= " second(s) by script: ";
+            $output .= $page['url'];
+        } else {
+            $output .= " second(s) by an unknown script.";
+        }
+
+        return $output;
+    }
+
+    /**
+     * Get session lock info of the current page.
+     *
+     * @return array
+     */
+    public static function get_session_lock_info() {
+        global $PERF;
+
+        if (!isset($PERF->sessionlock)) {
+            return null;
+        }
+        return $PERF->sessionlock;
+    }
+
+    /**
+     * Display debugging info about slow and blocked script.
+     */
+    public static function sessionlock_debugging() {
+        global $CFG, $PERF;
+
+        if (!empty($CFG->debugsessionlock)) {
+            if (isset($PERF->sessionlock['held']) && $PERF->sessionlock['held'] > $CFG->debugsessionlock) {
+                debugging("Script ".me()." locked the session for ".number_format($PERF->sessionlock['held'], 3)
+                ." seconds, it should close the session using \core\session\manager::write_close().", DEBUG_NORMAL);
+            }
+
+            if (isset($PERF->sessionlock['wait']) && $PERF->sessionlock['wait'] > $CFG->debugsessionlock) {
+                $output = self::display_blocking_page();
+                debugging($output, DEBUG_DEVELOPER);
+            }
+        }
+    }
+
+    /**
+     * Compares two arrays outputs the difference.
+     *
+     * Note this does not use array_diff_assoc due to
+     * the use of stdClasses in Moodle sessions.
+     *
+     * @param array $array1
+     * @param array $array2
+     * @return array
+     */
+    private static function array_session_diff(array $array1, array $array2) : array {
+        $difference = [];
+        foreach ($array1 as $key => $value) {
+            if (!isset($array2[$key])) {
+                $difference[$key] = $value;
+            } else if ($array2[$key] !== $value) {
+                $difference[$key] = $value;
+            }
+        }
+
+        return $difference;
+    }
 }

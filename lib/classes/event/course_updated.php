@@ -34,6 +34,7 @@ defined('MOODLE_INTERNAL') || die();
  *
  *      - string shortname: (optional) shortname of course.
  *      - string fullname: (optional) fullname of course.
+ *      - string updatedfields: (optional) array of course table fields edited in this event, ['fieldname' => 'newvalue']
  * }
  *
  * @package    core
@@ -116,5 +117,14 @@ class course_updated extends base {
      */
     protected function get_legacy_logdata() {
         return $this->legacylogdata;
+    }
+
+    public static function get_objectid_mapping() {
+        return array('db' => 'course', 'restore' => 'course');
+    }
+
+    public static function get_other_mapping() {
+        // Nothing to map.
+        return false;
     }
 }

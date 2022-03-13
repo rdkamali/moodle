@@ -51,7 +51,14 @@ class qformat_multianswer extends qformat_default {
         $questiontext['text'] = implode('', $lines);
         $questiontext['format'] = FORMAT_MOODLE;
         $questiontext['itemid'] = '';
+
         $question = qtype_multianswer_extract_question($questiontext);
+        $errors = qtype_multianswer_validate_question($question);
+        if ($errors) {
+            $this->error(get_string('invalidmultianswerquestion', 'qtype_multianswer', implode(' ', $errors)));
+            return array();
+        }
+
         $question->questiontext = $question->questiontext['text'];
         $question->questiontextformat = 0;
 
@@ -60,6 +67,10 @@ class qformat_multianswer extends qformat_default {
         $question->generalfeedbackformat = FORMAT_MOODLE;
         $question->length = 1;
         $question->penalty = 0.3333333;
+        $question->status = \core_question\local\bank\question_version_status::QUESTION_STATUS_READY;
+        $question->version = 1;
+        $question->versionid = 0;
+        $question->questionbankentryid = 0;
 
         if (!empty($question)) {
             $question->name = $this->create_default_question_name($question->questiontext, get_string('questionname', 'question'));

@@ -52,9 +52,6 @@ $capabilities = array(
 
         'captype' => 'write',
         'contextlevel' => CONTEXT_COURSE,
-        'archetypes' => array(
-            'manager' => CAP_PROHIBIT,
-        )
     ),
 
     /* Voluntarily unenrol self from course - watch out for data loss. */
@@ -73,6 +70,15 @@ $capabilities = array(
         'archetypes' => array(
             'editingteacher' => CAP_ALLOW,
             'manager' => CAP_ALLOW,
+        )
+    ),
+
+    /* Ability to enrol self in courses. */
+    'enrol/self:enrolself' => array(
+        'captype' => 'write',
+        'contextlevel' => CONTEXT_COURSE,
+        'archetypes' => array(
+            'user' => CAP_ALLOW,
         )
     ),
 

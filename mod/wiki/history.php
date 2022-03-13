@@ -58,7 +58,7 @@ if (!$cm = get_coursemodule_from_instance('wiki', $wiki->id)) {
 
 $course = $DB->get_record('course', array('id' => $cm->course), '*', MUST_EXIST);
 
-require_login($course, true, $cm);
+require_course_login($course, true, $cm);
 
 if (!wiki_user_can_view($subwiki, $wiki)) {
     print_error('cannotviewpage', 'wiki');
@@ -77,7 +77,7 @@ $event->add_record_snapshot('wiki_subwikis', $subwiki);
 $event->trigger();
 
 /// Print the page header
-$wikipage = new page_wiki_history($wiki, $subwiki, $cm);
+$wikipage = new page_wiki_history($wiki, $subwiki, $cm, 'modulepage');
 
 $wikipage->set_page($page);
 $wikipage->set_paging($paging);

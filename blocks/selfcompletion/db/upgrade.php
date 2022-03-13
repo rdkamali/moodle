@@ -37,6 +37,8 @@
  * @license http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+defined('MOODLE_INTERNAL') || die();
+
 /**
  * Handles upgrading instances of this block.
  *
@@ -44,38 +46,30 @@
  * @param object $block
  */
 function xmldb_block_selfcompletion_upgrade($oldversion, $block) {
-    global $DB;
+    global $CFG, $DB;
 
-    // Moodle v2.4.0 release upgrade line
+    // Automatically generated Moodle v3.6.0 release upgrade line.
     // Put any upgrade step following this.
 
-    if ($oldversion < 2012112901) {
-        // Get the instances of this block.
-        if ($blocks = $DB->get_records('block_instances', array('blockname' => 'selfcompletion', 'pagetypepattern' => 'my-index'))) {
-            // Loop through and remove them from the My Moodle page.
-            foreach ($blocks as $block) {
-                blocks_delete_instance($block);
-            }
+    // Automatically generated Moodle v3.7.0 release upgrade line.
+    // Put any upgrade step following this.
 
+    // Automatically generated Moodle v3.8.0 release upgrade line.
+    // Put any upgrade step following this.
+
+    // Automatically generated Moodle v3.9.0 release upgrade line.
+    // Put any upgrade step following this.
+
+    if ($oldversion < 2021121600) {
+        // From Moodle 4.0, this block has been disabled by default in new installations.
+        // If the site has no instances of this block, it will disabled during the upgrading process too.
+        $totalcount = $DB->count_records('block_instances', ['blockname' => 'selfcompletion']);
+        if ($totalcount == 0) {
+            $DB->set_field('block', 'visible', 0, ['name' => 'selfcompletion']);
         }
 
-        // Savepoint reached.
-        upgrade_block_savepoint(true, 2012112901, 'selfcompletion');
+        upgrade_block_savepoint(true, 2021121600, 'selfcompletion', false);
     }
-
-
-    // Moodle v2.5.0 release upgrade line.
-    // Put any upgrade step following this.
-
-
-    // Moodle v2.6.0 release upgrade line.
-    // Put any upgrade step following this.
-
-    // Moodle v2.7.0 release upgrade line.
-    // Put any upgrade step following this.
-
-    // Moodle v2.8.0 release upgrade line.
-    // Put any upgrade step following this.
 
     return true;
 }

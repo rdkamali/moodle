@@ -25,7 +25,7 @@
 
 // NOTE: no MOODLE_INTERNAL test here, this file may be required by behat before including /config.php.
 
-require_once(__DIR__  . '/behat_form_field.php');
+require_once(__DIR__ . '/behat_form_textarea.php');
 
 /**
  * Availability form field class.
@@ -74,7 +74,7 @@ class behat_form_availability extends behat_form_textarea {
                     // Set a grouping condition.
                     $driver->click('//div[@class="availability-button"]/button');
                     $driver->click('//button[@id="availability_addrestriction_grouping"]');
-                    $escparam = $this->session->getSelectorsHandler()->xpathLiteral($param);
+                    $escparam = behat_context_helper::escape($param);
                     $nodes = $driver->find(
                             '//span[contains(concat(" " , @class, " "), " availability_grouping ")]//' .
                             'option[normalize-space(.) = ' . $escparam . ']');

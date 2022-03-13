@@ -23,7 +23,7 @@
  */
 
 
-require_once(dirname(__FILE__) . '/../../config.php');
+require_once(__DIR__ . '/../../config.php');
 require_once($CFG->dirroot.'/mod/quiz/lib.php');
 require_once($CFG->dirroot.'/mod/quiz/locallib.php');
 require_once($CFG->dirroot.'/mod/quiz/override_form.php');
@@ -66,6 +66,9 @@ if ($overrideid) {
 
 $PAGE->set_url($url);
 
+// Activate the secondary nav tab.
+$PAGE->set_secondary_active_tab("mod_quiz_useroverrides");
+
 require_login($course, false, $cm);
 
 $context = context_module::instance($cm->id);
@@ -76,6 +79,16 @@ require_capability('mod/quiz:manageoverrides', $context);
 if ($overrideid) {
     // Editing an override.
     $data = clone $override;
+
+    if ($override->groupid) {
+        if (!groups_group_visible($override->groupid, $course, $cm)) {
+            print_error('invalidoverrideid', 'quiz');
+        }
+    } else {
+        if (!groups_user_groups_visible($course, $override->userid, $cm)) {
+            print_error('invalidoverrideid', 'quiz');
+        }
+    }
 } else {
     // Creating a new override.
     $data = new stdClass();
@@ -166,6 +179,8 @@ if ($mform->is_cancelled()) {
     if (!empty($override->id)) {
         $fromform->id = $override->id;
         $DB->update_record('quiz_overrides', $fromform);
+        $cachekey = $groupmode ? "{$fromform->quiz}_g_{$fromform->groupid}" : "{$fromform->quiz}_u_{$fromform->userid}";
+        cache::make('mod_quiz', 'overrides')->delete($cachekey);
 
         // Determine which override updated event to fire.
         $params['objectid'] = $override->id;
@@ -182,6 +197,8 @@ if ($mform->is_cancelled()) {
     } else {
         unset($fromform->id);
         $fromform->id = $DB->insert_record('quiz_overrides', $fromform);
+        $cachekey = $groupmode ? "{$fromform->quiz}_g_{$fromform->groupid}" : "{$fromform->quiz}_u_{$fromform->userid}";
+        cache::make('mod_quiz', 'overrides')->delete($cachekey);
 
         // Determine which override created event to fire.
         $params['objectid'] = $fromform->id;
@@ -198,7 +215,13 @@ if ($mform->is_cancelled()) {
     }
 
     quiz_update_open_attempts(array('quizid'=>$quiz->id));
-    quiz_update_events($quiz, $fromform);
+    if ($groupmode) {
+        // Priorities may have shifted, so we need to update all of the calendar events for group overrides.
+        quiz_update_events($quiz);
+    } else {
+        // User override. We only need to update the calendar event for this user override.
+        quiz_update_events($quiz, $fromform);
+    }
 
     if (!empty($fromform->submitbutton)) {
         redirect($overridelisturl);
@@ -218,8 +241,12 @@ $PAGE->navbar->add($pagetitle);
 $PAGE->set_pagelayout('admin');
 $PAGE->set_title($pagetitle);
 $PAGE->set_heading($course->fullname);
+$PAGE->activityheader->set_attrs([
+    "title" => format_string($quiz->name, true, array('context' => $context)),
+    "description" => "",
+    "hidecompletion" => true
+]);
 echo $OUTPUT->header();
-echo $OUTPUT->heading(format_string($quiz->name, true, array('context' => $context)));
 
 $mform->display();
 

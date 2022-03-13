@@ -49,11 +49,16 @@ $strimportentries = get_string('importentriesfromxml', 'glossary');
 $PAGE->navbar->add($strimportentries);
 $PAGE->set_title($glossary->name);
 $PAGE->set_heading($course->fullname);
+$PAGE->set_secondary_active_tab('modulepage');
+$PAGE->activityheader->disable();
+
+$form = new mod_glossary_import_form('');
+if ($form->is_cancelled()) {
+    redirect(new moodle_url('view.php', ['id' => $id]));
+}
 
 echo $OUTPUT->header();
 echo $OUTPUT->heading($strimportentries);
-
-$form = new mod_glossary_import_form();
 
 if ( !$data = $form->get_data() ) {
     echo $OUTPUT->box_start('glossarydisplay generalbox');
@@ -141,9 +146,17 @@ if ($xml = glossary_read_imported_file($result)) {
             $glossary->assessed = 0;
             $glossary->availability = null;
 
-            // New glossary is to be inserted in section 0, it is always visible.
-            $glossary->section = 0;
+            // Check if we're creating the new glossary on the front page or inside a course.
+            if ($cm->course == SITEID) {
+                // On the front page, activities are in section 1.
+                $glossary->section = 1;
+            } else {
+                // Inside a course, add to the general section (0).
+                $glossary->section = 0;
+            }
+            // New glossary is always visible.
             $glossary->visible = 1;
+            $glossary->visibleoncoursepage = 1;
 
             // Include new glossary and return the new ID
             if ( !($glossary = add_moduleinfo($glossary, $course)) ) {
@@ -164,13 +177,17 @@ if ($xml = glossary_read_imported_file($result)) {
     }
 
     $xmlentries = $xml['GLOSSARY']['#']['INFO'][0]['#']['ENTRIES'][0]['#']['ENTRY'];
-    $sizeofxmlentries = sizeof($xmlentries);
+    $sizeofxmlentries = is_array($xmlentries) ? count($xmlentries) : 0;
     for($i = 0; $i < $sizeofxmlentries; $i++) {
         // Inserting the entries
         $xmlentry = $xmlentries[$i];
         $newentry = new stdClass();
         $newentry->concept = trim($xmlentry['#']['CONCEPT'][0]['#']);
-        $newentry->definition = trusttext_strip($xmlentry['#']['DEFINITION'][0]['#']);
+        $definition = $xmlentry['#']['DEFINITION'][0]['#'];
+        if (!is_string($definition)) {
+            print_error('errorparsingxml', 'glossary');
+        }
+        $newentry->definition = trusttext_strip($definition);
         if ( isset($xmlentry['#']['CASESENSITIVE'][0]['#']) ) {
             $newentry->casesensitive = $xmlentry['#']['CASESENSITIVE'][0]['#'];
         } else {
@@ -225,7 +242,7 @@ if ($xml = glossary_read_imported_file($result)) {
             $importedentries++;
 
             $xmlaliases = @$xmlentry['#']['ALIASES'][0]['#']['ALIAS']; // ignore missing ALIASES
-            $sizeofxmlaliases = sizeof($xmlaliases);
+            $sizeofxmlaliases = is_array($xmlaliases) ? count($xmlaliases) : 0;
             for($k = 0; $k < $sizeofxmlaliases; $k++) {
             /// Importing aliases
                 $xmlalias = $xmlaliases[$k];
@@ -242,7 +259,7 @@ if ($xml = glossary_read_imported_file($result)) {
             if (!empty($data->catsincl)) {
                 // If the categories must be imported...
                 $xmlcats = @$xmlentry['#']['CATEGORIES'][0]['#']['CATEGORY']; // ignore missing CATEGORIES
-                $sizeofxmlcats = sizeof($xmlcats);
+                $sizeofxmlcats = is_array($xmlcats) ? count($xmlcats) : 0;
                 for($k = 0; $k < $sizeofxmlcats; $k++) {
                     $xmlcat = $xmlcats[$k];
 
@@ -273,6 +290,19 @@ if ($xml = glossary_read_imported_file($result)) {
             // Import files attached to the entry.
             if (glossary_xml_import_files($xmlentry['#'], 'ATTACHMENTFILES', $glossarycontext->id, 'attachment', $newentry->id)) {
                 $DB->update_record("glossary_entries", array('id' => $newentry->id, 'attachment' => '1'));
+            }
+
+            // Import tags associated with the entry.
+            if (core_tag_tag::is_enabled('mod_glossary', 'glossary_entries')) {
+                $xmltags = @$xmlentry['#']['TAGS'][0]['#']['TAG']; // Ignore missing TAGS.
+                $sizeofxmltags = is_array($xmltags) ? count($xmltags) : 0;
+                for ($k = 0; $k < $sizeofxmltags; $k++) {
+                    // Importing tags.
+                    $tag = $xmltags[$k]['#'];
+                    if (!empty($tag)) {
+                        core_tag_tag::add_item_tag('mod_glossary', 'glossary_entries', $newentry->id, $glossarycontext, $tag);
+                    }
+                }
             }
 
         } else {

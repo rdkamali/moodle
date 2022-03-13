@@ -100,6 +100,15 @@ abstract class restore_activity_task extends restore_task {
         return $this->moduleid;
     }
 
+    /**
+     * Returns the old course module id (cmid of activity which will be restored)
+     *
+     * @return int
+     */
+    public function get_old_moduleid() {
+        return $this->oldmoduleid;
+    }
+
     public function get_old_moduleversion() {
         return $this->oldmoduleversion;
     }
@@ -173,7 +182,22 @@ abstract class restore_activity_task extends restore_task {
 
         // Logs (conditionally)
         if ($this->get_setting_value('logs')) {
+            // Legacy logs.
             $this->add_step(new restore_activity_logs_structure_step('activity_logs', 'logs.xml'));
+            // New log stores.
+            $this->add_step(new restore_activity_logstores_structure_step('activity_logstores', 'logstores.xml'));
+        }
+
+        // Activity competencies.
+        $this->add_step(new restore_activity_competencies_structure_step('activity_competencies', 'competencies.xml'));
+
+        // Search reindexing, if enabled and if not restoring entire course.
+        if (\core_search\manager::is_indexing_enabled()) {
+            $wholecourse = $this->get_target() == backup::TARGET_NEW_COURSE;
+            $wholecourse = $wholecourse || ($this->setting_exists('overwrite_conf') && $this->get_setting_value('overwrite_conf'));
+            if (!$wholecourse) {
+                $this->add_step(new restore_activity_search_index('activity_search_index'));
+            }
         }
 
         // At the end, mark it as built
@@ -281,8 +305,8 @@ abstract class restore_activity_task extends restore_task {
         // - section_included setting (if exists)
         $settingname = $settingprefix . 'included';
         $activity_included = new restore_activity_generic_setting($settingname, base_setting::IS_BOOLEAN, true);
-        $activity_included->get_ui()->set_icon(new pix_icon('icon', get_string('pluginname', $this->modulename),
-            $this->modulename, array('class' => 'iconlarge icon-post')));
+        $activity_included->get_ui()->set_icon(new image_icon('icon', get_string('pluginname', $this->modulename),
+            $this->modulename, array('class' => 'iconlarge icon-post ml-1')));
         $this->add_setting($activity_included);
         // Look for "activities" root setting
         $activities = $this->plan->get_setting('activities');

@@ -46,8 +46,12 @@ class mod_assign_grading_batch_operations_form extends moodleform {
         $options = array();
         $options['lock'] = get_string('locksubmissions', 'assign');
         $options['unlock'] = get_string('unlocksubmissions', 'assign');
+        $options['downloadselected'] = get_string('downloadselectedsubmissions', 'assign');
         if ($instance['submissiondrafts']) {
             $options['reverttodraft'] = get_string('reverttodraft', 'assign');
+        }
+        if (has_capability('mod/assign:editothersubmission', $instance['context'])) {
+            $options['removesubmission'] = get_string('removesubmission', 'assign');
         }
         if ($instance['duedate'] && has_capability('mod/assign:grantextension', $instance['context'])) {
             $options['grantextension'] = get_string('grantextension', 'assign');

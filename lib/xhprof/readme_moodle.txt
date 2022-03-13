@@ -1,11 +1,8 @@
-Description of XHProf 0.9.2 library/viewer import into Moodle
+Description of XHProf 2.3.5 library/viewer import into Moodle
 
 Removed (commit #1):
- * .arcconfig - Definitions for arcanist/phabricator removed completely
- * composer.json - Composer's definition removed completely
  * examples - examples dir removed completely
  * extension - extension dir removed completely
- * package.xml - PECL package definition removed completely
  * xhprof_html/docs - documentation dir removed completely
 
 Added (commit #2 - always taken from current moodle.git master):
@@ -21,9 +18,6 @@ Our changes:  Look for "moodle" in code (commit #3 - always mimic from current m
  * xhprof_lib/utils/callgraph_utils.php: Modified to use $CFG->pathtodot
 
 TODO:
- * with the 3 reports (index, callgraph and typeahead), close seesion asap,
-       so user can continue working with moodle while the report (specially
-       the graph is being generated).
  * improvements to the listing mode: various commodity details like:
        - allow to filter by various criteria
        - inline (and ajax) editing of reference/comment and deleting
@@ -39,3 +33,11 @@ TODO:
 20101122 - MDL-24600 - Eloy Lafuente (stronk7): Original import of 0.9.2 release
 20110318 - MDL-26891 - Eloy Lafuente (stronk7): Implemented earlier profiling runs
 20130621 - MDL-39733 - Eloy Lafuente (stronk7): Export & import of profiling runs
+20160721 - MDL-55292 - Russell Smith (mr-russ): Add support for tideways profiler collection for PHP7
+20171002 - MDL-60313 - Marina Glancy (marinaglancy): Upgrade to 0.9.4 release; patched for PHP7.2
+20190314 - MDL-64543 - Brendan Heywood (brendanheywood): Add support for conditional slow profiling
+20191016 - MDL-65349 - Brendan Heywood (brendanheywood): Improved url matching behaviour
+20201012 - MDL-67081 - Brendan Heywood (brendanheywood): Support selective profiles from CLI
+20201210 - MDL-70297 - Ilya Tregubov (ilyatregubov): Upgrade to 2.2.3 release;
+20210209 - MDL-70525 - Tomo Tsuyuki (tomotsuyuki): Allow huge number of values
+20211209 - MDL-71705 - Ilya Tregubov (ilyatregubov): Upgrade to 2.3.5 release;

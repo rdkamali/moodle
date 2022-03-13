@@ -29,9 +29,20 @@ $string['configdndresizewidth'] = 'When a label is created from a dragged & drop
 $string['dndmedia'] = 'Media drag and drop';
 $string['dndresizeheight'] = 'Resize drag and drop height';
 $string['dndresizewidth'] = 'Resize drag and drop width';
-$string['dnduploadlabel'] = 'Add image to course page';
+$string['dnduploadlabel'] = 'Add media to course page';
 $string['dnduploadlabeltext'] = 'Add a label to the course page';
+$string['indicator:cognitivedepth'] = 'Label cognitive';
+$string['indicator:cognitivedepth_help'] = 'This indicator is based on the cognitive depth reached by the student in a Label resource.';
+$string['indicator:cognitivedepthdef'] = 'Label cognitive';
+$string['indicator:cognitivedepthdef_help'] = 'The participant has reached this percentage of the cognitive engagement offered by the Label resources during this analysis interval (Levels = No view, View)';
+$string['indicator:cognitivedepthdef_link'] = 'Learning_analytics_indicators#Cognitive_depth';
+$string['indicator:socialbreadth'] = 'Label social';
+$string['indicator:socialbreadth_help'] = 'This indicator is based on the social breadth reached by the student in a Label resource.';
+$string['indicator:socialbreadthdef'] = 'Label social';
+$string['indicator:socialbreadthdef_help'] = 'The participant has reached this percentage of the social engagement offered by the Label resources during this analysis interval (Levels = No participation, Participant alone)';
+$string['indicator:socialbreadthdef_link'] = 'Learning_analytics_indicators#Social_breadth';
 $string['label:addinstance'] = 'Add a new label';
+$string['label:view'] = 'View label';
 $string['labeltext'] = 'Label text';
 $string['modulename'] = 'Label';
 $string['modulename_help'] = 'The label module enables text and multimedia to be inserted into the course page in between links to other resources and activities. Labels are very versatile and can help to improve the appearance of a course if used thoughtfully.
@@ -43,5 +54,7 @@ Labels may be used
 * To add a short description to a course section';
 $string['modulename_link'] = 'mod/label/view';
 $string['modulenameplural'] = 'Labels';
+$string['privacy:metadata'] = 'The Label resource plugin does not store any personal data.';
 $string['pluginadministration'] = 'Label administration';
 $string['pluginname'] = 'Label';
+$string['search:activity'] = 'Label';

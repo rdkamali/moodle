@@ -23,8 +23,8 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-require_once(dirname(dirname(dirname(__FILE__))).'/config.php');
-require_once(dirname(__FILE__).'/locallib.php');
+require(__DIR__.'/../../config.php');
+require_once(__DIR__.'/locallib.php');
 
 $cmid       = required_param('cmid', PARAM_INT);
 
@@ -43,6 +43,10 @@ $workshop   = new workshop($workshop, $cm, $course);
 $PAGE->set_url($workshop->editform_url());
 $PAGE->set_title($workshop->name);
 $PAGE->set_heading($course->fullname);
+$PAGE->activityheader->set_attrs([
+    'hidecompletion' => true,
+    'description' => ''
+]);
 $PAGE->navbar->add(get_string('editingassessmentform', 'workshop'));
 
 // load the grading strategy logic
@@ -73,7 +77,6 @@ if ($mform->is_cancelled()) {
 // Output starts here
 
 echo $OUTPUT->header();
-echo $OUTPUT->heading(format_string($workshop->name));
 echo $OUTPUT->heading(get_string('pluginname', 'workshopform_' . $workshop->strategy), 3);
 
 $mform->display();

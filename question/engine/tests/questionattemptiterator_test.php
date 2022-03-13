@@ -27,8 +27,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 global $CFG;
-require_once(dirname(__FILE__) . '/../lib.php');
-require_once(dirname(__FILE__) . '/helpers.php');
+require_once(__DIR__ . '/../lib.php');
+require_once(__DIR__ . '/helpers.php');
 
 
 /**
@@ -42,7 +42,7 @@ class question_attempt_iterator_test extends advanced_testcase {
     private $qas = array();
     private $iterator;
 
-    protected function setUp() {
+    protected function setUp(): void {
         $this->quba = question_engine::make_questions_usage_by_activity('unit_test',
                 context_system::instance());
         $this->quba->set_preferred_behaviour('deferredfeedback');
@@ -56,7 +56,7 @@ class question_attempt_iterator_test extends advanced_testcase {
         $this->iterator = $this->quba->get_attempt_iterator();
     }
 
-    protected function tearDown() {
+    protected function tearDown(): void {
         $this->quba = null;
         $this->iterator = null;
     }
@@ -88,7 +88,7 @@ class question_attempt_iterator_test extends advanced_testcase {
     }
 
     public function test_offsetGet_before_start() {
-        $this->setExpectedException('moodle_exception');
+        $this->expectException(moodle_exception::class);
         $step = $this->iterator[0];
     }
 
@@ -101,17 +101,17 @@ class question_attempt_iterator_test extends advanced_testcase {
     }
 
     public function test_offsetGet_past_end() {
-        $this->setExpectedException('moodle_exception');
+        $this->expectException(moodle_exception::class);
         $step = $this->iterator[3];
     }
 
     public function test_cannot_set() {
-        $this->setExpectedException('moodle_exception');
+        $this->expectException(moodle_exception::class);
         $this->iterator[0] = null;
     }
 
     public function test_cannot_unset() {
-        $this->setExpectedException('moodle_exception');
+        $this->expectException(moodle_exception::class);
         unset($this->iterator[2]);
     }
 }

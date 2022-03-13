@@ -112,12 +112,26 @@ class restore_root_task extends restore_task {
         $users->get_ui()->set_changeable($changeable);
         $this->add_setting($users);
 
-        $rootenrolmanual = new restore_users_setting('enrol_migratetomanual', base_setting::IS_BOOLEAN, false);
-        $rootenrolmanual->set_ui(new backup_setting_ui_checkbox($rootenrolmanual, get_string('rootenrolmanual', 'backup')));
-        $rootenrolmanual->get_ui()->set_changeable(enrol_is_enabled('manual'));
-        $rootenrolmanual->get_ui()->set_changeable($changeable);
-        $this->add_setting($rootenrolmanual);
-        $users->add_dependency($rootenrolmanual);
+        // Restore enrolment methods.
+        if ($changeable) {
+            $options = [
+                backup::ENROL_NEVER     => get_string('rootsettingenrolments_never', 'backup'),
+                backup::ENROL_WITHUSERS => get_string('rootsettingenrolments_withusers', 'backup'),
+                backup::ENROL_ALWAYS    => get_string('rootsettingenrolments_always', 'backup'),
+            ];
+            $enroldefault = backup::ENROL_WITHUSERS;
+        } else {
+            // Users can not be restored, simplify the dropdown.
+            $options = [
+                backup::ENROL_NEVER     => get_string('no'),
+                backup::ENROL_ALWAYS    => get_string('yes')
+            ];
+            $enroldefault = backup::ENROL_NEVER;
+        }
+        $enrolments = new restore_users_setting('enrolments', base_setting::IS_INTEGER, $enroldefault);
+        $enrolments->set_ui(new backup_setting_ui_select($enrolments, get_string('rootsettingenrolments', 'backup'),
+            $options));
+        $this->add_setting($enrolments);
 
         // Define role_assignments (dependent of users)
         $defaultvalue = false;                      // Safer default
@@ -131,6 +145,19 @@ class restore_root_task extends restore_task {
         $roleassignments->get_ui()->set_changeable($changeable);
         $this->add_setting($roleassignments);
         $users->add_dependency($roleassignments);
+
+        // Define permissions.
+        $defaultvalue = false;                      // Safer default.
+        $changeable = false;
+        // Enable when available, or key doesn't exist (backward compatibility).
+        if (!array_key_exists('permissions', $rootsettings) || !empty($rootsettings['permissions'])) {
+            $defaultvalue = true;
+            $changeable = true;
+        }
+        $permissions = new restore_permissions_setting('permissions', base_setting::IS_BOOLEAN, $defaultvalue);
+        $permissions->set_ui(new backup_setting_ui_checkbox($permissions, get_string('rootsettingpermissions', 'backup')));
+        $permissions->get_ui()->set_changeable($changeable);
+        $this->add_setting($permissions);
 
         // Define activitites
         $defaultvalue = false;                      // Safer default
@@ -266,5 +293,35 @@ class restore_root_task extends restore_task {
         $groups->set_ui(new backup_setting_ui_checkbox($groups, get_string('rootsettinggroups', 'backup')));
         $groups->get_ui()->set_changeable($changeable);
         $this->add_setting($groups);
+
+        // Competencies restore setting. Show when competencies is enabled and the setting is available.
+        $hascompetencies = !empty($rootsettings['competencies']);
+        $competencies = new restore_competencies_setting($hascompetencies);
+        $competencies->set_ui(new backup_setting_ui_checkbox($competencies, get_string('rootsettingcompetencies', 'backup')));
+        $this->add_setting($competencies);
+
+        $customfields = new restore_customfield_setting('customfields', base_setting::IS_BOOLEAN, $defaultvalue);
+        $customfields->set_ui(new backup_setting_ui_checkbox($customfields, get_string('rootsettingcustomfield', 'backup')));
+        $this->add_setting($customfields);
+
+        // Define Content bank content.
+        $defaultvalue = false;
+        $changeable = false;
+        if (isset($rootsettings['contentbankcontent']) && $rootsettings['contentbankcontent']) { // Only enabled when available.
+            $defaultvalue = true;
+            $changeable = true;
+        }
+        $contents = new restore_contentbankcontent_setting('contentbankcontent', base_setting::IS_BOOLEAN, $defaultvalue);
+        $contents->set_ui(new backup_setting_ui_checkbox($contents, get_string('rootsettingcontentbankcontent', 'backup')));
+        $contents->get_ui()->set_changeable($changeable);
+        $this->add_setting($contents);
+
+        // Include legacy files.
+        $defaultvalue = true;
+        $changeable = true;
+        $legacyfiles = new restore_generic_setting('legacyfiles', base_setting::IS_BOOLEAN, $defaultvalue);
+        $legacyfiles->set_ui(new backup_setting_ui_checkbox($legacyfiles, get_string('rootsettinglegacyfiles', 'backup')));
+        $legacyfiles->get_ui()->set_changeable($changeable);
+        $this->add_setting($legacyfiles);
     }
 }

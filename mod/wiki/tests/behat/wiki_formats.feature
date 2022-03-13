@@ -7,21 +7,20 @@ Feature: There is a choice of formats for editing a wiki page
   Background:
     Given the following "users" exist:
       | username | firstname | lastname | email |
-      | teacher1 | Teacher | 1 | teacher1@asd.com |
+      | teacher1 | Teacher | 1 | teacher1@example.com |
     And the following "courses" exist:
       | fullname | shortname | category |
       | Course 1 | C1 | 0 |
     And the following "course enrolments" exist:
       | user | course | role |
       | teacher1 | C1 | editingteacher |
-    And I log in as "teacher1"
-    And I follow "Course 1"
-    And I turn editing mode on
-    And I add a "Wiki" to section "1" and I fill the form with:
-      | Wiki name | Test wiki name |
-      | Description | Test wiki description |
-      | First page name | First page |
-    And I follow "Test wiki name"
+    And the following "activity" exists:
+      | activity       | wiki           |
+      | course         | C1             |
+      | name           | Test wiki name |
+      | wikimode       | collaborative  |
+      | firstpagetitle | First page     |
+    And I am on the "Test wiki name" "wiki activity" page logged in as teacher1
 
   @javascript
   Scenario: Creole format
@@ -67,7 +66,7 @@ Feature: There is a choice of formats for editing a wiki page
     When I set the following fields to these values:
       | HTML format | 1 |
     And I press "Create page"
-    Then "#fitem_id_newcontent_editor" "css_element" should exist
+    Then "#id_newcontent_editor" "css_element" should exist
     And I set the following fields to these values:
       | HTML format | I'm a text |
     And I press "Save"

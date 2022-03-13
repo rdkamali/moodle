@@ -30,7 +30,6 @@ $category = required_param('category', PARAM_SAFEDIR);
 $return = optional_param('return','', PARAM_ALPHA);
 $adminediting = optional_param('adminedit', -1, PARAM_BOOL);
 
-/// no guest autologin
 require_login(0, false);
 $PAGE->set_context(context_system::instance());
 $PAGE->set_url('/admin/category.php', array('category' => $category));
@@ -54,14 +53,16 @@ $statusmsg = '';
 $errormsg  = '';
 
 if ($data = data_submitted() and confirm_sesskey()) {
-    if (admin_write_settings($data)) {
-        $statusmsg = get_string('changessaved');
-    }
-
+    $count = admin_write_settings($data);
     if (empty($adminroot->errors)) {
-        switch ($return) {
-            case 'site': redirect("$CFG->wwwroot/");
-            case 'admin': redirect("$CFG->wwwroot/$CFG->admin/");
+        // No errors. Did we change any setting?  If so, then indicate success.
+        if ($count) {
+            $statusmsg = get_string('changessaved');
+        } else {
+            switch ($return) {
+                case 'site': redirect("$CFG->wwwroot/");
+                case 'admin': redirect("$CFG->wwwroot/$CFG->admin/");
+            }
         }
     } else {
         $errormsg = get_string('errorwithsettings', 'admin');
@@ -73,8 +74,8 @@ if ($data = data_submitted() and confirm_sesskey()) {
 if ($PAGE->user_allowed_editing() && $adminediting != -1) {
     $USER->editing = $adminediting;
 }
-
-if ($PAGE->user_allowed_editing()) {
+$buttons = null;
+if ($PAGE->user_allowed_editing() && !$PAGE->theme->haseditswitch) {
     $url = clone($PAGE->url);
     if ($PAGE->user_is_editing()) {
         $caption = get_string('blockseditoff');
@@ -89,7 +90,7 @@ if ($PAGE->user_allowed_editing()) {
 $savebutton = false;
 $outputhtml = '';
 foreach ($settingspage->children as $childpage) {
-    if ($childpage->is_hidden()) {
+    if ($childpage->is_hidden() || !$childpage->check_access()) {
         continue;
     }
     if ($childpage instanceof admin_externalpage) {
@@ -120,14 +121,16 @@ foreach ($settingspage->children as $childpage) {
 }
 if ($savebutton) {
     $outputhtml .= html_writer::start_tag('div', array('class' => 'form-buttons'));
-    $outputhtml .= html_writer::empty_tag('input', array('class' => 'form-submit', 'type' => 'submit', 'value' => get_string('savechanges','admin')));
+    $outputhtml .= html_writer::empty_tag('input', array('class' => 'btn btn-primary form-submit', 'type' => 'submit', 'value' => get_string('savechanges','admin')));
     $outputhtml .= html_writer::end_tag('div');
 }
 
 $visiblepathtosection = array_reverse($settingspage->visiblepath);
 $PAGE->set_title("$SITE->shortname: " . implode(": ",$visiblepathtosection));
 $PAGE->set_heading($SITE->fullname);
-$PAGE->set_button($buttons);
+if ($buttons) {
+    $PAGE->set_button($buttons);
+}
 
 echo $OUTPUT->header();
 
@@ -137,13 +140,7 @@ if ($errormsg !== '') {
     echo $OUTPUT->notification($statusmsg, 'notifysuccess');
 }
 
-$path = array_reverse($settingspage->visiblepath);
-if (is_array($path)) {
-    $visiblename = join(' / ', $path);
-} else {
-    $visiblename = $path;
-}
-echo $OUTPUT->heading(get_string('admincategory', 'admin', $visiblename), 2);
+echo $OUTPUT->heading(get_string('admincategory', 'admin', $settingspage->visiblename), 2);
 
 echo html_writer::start_tag('form', array('action' => '', 'method' => 'post', 'id' => 'adminsettings'));
 echo html_writer::start_tag('div');
@@ -154,5 +151,8 @@ echo html_writer::tag('div', '<!-- -->', array('class' => 'clearer'));
 echo $outputhtml;
 echo html_writer::end_tag('fieldset');
 echo html_writer::end_tag('form');
+
+// Add the form change checker.
+$PAGE->requires->js_call_amd('core_form/changechecker', 'watchFormById', ['adminsettings']);
 
 echo $OUTPUT->footer();

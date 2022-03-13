@@ -17,7 +17,7 @@
  * Provides an in browser PDF editor.
  *
  * @module moodle-assignfeedback_editpdf-editor
- */
+*/
 
 /**
  * Class representing a highlight.
@@ -41,7 +41,7 @@ Y.extend(ANNOTATIONHIGHLIGHT, M.assignfeedback_editpdf.annotation, {
      * @method draw
      * @return M.assignfeedback_editpdf.drawable
      */
-    draw : function() {
+    draw: function() {
         var drawable,
             shape,
             bounds,
@@ -84,7 +84,7 @@ Y.extend(ANNOTATIONHIGHLIGHT, M.assignfeedback_editpdf.annotation, {
      * @method draw_current_edit
      * @param M.assignfeedback_editpdf.edit edit
      */
-    draw_current_edit : function(edit) {
+    draw_current_edit: function(edit) {
         var drawable = new M.assignfeedback_editpdf.drawable(this.editor),
             shape,
             bounds,
@@ -109,13 +109,13 @@ Y.extend(ANNOTATIONHIGHLIGHT, M.assignfeedback_editpdf.annotation, {
         shape = this.editor.graphic.addShape({
             type: Y.Rect,
             width: bounds.width,
-            height: 16,
+            height: 20,
             stroke: false,
             fill: {
                color: highlightcolour
             },
             x: bounds.x,
-            y: edit.start.y
+            y: edit.start.y - 10
         });
 
         drawable.shapes.push(shape);
@@ -131,16 +131,16 @@ Y.extend(ANNOTATIONHIGHLIGHT, M.assignfeedback_editpdf.annotation, {
      * @param M.assignfeedback_editpdf.edit edit
      * @return bool true if highlight bound is more than min width/height, else false.
      */
-    init_from_edit : function(edit) {
+    init_from_edit: function(edit) {
         var bounds = new M.assignfeedback_editpdf.rect();
         bounds.bound([edit.start, edit.end]);
 
         this.gradeid = this.editor.get('gradeid');
         this.pageno = this.editor.currentpage;
         this.x = bounds.x;
-        this.y = edit.start.y;
+        this.y = edit.start.y - 10;
         this.endx = bounds.x + bounds.width;
-        this.endy = edit.start.y + 16;
+        this.endy = edit.start.y + 10;
         this.colour = edit.annotationcolour;
         this.page = '';
 

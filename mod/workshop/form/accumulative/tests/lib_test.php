@@ -18,10 +18,14 @@
  * Unit tests for Accumulative grading strategy logic
  *
  * @package    workshopform_accumulative
- * @category   phpunit
+ * @category   test
  * @copyright  2009 David Mudrak <david.mudrak@gmail.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+namespace workshopform_accumulative;
+
+use workshop;
+use workshop_accumulative_strategy;
 
 defined('MOODLE_INTERNAL') || die();
 
@@ -30,8 +34,10 @@ global $CFG;
 require_once($CFG->dirroot . '/mod/workshop/locallib.php');
 require_once($CFG->dirroot . '/mod/workshop/form/accumulative/lib.php');
 
-
-class workshop_accumulative_strategy_testcase extends advanced_testcase {
+/**
+ * Unit tests for Accumulative grading strategy lib.php
+ */
+class lib_test extends \advanced_testcase {
     /** workshop instance emulation */
     protected $workshop;
 
@@ -41,7 +47,7 @@ class workshop_accumulative_strategy_testcase extends advanced_testcase {
     /**
      * Setup testing environment
      */
-    protected function setUp() {
+    protected function setUp(): void {
         parent::setUp();
         $this->resetAfterTest();
         $this->setAdminUser();
@@ -52,7 +58,7 @@ class workshop_accumulative_strategy_testcase extends advanced_testcase {
         $this->strategy = new testable_workshop_accumulative_strategy($this->workshop);
     }
 
-    protected function tearDown() {
+    protected function tearDown(): void {
         $this->workshop = null;
         $this->strategy = null;
         parent::tearDown();
@@ -82,8 +88,8 @@ class workshop_accumulative_strategy_testcase extends advanced_testcase {
         // fixture set-up
         $this->strategy->dimensions[1003] = (object)array('grade' => '20', 'weight' => '-1');
         $grades[] = (object)array('dimensionid' => 1003, 'grade' => '20');
-        $this->setExpectedException('coding_exception');
         // exercise SUT
+        $this->expectException(\coding_exception::class);
         $suggested = $this->strategy->calculate_peer_grade($grades);
     }
 
@@ -183,8 +189,8 @@ class workshop_accumulative_strategy_testcase extends advanced_testcase {
         $this->strategy->dimensions[1012] = (object)array('grade' => (-$scale13->id), 'weight' => 1);
         $grades[] = (object)array('dimensionid' => 1012, 'grade' => '4.00000'); // exceeds the number of scale items
 
-        // exercise SUT
-        $this->setExpectedException('coding_exception');
+        // Exercise SUT.
+        $this->expectException(\coding_exception::class);
         $suggested = $this->strategy->calculate_peer_grade($grades);
     }
 }

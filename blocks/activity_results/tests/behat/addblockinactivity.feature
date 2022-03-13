@@ -7,12 +7,12 @@ Feature: The activity results block displays student scores
   Background:
     Given the following "users" exist:
       | username | firstname | lastname | email | idnumber |
-      | teacher1 | Teacher | 1 | teacher1@asd.com | T1 |
-      | student1 | Student | 1 | student1@asd.com | S1 |
-      | student2 | Student | 2 | student2@asd.com | S2 |
-      | student3 | Student | 3 | student3@asd.com | S3 |
-      | student4 | Student | 4 | student4@asd.com | S4 |
-      | student5 | Student | 5 | student5@asd.com | S5 |
+      | teacher1 | Teacher | 1 | teacher1@example.com | T1 |
+      | student1 | Student | 1 | student1@example.com | S1 |
+      | student2 | Student | 2 | student2@example.com | S2 |
+      | student3 | Student | 3 | student3@example.com | S3 |
+      | student4 | Student | 4 | student4@example.com | S4 |
+      | student5 | Student | 5 | student5@example.com | S5 |
     And the following "courses" exist:
       | fullname | shortname | category |
       | Course 1 | C1 | 0 |
@@ -24,35 +24,32 @@ Feature: The activity results block displays student scores
       | student3 | C1 | student |
       | student4 | C1 | student |
       | student5 | C1 | student |
+    And the following "activities" exist:
+      | activity   | name                | intro          | course | section | idnumber | assignsubmission_file_enabled |
+      | assign     | Test assignment 1   | Offline text   | C1     | 1       | assign1  | 0                             |
+      | assign     | Test assignment 2   | Offline text   | C1     | 1       | assign2  | 0                             |
+      | assign     | Test assignment 3   | Offline text   | C1     | 1       | assign3  | 0                             |
+    And the following "activities" exist:
+      | activity   | name                | content          | course | section | idnumber |
+      | page       |  Test page name     | This is a page   | C1     | 1       | page1    |
     And I log in as "teacher1"
-    And I follow "Course 1"
-    And I turn editing mode on
-    And I add a "Assignment" to section "1" and I fill the form with:
-      | Assignment name | Test assignment |
-      | Description | Offline text |
-      | assignsubmission_file_enabled | 0 |
-    And I follow "Course 1"
-    And I follow "Grades"
-    And I turn editing mode on
-    And I give the grade "90.00" to the user "Student 1" for the grade item "Test assignment"
-    And I give the grade "80.00" to the user "Student 2" for the grade item "Test assignment"
-    And I give the grade "70.00" to the user "Student 3" for the grade item "Test assignment"
-    And I give the grade "60.00" to the user "Student 4" for the grade item "Test assignment"
-    And I give the grade "50.00" to the user "Student 5" for the grade item "Test assignment"
+    And I am on "Course 1" course homepage with editing mode on
+    And I should see "Test page name"
+    And I navigate to "View > Grader report" in the course gradebook
+    And I give the grade "90.00" to the user "Student 1" for the grade item "Test assignment 1"
+    And I give the grade "80.00" to the user "Student 2" for the grade item "Test assignment 1"
+    And I give the grade "70.00" to the user "Student 3" for the grade item "Test assignment 1"
+    And I give the grade "60.00" to the user "Student 4" for the grade item "Test assignment 1"
+    And I give the grade "50.00" to the user "Student 5" for the grade item "Test assignment 1"
     And I press "Save changes"
-    And I follow "Course 1"
+    And I am on "Course 1" course homepage
 
-Scenario: Configure the block on a non-graded activity to show 3 high scores
-    Given I add a "Page" to section "1"
+  Scenario: Configure the block on a non-graded activity to show 3 high scores
+    Given I follow "Test page name"
+    And I add the "Activity results" block
+    When I configure the "Activity results" block
     And I set the following fields to these values:
-      | Name | Test page name |
-      | Description | Test page description |
-      | page | This is a page |
-    And I press "Save and display"
-    When I add the "Activity results" block
-    And I configure the "Activity results" block
-    And I set the following fields to these values:
-      | id_config_activitygradeitemid | Test assignment |
+      | id_config_activitygradeitemid | Test assignment 1 |
       | id_config_showbest | 3 |
       | id_config_showworst | 0 |
       | id_config_gradeformat | Absolute numbers |
@@ -64,3 +61,27 @@ Scenario: Configure the block on a non-graded activity to show 3 high scores
     And I should see "80.00" in the "Activity results" "block"
     And I should see "Student 3" in the "Activity results" "block"
     And I should see "70.00" in the "Activity results" "block"
+
+  Scenario: Block should select current activity by default
+    Given I follow "Test assignment 1"
+    When I add the "Activity results" block
+    And I configure the "Activity results" block
+    Then the field "id_config_activitygradeitemid" matches value "Test assignment 1"
+    And I press "Cancel"
+    And I am on "Course 1" course homepage
+    And I follow "Test assignment 2"
+    And I add the "Activity results" block
+    And I configure the "Activity results" block
+    And the field "id_config_activitygradeitemid" matches value "Test assignment 2"
+    And I press "Cancel"
+    And I am on "Course 1" course homepage
+    And I follow "Test assignment 3"
+    And I add the "Activity results" block
+    And I configure the "Activity results" block
+    And the field "id_config_activitygradeitemid" matches value "Test assignment 3"
+    And I press "Cancel"
+    And I am on "Course 1" course homepage
+    And I follow "Test page name"
+    And I add the "Activity results" block
+    And I configure the "Activity results" block
+    And the field "id_config_activitygradeitemid" does not match value "Test page name"

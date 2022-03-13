@@ -23,6 +23,10 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+namespace filter_algebra;
+
+use filter_algebra;
+
 defined('MOODLE_INTERNAL') || die();
 
 global $CFG;
@@ -32,7 +36,7 @@ require_once($CFG->dirroot . '/filter/algebra/filter.php');
 /**
  * Unit tests for filter_algebra.
  *
- * Note that this only tests some of the filter logic. It does not acutally test
+ * Note that this only tests some of the filter logic. It does not actually test
  * the normal case of the filter working, because I cannot make it work on my
  * test server, and if it does not work here, it probably does not also work
  * for other people. A failing test will be irritating noise.
@@ -40,13 +44,13 @@ require_once($CFG->dirroot . '/filter/algebra/filter.php');
  * @copyright  2012 Tim Hunt
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class filter_algebra_testcase extends basic_testcase {
+class filter_test extends \basic_testcase {
 
     protected $filter;
 
-    protected function setUp() {
+    protected function setUp(): void {
         parent::setUp();
-        $this->filter = new filter_algebra(context_system::instance(), array());
+        $this->filter = new filter_algebra(\context_system::instance(), array());
     }
 
     function test_algebra_filter_no_algebra() {

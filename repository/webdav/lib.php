@@ -72,7 +72,8 @@ class repository_webdav extends repository {
     }
     public function get_file($url, $title = '') {
         $url = urldecode($url);
-        $path = $this->prepare_file($title);
+        // Prepare a file with an arbitrary name - cannot be $title because of special chars (cf. MDL-57002).
+        $path = $this->prepare_file(uniqid());
         if (!$this->dav->open()) {
             return false;
         }
@@ -132,7 +133,7 @@ class repository_webdav extends repository {
                 if ($path != $v['href']) {
                     $folders[strtoupper($title)] = array(
                         'title'=>rtrim($title, '/'),
-                        'thumbnail'=>$OUTPUT->pix_url(file_folder_icon(90))->out(false),
+                        'thumbnail'=>$OUTPUT->image_url(file_folder_icon(90))->out(false),
                         'children'=>array(),
                         'datemodified'=>$v['lastmodified'],
                         'path'=>$v['href']
@@ -143,7 +144,7 @@ class repository_webdav extends repository {
                 $size = !empty($v['getcontentlength'])? $v['getcontentlength']:'';
                 $files[strtoupper($title)] = array(
                     'title'=>$title,
-                    'thumbnail' => $OUTPUT->pix_url(file_extension_icon($title, 90))->out(false),
+                    'thumbnail' => $OUTPUT->image_url(file_extension_icon($title, 90))->out(false),
                     'size'=>$size,
                     'datemodified'=>$v['lastmodified'],
                     'source'=>$v['href']
@@ -183,7 +184,7 @@ class repository_webdav extends repository {
         $mform->setType('webdav_port', PARAM_INT);
         $mform->addElement('text', 'webdav_user', get_string('webdav_user', 'repository_webdav'), array('size' => '40'));
         $mform->setType('webdav_user', PARAM_RAW_TRIMMED); // Not for us to clean.
-        $mform->addElement('password', 'webdav_password', get_string('webdav_password', 'repository_webdav'),
+        $mform->addElement('passwordunmask', 'webdav_password', get_string('webdav_password', 'repository_webdav'),
             array('size' => '40'));
     }
     public function supported_returntypes() {

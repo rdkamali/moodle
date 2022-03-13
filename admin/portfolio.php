@@ -1,6 +1,6 @@
 <?php
 
-require_once(dirname(dirname(__FILE__)) . '/config.php');
+require_once(__DIR__ . '/../config.php');
 require_once($CFG->libdir . '/portfoliolib.php');
 require_once($CFG->libdir . '/portfolio/forms.php');
 require_once($CFG->libdir . '/adminlib.php');
@@ -34,8 +34,6 @@ if ($action == 'newon') {
 }
 
 admin_externalpage_setup($pagename);
-
-require_capability('moodle/site:config', context_system::instance());
 
 $baseurl    = "$CFG->wwwroot/$CFG->admin/portfolio.php";
 $sesskeyurl = "$CFG->wwwroot/$CFG->admin/portfolio.php?sesskey=" . sesskey();
@@ -104,20 +102,15 @@ if (($action == 'edit') || ($action == 'new')) {
     require_sesskey();
 
     $instance = portfolio_instance($portfolio);
-    $current = $instance->get('visible');
-    if (empty($current) && $instance->instance_sanity_check()) {
-        print_error('cannotsetvisible', 'portfolio', $baseurl);
-    }
-
+    $plugin = $instance->get('plugin');
     if ($action == 'show') {
         $visible = 1;
     } else {
         $visible = 0;
     }
 
-    $instance->set('visible', $visible);
-    $instance->save();
-    core_plugin_manager::reset_caches();
+    $class = \core_plugin_manager::resolve_plugininfo_class('portfolio');
+    $class::enable_plugin($plugin, $visible);
     $return = true;
 } else if ($action == 'delete') {
     $instance = portfolio_instance($portfolio);
@@ -248,4 +241,3 @@ if ($return) {
 }
 
 echo $OUTPUT->footer();
-

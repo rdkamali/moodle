@@ -26,17 +26,17 @@
 
 define('AJAX_SCRIPT', true);
 
-require(dirname(__FILE__) . '/../../../config.php');
+require(__DIR__ . '/../../../config.php');
 require_once($CFG->libdir.'/adminlib.php');
 
-require_login();
+require_login(null, false);
 
 if (!has_capability('moodle/site:config', context_system::instance())) {
     header('HTTP/1.1 403 Forbidden');
     die();
 }
 
-if (!empty($CFG->disableonclickaddoninstall)) {
+if (!empty($CFG->disableupdateautodeploy)) {
     header('HTTP/1.1 403 Forbidden');
     die();
 }
@@ -52,9 +52,9 @@ if (is_null($plugintype)) {
     die();
 }
 
-$installer = tool_installaddon_installer::instance();
+$pluginman = core_plugin_manager::instance();
 
-$plugintypepath = $installer->get_plugintype_root($plugintype);
+$plugintypepath = $pluginman->get_plugintype_root($plugintype);
 
 if (empty($plugintypepath)) {
     header('HTTP/1.1 400 Bad Request');
@@ -63,7 +63,7 @@ if (empty($plugintypepath)) {
 
 $response = array('path' => $plugintypepath);
 
-if ($installer->is_plugintype_writable($plugintype)) {
+if ($pluginman->is_plugintype_writable($plugintype)) {
     $response['writable'] = 1;
 } else {
     $response['writable'] = 0;

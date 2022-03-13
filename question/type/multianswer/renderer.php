@@ -46,17 +46,38 @@ class qtype_multianswer_renderer extends qtype_renderer {
 
         $output = '';
         $subquestions = array();
+
+        $missingsubquestions = false;
         foreach ($question->textfragments as $i => $fragment) {
             if ($i > 0) {
                 $index = $question->places[$i];
+                $questionisvalid = !empty($question->subquestions[$index]) &&
+                                 $question->subquestions[$index]->qtype->name() !== 'subquestion_replacement';
+
+                if (!$questionisvalid) {
+                    $missingsubquestions = true;
+                    $questionreplacement = qtype_multianswer::deleted_subquestion_replacement();
+
+                    // It is possible that the subquestion index does not exist. When corrupted quizzes (see MDL-54724) are
+                    // restored, the sequence column of mdl_quiz_multianswer can be empty, in this case
+                    // qtype_multianswer::get_question_options cannot fill in deleted questions, so we need to do it here.
+                    $question->subquestions[$index] = $question->subquestions[$index] ?? $questionreplacement;
+                }
+
                 $token = 'qtypemultianswer' . $i . 'marker';
                 $token = '<span class="nolink">' . $token . '</span>';
                 $output .= $token;
                 $subquestions[$token] = $this->subquestion($qa, $options, $index,
                         $question->subquestions[$index]);
             }
+
             $output .= $fragment;
         }
+
+        if ($missingsubquestions) {
+            $output = $this->notification(get_string('corruptedquestion', 'qtype_multianswer'), 'error') . $output;
+        }
+
         $output = $question->format_text($output, $question->questiontextformat,
                 $qa, 'question', 'questiontext', $question->id);
         $output = str_replace(array_keys($subquestions), array_values($subquestions), $output);
@@ -68,7 +89,7 @@ class qtype_multianswer_renderer extends qtype_renderer {
         }
 
         $this->page->requires->js_init_call('M.qtype_multianswer.init',
-                array('#q' . $qa->get_slot()), false, array(
+                array('#' . $qa->get_outer_question_div_unique_id()), false, array(
                     'name'     => 'qtype_multianswer',
                     'fullpath' => '/question/type/multianswer/module.js',
                     'requires' => array('base', 'node', 'event', 'overlay'),
@@ -78,19 +99,32 @@ class qtype_multianswer_renderer extends qtype_renderer {
     }
 
     public function subquestion(question_attempt $qa,
-            question_display_options $options, $index, question_graded_automatically $subq) {
+            question_display_options $options, $index, question_automatically_gradable $subq) {
 
         $subtype = $subq->qtype->name();
         if ($subtype == 'numerical' || $subtype == 'shortanswer') {
             $subrenderer = 'textfield';
         } else if ($subtype == 'multichoice') {
-            if ($subq->layout == qtype_multichoice_base::LAYOUT_DROPDOWN) {
-                $subrenderer = 'multichoice_inline';
-            } else if ($subq->layout == qtype_multichoice_base::LAYOUT_HORIZONTAL) {
-                $subrenderer = 'multichoice_horizontal';
+            if ($subq instanceof qtype_multichoice_multi_question) {
+                if ($subq->layout == qtype_multichoice_base::LAYOUT_VERTICAL) {
+                    $subrenderer = 'multiresponse_vertical';
+                } else {
+                    $subrenderer = 'multiresponse_horizontal';
+                }
             } else {
-                $subrenderer = 'multichoice_vertical';
+                if ($subq->layout == qtype_multichoice_base::LAYOUT_DROPDOWN) {
+                    $subrenderer = 'multichoice_inline';
+                } else if ($subq->layout == qtype_multichoice_base::LAYOUT_HORIZONTAL) {
+                    $subrenderer = 'multichoice_horizontal';
+                } else {
+                    $subrenderer = 'multichoice_vertical';
+                }
             }
+        } else if ($subtype == 'subquestion_replacement') {
+            return html_writer::div(
+                get_string('missingsubquestion', 'qtype_multianswer'),
+                'notifyproblem'
+            );
         } else {
             throw new coding_exception('Unexpected subquestion type.', $subq);
         }
@@ -153,7 +187,7 @@ abstract class qtype_multianswer_subq_renderer_base extends qtype_renderer {
                 && (!is_null($fraction) || $feedback)) {
             $a = new stdClass();
             $a->mark = format_float($fraction * $subq->maxmark, $options->markdp);
-            $a->max =  format_float($subq->maxmark, $options->markdp);
+            $a->max = format_float($subq->maxmark, $options->markdp);
             $feedback[] = get_string('markoutofmax', 'question', $a);
         }
 
@@ -205,7 +239,7 @@ class qtype_multianswer_textfield_renderer extends qtype_multianswer_subq_render
         foreach ($subq->answers as $ans) {
             $size = max($size, core_text::strlen(trim($ans->answer)));
         }
-        $size = min(60, round($size + rand(0, $size*0.15)));
+        $size = min(60, round($size + rand(0, $size * 0.15)));
         // The rand bit is to make guessing harder.
 
         $inputattributes = array(
@@ -214,6 +248,7 @@ class qtype_multianswer_textfield_renderer extends qtype_multianswer_subq_render
             'value' => $response,
             'id' => $qa->get_qt_field_name($fieldname),
             'size' => $size,
+            'class' => 'form-control mb-1',
         );
         if ($options->readonly) {
             $inputattributes['readonly'] = 'readonly';
@@ -221,7 +256,7 @@ class qtype_multianswer_textfield_renderer extends qtype_multianswer_subq_render
 
         $feedbackimg = '';
         if ($options->correctness) {
-            $inputattributes['class'] = $this->feedback_class($matchinganswer->fraction);
+            $inputattributes['class'] .= ' ' . $this->feedback_class($matchinganswer->fraction);
             $feedbackimg = $this->feedback_image($matchinganswer->fraction);
         }
 
@@ -236,7 +271,7 @@ class qtype_multianswer_textfield_renderer extends qtype_multianswer_subq_render
                         $qa, 'question', 'answerfeedback', $matchinganswer->id),
                 s($correctanswer->answer), $options);
 
-        $output = html_writer::start_tag('span', array('class' => 'subquestion'));
+        $output = html_writer::start_tag('span', array('class' => 'subquestion form-inline d-inline'));
         $output .= html_writer::tag('label', get_string('answer'),
                 array('class' => 'subq accesshide', 'for' => $inputattributes['id']));
         $output .= html_writer::empty_tag('input', $inputattributes);
@@ -290,7 +325,7 @@ class qtype_multianswer_multichoice_inline_renderer
             $feedbackimg = $this->feedback_image($matchinganswer->fraction);
         }
         $select = html_writer::select($choices, $qa->get_qt_field_name($fieldname),
-                $response, array('' => ''), $inputattributes);
+                $response, array('' => '&nbsp;'), $inputattributes);
 
         $order = $subq->get_order($qa);
         $correctresponses = $subq->get_correct_response();
@@ -389,7 +424,7 @@ class qtype_multianswer_multichoice_vertical_renderer extends qtype_multianswer_
                 $subq->maxmark > 0) {
             $a = new stdClass();
             $a->mark = format_float($fraction * $subq->maxmark, $options->markdp);
-            $a->max =  format_float($subq->maxmark, $options->markdp);
+            $a->max = format_float($subq->maxmark, $options->markdp);
 
             $feedback[] = html_writer::tag('div', get_string('markoutofmax', 'question', $a));
         }
@@ -468,5 +503,189 @@ class qtype_multianswer_multichoice_horizontal_renderer
     protected function all_choices_wrapper_end() {
         return html_writer::end_tag('tr') . html_writer::end_tag('tbody') .
                 html_writer::end_tag('table');
+    }
+}
+
+/**
+ * Class qtype_multianswer_multiresponse_renderer
+ *
+ * @copyright  2016 Davo Smith, Synergy Learning
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
+class qtype_multianswer_multiresponse_vertical_renderer extends qtype_multianswer_subq_renderer_base {
+
+    /**
+     * Output the content of the subquestion.
+     *
+     * @param question_attempt $qa
+     * @param question_display_options $options
+     * @param int $index
+     * @param question_graded_automatically $subq
+     * @return string
+     */
+    public function subquestion(question_attempt $qa, question_display_options $options,
+                                $index, question_graded_automatically $subq) {
+
+        if (!$subq instanceof qtype_multichoice_multi_question) {
+            throw new coding_exception('Expecting subquestion of type qtype_multichoice_multi_question');
+        }
+
+        $fieldprefix = 'sub' . $index . '_';
+        $fieldname = $fieldprefix . 'choice';
+
+        // Extract the responses that related to this question + strip off the prefix.
+        $fieldprefixlen = strlen($fieldprefix);
+        $response = [];
+        foreach ($qa->get_last_qt_data() as $name => $val) {
+            if (substr($name, 0, $fieldprefixlen) == $fieldprefix) {
+                $name = substr($name, $fieldprefixlen);
+                $response[$name] = $val;
+            }
+        }
+
+        $basename = $qa->get_qt_field_name($fieldname);
+        $inputattributes = array(
+            'type' => 'checkbox',
+            'value' => 1,
+        );
+        if ($options->readonly) {
+            $inputattributes['disabled'] = 'disabled';
+        }
+
+        $result = $this->all_choices_wrapper_start();
+
+        // Calculate the total score (as we need to know if choices should be marked as 'correct' or 'partial').
+        $fraction = 0;
+        foreach ($subq->get_order($qa) as $value => $ansid) {
+            $ans = $subq->answers[$ansid];
+            if ($subq->is_choice_selected($response, $value)) {
+                $fraction += $ans->fraction;
+            }
+        }
+        // Display 'correct' answers as correct, if we are at 100%, otherwise mark them as 'partial'.
+        $answerfraction = ($fraction > 0.999) ? 1.0 : 0.5;
+
+        foreach ($subq->get_order($qa) as $value => $ansid) {
+            $ans = $subq->answers[$ansid];
+
+            $name = $basename.$value;
+            $inputattributes['name'] = $name;
+            $inputattributes['id'] = $name;
+
+            $isselected = $subq->is_choice_selected($response, $value);
+            if ($isselected) {
+                $inputattributes['checked'] = 'checked';
+            } else {
+                unset($inputattributes['checked']);
+            }
+
+            $class = 'r' . ($value % 2);
+            if ($options->correctness && $isselected) {
+                $thisfrac = ($ans->fraction > 0) ? $answerfraction : 0;
+                $feedbackimg = $this->feedback_image($thisfrac);
+                $class .= ' ' . $this->feedback_class($thisfrac);
+            } else {
+                $feedbackimg = '';
+            }
+
+            $result .= $this->choice_wrapper_start($class);
+            $result .= html_writer::empty_tag('input', $inputattributes);
+            $result .= html_writer::tag('label', $subq->format_text($ans->answer,
+                                                                    $ans->answerformat, $qa, 'question', 'answer', $ansid),
+                                        array('for' => $inputattributes['id']));
+            $result .= $feedbackimg;
+
+            if ($options->feedback && $isselected && trim($ans->feedback)) {
+                $result .= html_writer::tag('div',
+                                            $subq->format_text($ans->feedback, $ans->feedbackformat,
+                                                               $qa, 'question', 'answerfeedback', $ansid),
+                                            array('class' => 'specificfeedback'));
+            }
+
+            $result .= $this->choice_wrapper_end();
+        }
+
+        $result .= $this->all_choices_wrapper_end();
+
+        $feedback = array();
+        if ($options->feedback && $options->marks >= question_display_options::MARK_AND_MAX &&
+            $subq->maxmark > 0) {
+            $a = new stdClass();
+            $a->mark = format_float($fraction * $subq->maxmark, $options->markdp);
+            $a->max = format_float($subq->maxmark, $options->markdp);
+
+            $feedback[] = html_writer::tag('div', get_string('markoutofmax', 'question', $a));
+        }
+
+        if ($options->rightanswer) {
+            $correct = [];
+            foreach ($subq->answers as $ans) {
+                if (question_state::graded_state_for_fraction($ans->fraction) != question_state::$gradedwrong) {
+                    $correct[] = $subq->format_text($ans->answer, $ans->answerformat, $qa, 'question', 'answer', $ans->id);
+                }
+            }
+            $correct = '<ul><li>'.implode('</li><li>', $correct).'</li></ul>';
+            $feedback[] = get_string('correctansweris', 'qtype_multichoice', $correct);
+        }
+
+        $result .= html_writer::nonempty_tag('div', implode('<br />', $feedback), array('class' => 'outcome'));
+
+        return $result;
+    }
+
+    /**
+     * @param string $class class attribute value.
+     * @return string HTML to go before each choice.
+     */
+    protected function choice_wrapper_start($class) {
+        return html_writer::start_tag('div', array('class' => $class));
+    }
+
+    /**
+     * @return string HTML to go after each choice.
+     */
+    protected function choice_wrapper_end() {
+        return html_writer::end_tag('div');
+    }
+
+    /**
+     * @return string HTML to go before all the choices.
+     */
+    protected function all_choices_wrapper_start() {
+        return html_writer::start_tag('div', array('class' => 'answer'));
+    }
+
+    /**
+     * @return string HTML to go after all the choices.
+     */
+    protected function all_choices_wrapper_end() {
+        return html_writer::end_tag('div');
+    }
+}
+
+/**
+ * Render an embedded multiple-response question horizontally.
+ *
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
+class qtype_multianswer_multiresponse_horizontal_renderer
+    extends qtype_multianswer_multiresponse_vertical_renderer {
+
+    protected function choice_wrapper_start($class) {
+        return html_writer::start_tag('td', array('class' => $class));
+    }
+
+    protected function choice_wrapper_end() {
+        return html_writer::end_tag('td');
+    }
+
+    protected function all_choices_wrapper_start() {
+        return html_writer::start_tag('table', array('class' => 'answer')) .
+        html_writer::start_tag('tbody') . html_writer::start_tag('tr');
+    }
+
+    protected function all_choices_wrapper_end() {
+        return html_writer::end_tag('tr') . html_writer::end_tag('tbody') .
+        html_writer::end_tag('table');
     }
 }

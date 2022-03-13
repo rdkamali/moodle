@@ -62,6 +62,32 @@ Y.extend(RESOURCETOOLBOX, TOOLBOX, {
         M.mod_quiz.quizbase.register_module(this);
         Y.delegate('click', this.handle_data_action, BODY, SELECTOR.ACTIVITYACTION, this);
         Y.delegate('click', this.handle_data_action, BODY, SELECTOR.DEPENDENCY_LINK, this);
+        this.initialise_select_multiple();
+    },
+
+    /**
+     * Initialize the select multiple options
+     *
+     * Add actions to the buttons that enable multiple slots to be selected and managed at once.
+     *
+     * @method initialise_select_multiple
+     * @protected
+     */
+    initialise_select_multiple: function() {
+        // Click select multiple button to show the select all options.
+        Y.one(SELECTOR.SELECTMULTIPLEBUTTON).on('click', function(e) {
+            e.preventDefault();
+            Y.one('body').addClass(CSS.SELECTMULTIPLE);
+        });
+
+        // Click cancel button to show the select all options.
+        Y.one(SELECTOR.SELECTMULTIPLECANCELBUTTON).on('click', function(e) {
+            e.preventDefault();
+            Y.one('body').removeClass(CSS.SELECTMULTIPLE);
+        });
+
+        // Assign the delete method to the delete multiple button.
+        Y.delegate('click', this.delete_multiple_action, BODY, SELECTOR.SELECTMULTIPLEDELETEBUTTON, this);
     },
 
     /**
@@ -142,14 +168,13 @@ Y.extend(RESOURCETOOLBOX, TOOLBOX, {
      * @param {EventFacade} ev The event that was fired.
      * @param {Node} button The button that triggered this action.
      * @param {Node} activity The activity node that this action will be performed on.
-     * @chainable
      */
     delete_with_confirmation: function(ev, button, activity) {
         // Prevent the default button action.
         ev.preventDefault();
 
         // Get the element we're working on.
-        var element   = activity,
+        var element = activity,
             // Create confirm string (different if element has or does not have name)
             confirmstring = '',
             qtypename = M.util.get_string('pluginname',
@@ -164,7 +189,6 @@ Y.extend(RESOURCETOOLBOX, TOOLBOX, {
 
         // If it is confirmed.
         confirm.on('complete-yes', function() {
-
             var spinner = this.add_spinner(element);
             var data = {
                 'class': 'resource',
@@ -177,16 +201,121 @@ Y.extend(RESOURCETOOLBOX, TOOLBOX, {
                     Y.Moodle.mod_quiz.util.slot.remove(element);
                     this.reorganise_edit_page();
                     if (M.core.actionmenu && M.core.actionmenu.instance) {
-                        M.core.actionmenu.instance.hideMenu();
+                        M.core.actionmenu.instance.hideMenu(ev);
                     }
                 }
             });
 
         }, this);
-
-        return this;
     },
 
+    /**
+     * Finds the section that would become empty if we remove the selected slots.
+     *
+     * @protected
+     * @method find_sections_that_would_become_empty
+     * @returns {String} The name of the first section found
+     */
+    find_sections_that_would_become_empty: function() {
+        var section;
+        var sectionnodes = Y.all(SELECTOR.SECTIONLI);
+
+        if (sectionnodes.size() > 1) {
+            sectionnodes.some(function(node) {
+                var sectionname = node.one(SELECTOR.INSTANCESECTION).getContent();
+                var checked = node.all(SELECTOR.SELECTMULTIPLECHECKBOX + ':checked');
+                var unchecked = node.all(SELECTOR.SELECTMULTIPLECHECKBOX + ':not(:checked)');
+
+                if (!checked.isEmpty() && unchecked.isEmpty()) {
+                    section = sectionname;
+                }
+
+                return section;
+            });
+        }
+
+        return section;
+    },
+
+    /**
+     * Takes care of what needs to happen when the user clicks on the delete multiple button.
+     *
+     * @protected
+     * @method delete_multiple_action
+     * @param {EventFacade} ev The event that was fired.
+     */
+    delete_multiple_action: function(ev) {
+        var problemsection = this.find_sections_that_would_become_empty();
+
+        if (typeof problemsection !== 'undefined') {
+            var alert = new M.core.alert({
+                title: M.util.get_string('cannotremoveslots', 'quiz'),
+                message: M.util.get_string('cannotremoveallsectionslots', 'quiz', problemsection)
+            });
+
+            alert.show();
+        } else {
+            this.delete_multiple_with_confirmation(ev);
+        }
+    },
+
+    /**
+     * Deletes the given activities or resources after confirmation.
+     *
+     * @protected
+     * @method delete_multiple_with_confirmation
+     * @param {EventFacade} ev The event that was fired.
+     */
+    delete_multiple_with_confirmation: function(ev) {
+        ev.preventDefault();
+
+        var ids = '';
+        var slots = [];
+        Y.all(SELECTOR.SELECTMULTIPLECHECKBOX + ':checked').each(function(node) {
+            var slot = Y.Moodle.mod_quiz.util.slot.getSlotFromComponent(node);
+            ids += ids === '' ? '' : ',';
+            ids += Y.Moodle.mod_quiz.util.slot.getId(slot);
+            slots.push(slot);
+        });
+        var element = Y.one('div.mod-quiz-edit-content');
+
+        // Do nothing if no slots are selected.
+        if (!slots || !slots.length) {
+            return;
+        }
+
+        // Create the confirmation dialogue.
+        var confirm = new M.core.confirm({
+            question: M.util.get_string('areyousureremoveselected', 'quiz'),
+            modal: true
+        });
+
+        // If it is confirmed.
+        confirm.on('complete-yes', function() {
+            var spinner = this.add_spinner(element);
+            var data = {
+                'class': 'resource',
+                field: 'deletemultiple',
+                ids: ids
+            };
+            // Delete items on server.
+            this.send_request(data, spinner, function(response) {
+                // Delete locally if deleted on server.
+                if (response.deleted) {
+                    // Actually remove the element.
+                    Y.all(SELECTOR.SELECTMULTIPLECHECKBOX + ':checked').each(function(node) {
+                        Y.Moodle.mod_quiz.util.slot.remove(node.ancestor('li.activity'));
+                    });
+                    // Update the page numbers and sections.
+                    this.reorganise_edit_page();
+
+                    // Remove the select multiple options.
+                    Y.one('body').removeClass(CSS.SELECTMULTIPLE);
+                }
+            });
+
+        }, this);
+    },
 
     /**
      * Edit the maxmark for the resource
@@ -199,19 +328,19 @@ Y.extend(RESOURCETOOLBOX, TOOLBOX, {
      * @param {String} action The action that has been requested.
      * @return Boolean
      */
-    edit_maxmark : function(ev, button, activity) {
+    edit_maxmark: function(ev, button, activity) {
         // Get the element we're working on
-        var instancemaxmark  = activity.one(SELECTOR.INSTANCEMAXMARK),
+        var instancemaxmark = activity.one(SELECTOR.INSTANCEMAXMARK),
             instance = activity.one(SELECTOR.ACTIVITYINSTANCE),
             currentmaxmark = instancemaxmark.get('firstChild'),
             oldmaxmark = currentmaxmark.get('data'),
             maxmarktext = oldmaxmark,
             thisevent,
-            anchor = instancemaxmark,// Grab the anchor so that we can swap it with the edit form.
+            anchor = instancemaxmark, // Grab the anchor so that we can swap it with the edit form.
             data = {
-                'class'   : 'resource',
-                'field'   : 'getmaxmark',
-                'id'      : Y.Moodle.mod_quiz.util.slot.getId(activity)
+                'class': 'resource',
+                'field': 'getmaxmark',
+                'id': Y.Moodle.mod_quiz.util.slot.getId(activity)
             };
 
         // Prevent the default actions.
@@ -219,7 +348,7 @@ Y.extend(RESOURCETOOLBOX, TOOLBOX, {
 
         this.send_request(data, null, function(response) {
             if (M.core.actionmenu && M.core.actionmenu.instance) {
-                M.core.actionmenu.instance.hideMenu();
+                M.core.actionmenu.instance.hideMenu(ev);
             }
 
             // Try to retrieve the existing string from the server.
@@ -232,11 +361,11 @@ Y.extend(RESOURCETOOLBOX, TOOLBOX, {
             var editinstructions = Y.Node.create('<span class="' + CSS.EDITINSTRUCTIONS + '" id="id_editinstructions" />')
                 .set('innerHTML', M.util.get_string('edittitleinstructions', 'moodle'));
             var editor = Y.Node.create('<input name="maxmark" type="text" class="' + CSS.TITLEEDITOR + '" />').setAttrs({
-                'value' : maxmarktext,
-                'autocomplete' : 'off',
-                'aria-describedby' : 'id_editinstructions',
-                'maxLength' : '12',
-                'size' : parseInt(this.get('config').questiondecimalpoints, 10) + 2
+                'value': maxmarktext,
+                'autocomplete': 'off',
+                'aria-describedby': 'id_editinstructions',
+                'maxLength': '12',
+                'size': parseInt(this.get('config').questiondecimalpoints, 10) + 2
             });
 
             // Clear the existing content and put the editor in.
@@ -244,12 +373,6 @@ Y.extend(RESOURCETOOLBOX, TOOLBOX, {
             editform.setData('anchor', anchor);
             instance.insert(editinstructions, 'before');
             anchor.replace(editform);
-
-            // Force the editing instruction to match the mod-indent position.
-            var padside = 'left';
-            if (window.right_to_left()) {
-                padside = 'right';
-            }
 
             // We hide various components whilst editing:
             activity.addClass(CSS.EDITINGMAXMARK);
@@ -278,7 +401,7 @@ Y.extend(RESOURCETOOLBOX, TOOLBOX, {
      * @param {Node} activity The activity whose maxmark we are altering.
      * @param {String} originalmaxmark The original maxmark the activity or resource had.
      */
-    edit_maxmark_submit : function(ev, activity, originalmaxmark) {
+    edit_maxmark_submit: function(ev, activity, originalmaxmark) {
         // We don't actually want to submit anything.
         ev.preventDefault();
         var newmaxmark = Y.Lang.trim(activity.one(SELECTOR.ACTIVITYFORM + ' ' + SELECTOR.ACTIVITYMAXMARK).get('value'));
@@ -287,10 +410,10 @@ Y.extend(RESOURCETOOLBOX, TOOLBOX, {
         activity.one(SELECTOR.INSTANCEMAXMARK).setContent(newmaxmark);
         if (newmaxmark !== null && newmaxmark !== "" && newmaxmark !== originalmaxmark) {
             var data = {
-                'class'   : 'resource',
-                'field'   : 'updatemaxmark',
-                'maxmark'   : newmaxmark,
-                'id'      : Y.Moodle.mod_quiz.util.slot.getId(activity)
+                'class': 'resource',
+                'field': 'updatemaxmark',
+                'maxmark': newmaxmark,
+                'id': Y.Moodle.mod_quiz.util.slot.getId(activity)
             };
             this.send_request(data, spinner, function(response) {
                 if (response.instancemaxmark) {
@@ -309,7 +432,7 @@ Y.extend(RESOURCETOOLBOX, TOOLBOX, {
      * @param {Node} activity The activity whose maxmark we are altering.
      * @param {Boolean} preventdefault If true we should prevent the default action from occuring.
      */
-    edit_maxmark_cancel : function(ev, activity, preventdefault) {
+    edit_maxmark_cancel: function(ev, activity, preventdefault) {
         if (preventdefault) {
             ev.preventDefault();
         }
@@ -323,7 +446,7 @@ Y.extend(RESOURCETOOLBOX, TOOLBOX, {
      * @method edit_maxmark_clear
      * @param {Node} activity  The activity whose maxmark we were altering.
      */
-    edit_maxmark_clear : function(activity) {
+    edit_maxmark_clear: function(activity) {
         // Detach all listen events to prevent duplicate triggers
         new Y.EventHandle(this.editmaxmarkevents).detach();
 
@@ -344,7 +467,7 @@ Y.extend(RESOURCETOOLBOX, TOOLBOX, {
             activity.one(SELECTOR.EDITMAXMARK).focus();
         });
 
-        // This hack is to keep Behat happy until they release a version of
+        // TODO MDL-50768 This hack is to keep Behat happy until they release a version of
         // MinkSelenium2Driver that fixes
         // https://github.com/Behat/MinkSelenium2Driver/issues/80.
         if (!Y.one('input[name=maxmark')) {
@@ -437,18 +560,20 @@ Y.extend(RESOURCETOOLBOX, TOOLBOX, {
         Y.Moodle.mod_quiz.util.slot.reorderSlots();
         Y.Moodle.mod_quiz.util.slot.reorderPageBreaks();
         Y.Moodle.mod_quiz.util.page.reorderPages();
+        Y.Moodle.mod_quiz.util.slot.updateOneSlotSections();
         Y.Moodle.mod_quiz.util.slot.updateAllDependencyIcons();
     },
 
-    NAME : 'mod_quiz-resource-toolbox',
-    ATTRS : {
-        courseid : {
-            'value' : 0
+    NAME: 'mod_quiz-resource-toolbox',
+    ATTRS: {
+        courseid: {
+            'value': 0
         },
-        quizid : {
-            'value' : 0
+        quizid: {
+            'value': 0
         }
     }
+
 });
 
 M.mod_quiz.resource_toolbox = null;

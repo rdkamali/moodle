@@ -30,42 +30,19 @@
 /// If data submitted, then process and store.
 
     if (!empty($hide) and confirm_sesskey()) {
-        if (!$module = $DB->get_record("modules", array("name"=>$hide))) {
-            print_error('moduledoesnotexist', 'error');
-        }
-        $DB->set_field("modules", "visible", "0", array("id"=>$module->id)); // Hide main module
-        // Remember the visibility status in visibleold
-        // and hide...
-        $sql = "UPDATE {course_modules}
-                   SET visibleold=visible, visible=0
-                 WHERE module=?";
-        $DB->execute($sql, array($module->id));
-        // Increment course.cacherev for courses where we just made something invisible.
-        // This will force cache rebuilding on the next request.
-        increment_revision_number('course', 'cacherev',
-                "id IN (SELECT DISTINCT course
-                                FROM {course_modules}
-                               WHERE visibleold=1 AND module=?)",
-                array($module->id));
-        core_plugin_manager::reset_caches();
+        $class = \core_plugin_manager::resolve_plugininfo_class('mod');
+        $class::enable_plugin($hide, false);
+
         admin_get_root(true, false);  // settings not required - only pages
+        redirect(new moodle_url('/admin/modules.php'));
     }
 
     if (!empty($show) and confirm_sesskey()) {
-        if (!$module = $DB->get_record("modules", array("name"=>$show))) {
-            print_error('moduledoesnotexist', 'error');
-        }
-        $DB->set_field("modules", "visible", "1", array("id"=>$module->id)); // Show main module
-        $DB->set_field('course_modules', 'visible', '1', array('visibleold'=>1, 'module'=>$module->id)); // Get the previous saved visible state for the course module.
-        // Increment course.cacherev for courses where we just made something visible.
-        // This will force cache rebuilding on the next request.
-        increment_revision_number('course', 'cacherev',
-                "id IN (SELECT DISTINCT course
-                                FROM {course_modules}
-                               WHERE visible=1 AND module=?)",
-                array($module->id));
-        core_plugin_manager::reset_caches();
+        $class = \core_plugin_manager::resolve_plugininfo_class('mod');
+        $class::enable_plugin($show, true);
+
         admin_get_root(true, false);  // settings not required - only pages
+        redirect(new moodle_url('/admin/modules.php'));
     }
 
     echo $OUTPUT->header();
@@ -87,14 +64,18 @@
     $table->set_attribute('class', 'admintable generaltable');
     $table->setup();
 
-    foreach ($modules as $module) {
+    $pluginmanager = core_plugin_manager::instance();
 
-        if (!file_exists("$CFG->dirroot/mod/$module->name/lib.php")) {
+    foreach ($modules as $module) {
+        $plugininfo = $pluginmanager->get_plugin_info('mod_'.$module->name);
+        $status = $plugininfo->get_status();
+
+        if ($status === core_plugin_manager::PLUGIN_STATUS_MISSING) {
             $strmodulename = '<span class="notifyproblem">'.$module->name.' ('.get_string('missingfromdisk').')</span>';
             $missing = true;
         } else {
             // took out hspace="\10\", because it does not validate. don't know what to replace with.
-            $icon = "<img src=\"" . $OUTPUT->pix_url('icon', $module->name) . "\" class=\"icon\" alt=\"\" />";
+            $icon = "<img src=\"" . $OUTPUT->image_url('icon', $module->name) . "\" class=\"icon\" alt=\"\" />";
             $strmodulename = $icon.' '.get_string('modulename', $module->name);
             $missing = false;
         }
@@ -117,8 +98,8 @@
             $count = -1;
         }
         if ($count>0) {
-            $countlink = "<a href=\"{$CFG->wwwroot}/course/search.php?modulelist=$module->name" .
-                "&amp;sesskey=".sesskey()."\" title=\"$strshowmodulecourse\">$count</a>";
+            $countlink = $OUTPUT->action_link(new moodle_url('/course/search.php', ['modulelist' => $module->name]),
+                $count, null, ['title' => $strshowmodulecourse]);
         } else if ($count < 0) {
             $countlink = get_string('error');
         } else {
@@ -130,11 +111,11 @@
             $class   = '';
         } else if ($module->visible) {
             $visible = "<a href=\"modules.php?hide=$module->name&amp;sesskey=".sesskey()."\" title=\"$strhide\">".
-                       "<img src=\"" . $OUTPUT->pix_url('t/hide') . "\" class=\"iconsmall\" alt=\"$strhide\" /></a>";
+                       $OUTPUT->pix_icon('t/hide', $strhide) . '</a>';
             $class   = '';
         } else {
             $visible = "<a href=\"modules.php?show=$module->name&amp;sesskey=".sesskey()."\" title=\"$strshow\">".
-                       "<img src=\"" . $OUTPUT->pix_url('t/show') . "\" class=\"iconsmall\" alt=\"$strshow\" /></a>";
+                       $OUTPUT->pix_icon('t/show', $strshow) . '</a>';
             $class =   'dimmed_text';
         }
         if ($module->name == "forum") {
@@ -157,5 +138,3 @@
     $table->print_html();
 
     echo $OUTPUT->footer();
-
-

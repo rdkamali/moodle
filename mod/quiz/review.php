@@ -26,13 +26,14 @@
  */
 
 
-require_once(dirname(__FILE__) . '/../../config.php');
+require_once(__DIR__ . '/../../config.php');
 require_once($CFG->dirroot . '/mod/quiz/locallib.php');
 require_once($CFG->dirroot . '/mod/quiz/report/reportlib.php');
 
 $attemptid = required_param('attempt', PARAM_INT);
 $page      = optional_param('page', 0, PARAM_INT);
 $showall   = optional_param('showall', null, PARAM_BOOL);
+$cmid      = optional_param('cmid', null, PARAM_INT);
 
 $url = new moodle_url('/mod/quiz/review.php', array('attempt'=>$attemptid));
 if ($page !== 0) {
@@ -41,8 +42,10 @@ if ($page !== 0) {
     $url->param('showall', $showall);
 }
 $PAGE->set_url($url);
+$PAGE->set_secondary_active_tab("modulepage");
 
-$attemptobj = quiz_attempt::create($attemptid);
+$attemptobj = quiz_create_attempt_handling_errors($attemptid, $cmid);
+$attemptobj->preload_all_attempt_step_users();
 $page = $attemptobj->force_page_number_into_range($page);
 
 // Now we can validate the params better, re-genrate the page URL.
@@ -61,7 +64,8 @@ $accessmanager->setup_attempt_page($PAGE);
 
 $options = $attemptobj->get_display_options(true);
 
-// Check permissions.
+// Check permissions - warning there is similar code in reviewquestion.php and
+// quiz_attempt::check_file_access. If you change on, change them all.
 if ($attemptobj->is_own_attempt()) {
     if (!$attemptobj->is_finished()) {
         redirect($attemptobj->attempt_url(null, $page));
@@ -91,12 +95,10 @@ if ($options->flags == question_display_options::EDITABLE && optional_param('sav
 }
 
 // Work out appropriate title and whether blocks should be shown.
-if ($attemptobj->is_preview_user() && $attemptobj->is_own_attempt()) {
-    $strreviewtitle = get_string('reviewofpreview', 'quiz');
+if ($attemptobj->is_own_preview()) {
     navigation_node::override_active_url($attemptobj->start_attempt_url());
 
 } else {
-    $strreviewtitle = get_string('reviewofattempt', 'quiz', $attemptobj->get_attempt_number());
     if (empty($attemptobj->get_quiz()->showblocks) && !$attemptobj->is_preview_user()) {
         $PAGE->blocks->show_only_fake_blocks();
     }
@@ -104,8 +106,9 @@ if ($attemptobj->is_preview_user() && $attemptobj->is_own_attempt()) {
 
 // Set up the page header.
 $headtags = $attemptobj->get_html_head_contributions($page, $showall);
-$PAGE->set_title($attemptobj->get_quiz_name());
+$PAGE->set_title($attemptobj->review_page_title($page, $showall));
 $PAGE->set_heading($attemptobj->get_course()->fullname);
+$PAGE->activityheader->disable();
 
 // Summary table start. ============================================================================
 
@@ -133,10 +136,10 @@ $summarydata = array();
 if (!$attemptobj->get_quiz()->showuserpicture && $attemptobj->get_userid() != $USER->id) {
     // If showuserpicture is true, the picture is shown elsewhere, so don't repeat it.
     $student = $DB->get_record('user', array('id' => $attemptobj->get_userid()));
-    $usrepicture = new user_picture($student);
-    $usrepicture->courseid = $attemptobj->get_courseid();
+    $userpicture = new user_picture($student);
+    $userpicture->courseid = $attemptobj->get_courseid();
     $summarydata['user'] = array(
-        'title'   => $usrepicture,
+        'title'   => $userpicture,
         'content' => new action_link(new moodle_url('/user/view.php', array(
                                 'id' => $student->id, 'course' => $attemptobj->get_courseid())),
                           fullname($student, true)),
@@ -213,8 +216,11 @@ if ($options->marks >= question_display_options::MARK_AND_MAX && quiz_has_grades
         $a->grade = html_writer::tag('b', quiz_format_grade($quiz, $grade));
         $a->maxgrade = quiz_format_grade($quiz, $quiz->grade);
         if ($quiz->grade != 100) {
+            // Show the percentage using the configured number of decimal places,
+            // but without trailing zeroes.
             $a->percent = html_writer::tag('b', format_float(
-                    $attempt->sumgrades * 100 / $quiz->sumgrades, 0));
+                    $attempt->sumgrades * 100 / $quiz->sumgrades,
+                    $quiz->decimalpoints, true, true));
             $formattedgrade = get_string('outofpercent', 'quiz', $a);
         } else {
             $formattedgrade = get_string('outof', 'quiz', $a);
@@ -258,15 +264,4 @@ $PAGE->blocks->add_fake_block($navbc, reset($regions));
 echo $output->review_page($attemptobj, $slots, $page, $showall, $lastpage, $options, $summarydata);
 
 // Trigger an event for this review.
-$params = array(
-    'objectid' => $attemptobj->get_attemptid(),
-    'relateduserid' => $attemptobj->get_userid(),
-    'courseid' => $attemptobj->get_courseid(),
-    'context' => context_module::instance($attemptobj->get_cmid()),
-    'other' => array(
-        'quizid' => $attemptobj->get_quizid()
-    )
-);
-$event = \mod_quiz\event\attempt_reviewed::create($params);
-$event->add_record_snapshot('quiz_attempts', $attemptobj->get_attempt());
-$event->trigger();
+$attemptobj->fire_attempt_reviewed_event();

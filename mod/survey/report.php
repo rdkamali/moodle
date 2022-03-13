@@ -92,41 +92,30 @@
     $strseemoredetail = get_string("seemoredetail", "survey");
     $strnotes = get_string("notes", "survey");
 
-    switch ($action) {
-        case 'download':
-            $PAGE->navbar->add(get_string('downloadresults', 'survey'));
-            break;
-        case 'summary':
-        case 'scales':
-        case 'questions':
-            $PAGE->navbar->add($strreport);
-            $PAGE->navbar->add(${'str'.$action});
-            break;
-        case 'students':
-            $PAGE->navbar->add($strreport);
-            $PAGE->navbar->add(get_string('participants'));
-            break;
-        case '':
-            $PAGE->navbar->add($strreport);
-            $PAGE->navbar->add($strsummary);
-            break;
-        default:
-            $PAGE->navbar->add($strreport);
-            break;
-    }
-
     $PAGE->set_title("$course->shortname: ".format_string($survey->name));
     $PAGE->set_heading($course->fullname);
+    $PAGE->activityheader->set_attrs([
+        'hidecompletion' => true,
+        'description' => ''
+    ]);
+
+    // Activate the secondary nav tab.
+    navigation_node::override_active_url(new moodle_url('/mod/survey/report.php', ['id' => $id, 'action' => 'summary']));
+
+    $actionbar = new \mod_survey\output\actionbar($id, $action, $url);
     echo $OUTPUT->header();
-    echo $OUTPUT->heading($survey->name);
+    $renderer = $PAGE->get_renderer('mod_survey');
+    echo $renderer->response_actionbar($actionbar);
 
 /// Check to see if groups are being used in this survey
     if ($groupmode = groups_get_activity_groupmode($cm)) {   // Groups are being used
         $menuaction = $action == "student" ? "students" : $action;
         $currentgroup = groups_get_activity_group($cm, true);
-        groups_print_activity_menu($cm, $CFG->wwwroot . "/mod/survey/report.php?id=$cm->id&amp;action=$menuaction&amp;qid=$qid");
+        $groupsactivitymenu = groups_print_activity_menu($cm, new moodle_url('/mod/survey/report.php',
+            ['id' => $cm->id, 'action' => $menuaction, 'qid' => $qid]), true);
     } else {
         $currentgroup = 0;
+        $groupsactivitymenu = null;
     }
 
     $params = array(
@@ -152,33 +141,6 @@
 
     $groupingid = $cm->groupingid;
 
-    echo $OUTPUT->box_start("generalbox boxaligncenter");
-    if ($showscales) {
-        echo "<a href=\"report.php?action=summary&amp;id=$id\">$strsummary</a>";
-        echo "&nbsp;&nbsp;&nbsp;&nbsp;<a href=\"report.php?action=scales&amp;id=$id\">$strscales</a>";
-        echo "&nbsp;&nbsp;&nbsp;&nbsp;<a href=\"report.php?action=questions&amp;id=$id\">$strquestions</a>";
-        echo "&nbsp;&nbsp;&nbsp;&nbsp;<a href=\"report.php?action=students&amp;id=$id\">".get_string('participants')."</a>";
-        if (has_capability('mod/survey:download', $context)) {
-            echo "&nbsp;&nbsp;&nbsp;&nbsp;<a href=\"report.php?action=download&amp;id=$id\">$strdownload</a>";
-        }
-        if (empty($action)) {
-            $action = "summary";
-        }
-    } else {
-        echo "<a href=\"report.php?action=questions&amp;id=$id\">$strquestions</a>";
-        echo "&nbsp;&nbsp;&nbsp;&nbsp;<a href=\"report.php?action=students&amp;id=$id\">".get_string('participants')."</a>";
-        if (has_capability('mod/survey:download', $context)) {
-            echo "&nbsp;&nbsp;&nbsp;&nbsp;<a href=\"report.php?action=download&amp;id=$id\">$strdownload</a>";
-        }
-        if (empty($action)) {
-            $action = "questions";
-        }
-    }
-    echo $OUTPUT->box_end();
-
-    echo $OUTPUT->spacer(array('height'=>30, 'width'=>30, 'br'=>true)); // should be done with CSS instead
-
-
 /// Print the menu across the top
 
     $virtualscales = false;
@@ -188,20 +150,28 @@
       case "summary":
         echo $OUTPUT->heading($strsummary, 3);
 
+        if ($groupsactivitymenu) {
+            echo html_writer::div($groupsactivitymenu, 'mb-2');
+        }
+
         if (survey_count_responses($survey->id, $currentgroup, $groupingid)) {
             echo "<div class='reportsummary'><a href=\"report.php?action=scales&amp;id=$id\">";
             survey_print_graph("id=$id&amp;group=$currentgroup&amp;type=overall.png");
             echo "</a></div>";
         } else {
-            echo $OUTPUT->notification(get_string("nobodyyet","survey"));
+            echo $OUTPUT->notification(get_string("nobodyyet", "survey"), 'info', false);
         }
         break;
 
       case "scales":
         echo $OUTPUT->heading($strscales, 3);
 
+        if ($groupsactivitymenu) {
+            echo html_writer::div($groupsactivitymenu, 'mb-2');
+        }
+
         if (! $results = survey_get_responses($survey->id, $currentgroup, $groupingid) ) {
-            echo $OUTPUT->notification(get_string("nobodyyet","survey"));
+            echo $OUTPUT->notification(get_string("nobodyyet", "survey"), 'info', false);
 
         } else {
 
@@ -251,8 +221,12 @@
             echo $OUTPUT->heading($strallquestions, 3);
         }
 
+        if ($groupsactivitymenu) {
+            echo html_writer::div($groupsactivitymenu, 'mb-2');
+        }
+
         if (! $results = survey_get_responses($survey->id, $currentgroup, $groupingid) ) {
-            echo $OUTPUT->notification(get_string("nobodyyet","survey"));
+            echo $OUTPUT->notification(get_string("nobodyyet", "survey"), 'info', false);
 
         } else {
 
@@ -275,10 +249,8 @@
                 if ($question->multi) {
                     echo $OUTPUT->heading($question->text . ':', 4);
 
-                    $subquestions = $DB->get_records_list("survey_questions", "id", explode(',', $question->multi));
-                    $subquestionorder = explode(",", $question->multi);
-                    foreach ($subquestionorder as $key => $val) {
-                        $subquestion = $subquestions[$val];
+                    $subquestions = survey_get_subquestions($question);
+                    foreach ($subquestions as $subquestion) {
                         if ($subquestion->type > 0) {
                             echo "<p class=\"centerpara\">";
                             echo "<a title=\"$strseemoredetail\" href=\"report.php?action=question&amp;id=$id&amp;qid=$subquestion->id\">";
@@ -303,7 +275,7 @@
                         foreach ($aaa as $a) {
                             $contents .= "<tr>";
                             $contents .= '<td class="fullnamecell">'.fullname($a).'</td>';
-                            $contents .= '<td valign="top">'.$a->answer1.'</td>';
+                            $contents .= '<td valign="top">'.s($a->answer1).'</td>';
                             $contents .= "</tr>";
                         }
                     }
@@ -330,6 +302,9 @@
 
         echo $OUTPUT->heading("$strquestion: $question->text", 3);
 
+        if ($groupsactivitymenu) {
+            echo html_writer::div($groupsactivitymenu, 'mb-2');
+        }
 
         $strname = get_string("name", "survey");
         $strtime = get_string("time", "survey");
@@ -358,7 +333,7 @@
                        $OUTPUT->user_picture($a, array('courseid'=>$course->id)),
                        "<a href=\"report.php?id=$id&amp;action=student&amp;student=$a->userid\">".fullname($a)."</a>",
                        userdate($a->time),
-                       $answer1, $answer2);
+                       s($answer1), s($answer2));
 
             }
         }
@@ -371,8 +346,12 @@
 
          echo $OUTPUT->heading(get_string("analysisof", "survey", get_string('participants')), 3);
 
+        if ($groupsactivitymenu) {
+            echo html_writer::div($groupsactivitymenu, 'mb-2');
+        }
+
          if (! $results = survey_get_responses($survey->id, $currentgroup, $groupingid) ) {
-             echo $OUTPUT->notification(get_string("nobodyyet","survey"));
+             echo $OUTPUT->notification(get_string("nobodyyet", "survey"), 'info', false);
          } else {
              survey_print_all_responses($cm->id, $results, $course->id);
          }
@@ -386,23 +365,27 @@
 
          echo $OUTPUT->heading(get_string("analysisof", "survey", fullname($user)), 3);
 
+        if ($groupsactivitymenu) {
+            echo html_writer::div($groupsactivitymenu, 'mb-2');
+        }
+
          if ($notes != '' and confirm_sesskey()) {
              if (survey_get_analysis($survey->id, $user->id)) {
                  if (! survey_update_analysis($survey->id, $user->id, $notes)) {
-                     echo $OUTPUT->notification("An error occurred while saving your notes.  Sorry.");
+                     echo $OUTPUT->notification(get_string("errorunabletosavenotes", "survey"), "notifyproblem");
                  } else {
-                     echo $OUTPUT->notification(get_string("savednotes", "survey"));
+                     echo $OUTPUT->notification(get_string("savednotes", "survey"), "notifysuccess");
                  }
              } else {
                  if (! survey_add_analysis($survey->id, $user->id, $notes)) {
-                     echo $OUTPUT->notification("An error occurred while saving your notes.  Sorry.");
+                     echo $OUTPUT->notification(get_string("errorunabletosavenotes", "survey"), "notifyproblem");
                  } else {
-                     echo $OUTPUT->notification(get_string("savednotes", "survey"));
+                     echo $OUTPUT->notification(get_string("savednotes", "survey"), "notifysuccess");
                  }
              }
          }
 
-         echo "<p <p class=\"centerpara\">";
+         echo "<p class=\"centerpara\">";
          echo $OUTPUT->user_picture($user, array('courseid'=>$course->id));
          echo "</p>";
 
@@ -411,7 +394,7 @@
 
          if ($showscales) {
              // Print overall summary
-             echo "<p <p class=\"centerpara\">>";
+            echo "<p class=\"centerpara\">";
              survey_print_graph("id=$id&amp;sid=$student&amp;type=student.png");
              echo "</p>";
 
@@ -448,7 +431,16 @@
                     $table = new html_table();
                      $table->head = array(get_string($question->text, "survey"));
                      $table->align = array ("left");
-                     $table->data[] = array(s($answer->answer1)); // no html here, just plain text
+                    if (!empty($question->options) && $answer->answer1 > 0) {
+                        $answers = explode(',', get_string($question->options, 'survey'));
+                        if ($answer->answer1 <= count($answers)) {
+                            $table->data[] = array(s($answers[$answer->answer1 - 1])); // No html here, just plain text.
+                        } else {
+                            $table->data[] = array(s($answer->answer1)); // No html here, just plain text.
+                        }
+                    } else {
+                         $table->data[] = array(s($answer->answer1)); // No html here, just plain text.
+                    }
                      echo html_writer::table($table);
                      echo $OUTPUT->spacer(array('height'=>30));
                  }
@@ -465,14 +457,14 @@
          echo "<form action=\"report.php\" method=\"post\">";
          echo "<h3>$strnotes:</h3>";
          echo "<blockquote>";
-         echo "<textarea name=\"notes\" rows=\"10\" cols=\"60\">";
+         echo "<textarea class=\"form-control\" name=\"notes\" rows=\"10\" cols=\"60\">";
          p($notes);
          echo "</textarea><br />";
          echo "<input type=\"hidden\" name=\"action\" value=\"student\" />";
          echo "<input type=\"hidden\" name=\"sesskey\" value=\"".sesskey()."\" />";
          echo "<input type=\"hidden\" name=\"student\" value=\"$student\" />";
          echo "<input type=\"hidden\" name=\"id\" value=\"$cm->id\" />";
-         echo "<input type=\"submit\" value=\"".get_string("savechanges")."\" />";
+         echo "<input type=\"submit\" class=\"btn btn-primary\" value=\"".get_string("savechanges")."\" />";
          echo "</blockquote>";
          echo "</form>";
          echo "</div>";
@@ -482,6 +474,10 @@
 
       case "download":
         echo $OUTPUT->heading($strdownload, 3);
+
+        if ($groupsactivitymenu) {
+            echo html_writer::div($groupsactivitymenu, 'mb-2');
+        }
 
         require_capability('mod/survey:download', $context);
 
@@ -505,11 +501,10 @@
             echo $OUTPUT->container_end();
 
         } else {
-             echo html_writer::tag('p', get_string("nobodyyet", "survey"), array('class' => 'centerpara'));
+            echo $OUTPUT->notification(get_string("nobodyyet", "survey"), 'info', false);
         }
 
         break;
 
     }
     echo $OUTPUT->footer();
-

@@ -78,8 +78,9 @@ if ($courseid) {
         }
 
         // Return to previous page
-        if (!empty($_SERVER['HTTP_REFERER'])) {
-            redirect($_SERVER['HTTP_REFERER']);
+        $referer = get_local_referer(false);
+        if (!empty($referer)) {
+            redirect($referer);
         } else {
             redirect('view.php?id='.$course->id);
         }
@@ -118,9 +119,7 @@ if ($courseid) {
     }
 }
 
-
 $targetstate = required_param('completionstate', PARAM_INT);
-$fromajax    = optional_param('fromajax', 0, PARAM_INT);
 
 $PAGE->set_url('/course/togglecompletion.php', array('id'=>$cmid, 'completionstate'=>$targetstate));
 
@@ -138,6 +137,7 @@ $course = $DB->get_record('course', array('id'=>$cm->course), '*', MUST_EXIST);
 
 // Check user is logged in
 require_login($course, false, $cm);
+require_capability('moodle/course:togglecompletion', context_module::instance($cmid));
 
 if (isguestuser() or !confirm_sesskey()) {
     print_error('error');
@@ -156,33 +156,15 @@ if (!$completion->is_enabled()) {
 
 // Check completion state is manual
 if($cm->completion != COMPLETION_TRACKING_MANUAL) {
-    error_or_ajax('cannotmanualctrack', $fromajax);
+    throw new moodle_exception('cannotmanualctrack');
 }
 
 $completion->update_state($cm, $targetstate);
 
-// And redirect back to course
-if ($fromajax) {
-    print 'OK';
+// In case of use in other areas of code we allow a 'backto' parameter, otherwise go back to course page.
+if ($backto = optional_param('backto', null, PARAM_URL)) {
+    redirect($backto);
 } else {
-    // In case of use in other areas of code we allow a 'backto' parameter,
-    // otherwise go back to course page
-
-    if ($backto = optional_param('backto', null, PARAM_URL)) {
-        redirect($backto);
-    } else {
-        redirect(course_get_url($course, $cm->sectionnum));
-    }
-}
-
-// utility functions
-
-function error_or_ajax($message, $fromajax) {
-    if ($fromajax) {
-        print get_string($message, 'error');
-        exit;
-    } else {
-        print_error($message);
-    }
+    redirect(course_get_url($course, $cm->sectionnum));
 }
 

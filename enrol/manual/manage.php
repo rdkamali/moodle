@@ -28,7 +28,8 @@ require_once($CFG->dirroot.'/enrol/manual/locallib.php');
 $enrolid      = required_param('enrolid', PARAM_INT);
 $roleid       = optional_param('roleid', -1, PARAM_INT);
 $extendperiod = optional_param('extendperiod', 0, PARAM_INT);
-$extendbase   = optional_param('extendbase', 3, PARAM_INT);
+$extendbase   = optional_param('extendbase', 0, PARAM_INT);
+$timeend      = optional_param_array('timeend', [], PARAM_INT);
 
 $instance = $DB->get_record('enrol', array('id'=>$enrolid, 'enrol'=>'manual'), '*', MUST_EXIST);
 $course = $DB->get_record('course', array('id'=>$instance->courseid), '*', MUST_EXIST);
@@ -68,7 +69,7 @@ $PAGE->set_url('/enrol/manual/manage.php', array('enrolid'=>$instance->id));
 $PAGE->set_pagelayout('admin');
 $PAGE->set_title($enrol_manual->get_instance_name($instance));
 $PAGE->set_heading($course->fullname);
-navigation_node::override_active_url(new moodle_url('/enrol/users.php', array('id'=>$course->id)));
+navigation_node::override_active_url(new moodle_url('/user/index.php', array('id'=>$course->id)));
 
 // Create the user selector objects.
 $options = array('enrolid' => $enrolid, 'accesscontext' => $context);
@@ -83,24 +84,34 @@ for ($i=1; $i<=365; $i++) {
     $seconds = $i * 86400;
     $periodmenu[$seconds] = get_string('numdays', '', $i);
 }
-// Work out the apropriate default setting.
+// Work out the apropriate default settings.
 if ($extendperiod) {
     $defaultperiod = $extendperiod;
 } else {
     $defaultperiod = $instance->enrolperiod;
 }
+if ($instance->enrolperiod > 0 && !isset($periodmenu[$instance->enrolperiod])) {
+    $periodmenu[$instance->enrolperiod] = format_time($instance->enrolperiod);
+}
+if (empty($extendbase)) {
+    if (!$extendbase = get_config('enrol_manual', 'enrolstart')) {
+        // Default to now if there is no system setting.
+        $extendbase = 4;
+    }
+}
 
 // Build the list of options for the starting from dropdown.
-$timeformat = get_string('strftimedatefullshort');
-$today = time();
-$today = make_timestamp(date('Y', $today), date('m', $today), date('d', $today), 0, 0, 0);
+$now = time();
+$today = make_timestamp(date('Y', $now), date('m', $now), date('d', $now), 0, 0, 0);
+$dateformat = get_string('strftimedatefullshort');
 
 // Enrolment start.
 $basemenu = array();
 if ($course->startdate > 0) {
-    $basemenu[2] = get_string('coursestart') . ' (' . userdate($course->startdate, $timeformat) . ')';
+    $basemenu[2] = get_string('coursestart') . ' (' . userdate($course->startdate, $dateformat) . ')';
 }
-$basemenu[3] = get_string('today') . ' (' . userdate($today, $timeformat) . ')' ;
+$basemenu[3] = get_string('today') . ' (' . userdate($today, $dateformat) . ')';
+$basemenu[4] = get_string('now', 'enrol_manual') . ' (' . userdate($now, get_string('strftimedatetimeshort')) . ')';
 
 // Process add and removes.
 if ($canenrol && optional_param('add', false, PARAM_BOOL) && confirm_sesskey()) {
@@ -111,13 +122,21 @@ if ($canenrol && optional_param('add', false, PARAM_BOOL) && confirm_sesskey()) 
                 case 2:
                     $timestart = $course->startdate;
                     break;
+                case 4:
+                    // We mimic get_enrolled_sql round(time(), -2) but always floor as we want users to always access their
+                    // courses once they are enrolled.
+                    $timestart = intval(substr($now, 0, 8) . '00') - 1;
+                    break;
                 case 3:
                 default:
                     $timestart = $today;
                     break;
             }
 
-            if ($extendperiod <= 0) {
+            if ($timeend) {
+                $timeend = make_timestamp($timeend['year'], $timeend['month'], $timeend['day'], $timeend['hour'],
+                        $timeend['minute']);
+            } else if ($extendperiod <= 0) {
                 $timeend = 0;
             } else {
                 $timeend = $timestart + $extendperiod;
@@ -166,7 +185,9 @@ $removeenabled = $canunenrol ? '' : 'disabled="disabled"';
       </td>
       <td id="buttonscell">
           <div id="addcontrols">
-              <input name="add" <?php echo $addenabled; ?> id="add" type="submit" value="<?php echo $OUTPUT->larrow().'&nbsp;'.get_string('add'); ?>" title="<?php print_string('add'); ?>" /><br />
+              <input class="btn btn-secondary" name="add" <?php echo $addenabled; ?> id="add" type="submit"
+                     value="<?php echo $OUTPUT->larrow() . '&nbsp;' . get_string('add'); ?>"
+                     title="<?php print_string('add'); ?>" /><br />
 
               <div class="enroloptions">
 
@@ -183,7 +204,9 @@ $removeenabled = $canunenrol ? '' : 'disabled="disabled"';
           </div>
 
           <div id="removecontrols">
-              <input name="remove" id="remove" <?php echo $removeenabled; ?> type="submit" value="<?php echo get_string('remove').'&nbsp;'.$OUTPUT->rarrow(); ?>" title="<?php print_string('remove'); ?>" />
+              <input class="btn btn-secondary" name="remove" id="remove" <?php echo $removeenabled; ?> type="submit"
+                     value="<?php echo get_string('remove') . '&nbsp;' . $OUTPUT->rarrow(); ?>"
+                     title="<?php print_string('remove'); ?>" />
           </div>
       </td>
       <td id="potentialcell">

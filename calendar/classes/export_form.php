@@ -44,12 +44,16 @@ class core_calendar_export_form extends moodleform {
     public function definition() {
         global $CFG;
         $mform = $this->_form;
+        $mform->addElement('html', '<div class="mt-3 mb-xl-6">' . get_string('exporthelp', 'calendar') . '</div>');
 
         $export = array();
         $export[] = $mform->createElement('radio', 'exportevents', '', get_string('eventsall', 'calendar'), 'all');
+        $export[] = $mform->createElement('radio', 'exportevents', '', get_string('eventsrelatedtocategories', 'calendar'), 'categories');
         $export[] = $mform->createElement('radio', 'exportevents', '', get_string('eventsrelatedtocourses', 'calendar'), 'courses');
+        $export[] = $mform->createElement('radio', 'exportevents', '', get_string('eventsrelatedtogroups', 'calendar'), 'groups');
+        $export[] = $mform->createElement('radio', 'exportevents', '', get_string('eventspersonal', 'calendar'), 'user');
 
-        $mform->addGroup($export, 'events', get_string('export', 'calendar'), '<br/>');
+        $mform->addGroup($export, 'events', get_string('eventstoexport', 'calendar'), '<br/>');
         $mform->addGroupRule('events', get_string('required'), 'required');
         $mform->setDefault('events', 'all');
 
@@ -77,7 +81,7 @@ class core_calendar_export_form extends moodleform {
             $range[] = $mform->createElement('radio', 'timeperiod', '', get_string('customexport', 'calendar', $a), 'custom');
         }
 
-        $mform->addGroup($range, 'period', get_string('for', 'calendar'), '<br/>');
+        $mform->addGroup($range, 'period', get_string('timeperiod', 'calendar'), '<br/>');
         $mform->addGroupRule('period', get_string('required'), 'required');
         $mform->setDefault('period', 'recentupcoming');
 

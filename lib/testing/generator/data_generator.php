@@ -103,6 +103,9 @@ EOD;
      * @return component_generator_base or rather an instance of the appropriate subclass.
      */
     public function get_plugin_generator($component) {
+        // Note: This global is included so that generator have access to it.
+        // CFG is widely used in require statements.
+        global $CFG;
         list($type, $plugin) = core_component::normalize_component($component);
         $cleancomponent = $type . '_' . $plugin;
         if ($cleancomponent != $component) {
@@ -118,19 +121,20 @@ EOD;
         $dir = core_component::get_component_directory($component);
         $lib = $dir . '/tests/generator/lib.php';
         if (!$dir || !is_readable($lib)) {
-            throw new coding_exception("Component {$component} does not support " .
-                    "generators yet. Missing tests/generator/lib.php.");
+            $this->generators[$component] = $this->get_default_plugin_generator($component);
+
+            return $this->generators[$component];
         }
 
         include_once($lib);
         $classname = $component . '_generator';
 
-        if (!class_exists($classname)) {
-            throw new coding_exception("Component {$component} does not support " .
-                    "data generators yet. Class {$classname} not found.");
+        if (class_exists($classname)) {
+            $this->generators[$component] = new $classname($this);
+        } else {
+            $this->generators[$component] = $this->get_default_plugin_generator($component, $classname);
         }
 
-        $this->generators[$component] = new $classname($this);
         return $this->generators[$component];
     }
 
@@ -142,6 +146,7 @@ EOD;
      */
     public function create_user($record=null, array $options=null) {
         global $DB, $CFG;
+        require_once($CFG->dirroot.'/user/lib.php');
 
         $this->usercounter++;
         $i = $this->usercounter;
@@ -206,10 +211,6 @@ EOD;
 
         if (isset($record['password'])) {
             $record['password'] = hash_internal_user_password($record['password']);
-        } else {
-            // The auth plugin may not fully support this,
-            // but it is still better/faster than hashing random stuff.
-            $record['password'] = AUTH_PASSWORD_NOT_CACHED;
         }
 
         if (!isset($record['email'])) {
@@ -220,71 +221,64 @@ EOD;
             $record['confirmed'] = 1;
         }
 
-        if (!isset($record['lang'])) {
-            $record['lang'] = 'en';
+        if (!isset($record['lastip'])) {
+            $record['lastip'] = '0.0.0.0';
         }
 
-        if (!isset($record['maildisplay'])) {
-            $record['maildisplay'] = $CFG->defaultpreference_maildisplay;
+        $tobedeleted = !empty($record['deleted']);
+        unset($record['deleted']);
+
+        $userid = user_create_user($record, false, false);
+
+        if ($extrafields = array_intersect_key($record, ['password' => 1, 'timecreated' => 1])) {
+            $DB->update_record('user', ['id' => $userid] + $extrafields);
         }
 
-        if (!isset($record['mailformat'])) {
-            $record['mailformat'] = $CFG->defaultpreference_mailformat;
-        }
+        if (!$tobedeleted) {
+            // All new not deleted users must have a favourite self-conversation.
+            $selfconversation = \core_message\api::create_conversation(
+                \core_message\api::MESSAGE_CONVERSATION_TYPE_SELF,
+                [$userid]
+            );
+            \core_message\api::set_favourite_conversation($selfconversation->id, $userid);
 
-        if (!isset($record['maildigest'])) {
-            $record['maildigest'] = $CFG->defaultpreference_maildigest;
-        }
-
-        if (!isset($record['autosubscribe'])) {
-            $record['autosubscribe'] = $CFG->defaultpreference_autosubscribe;
-        }
-
-        if (!isset($record['trackforums'])) {
-            $record['trackforums'] = $CFG->defaultpreference_trackforums;
-        }
-
-        if (!isset($record['deleted'])) {
-            $record['deleted'] = 0;
-        }
-
-        if (!isset($record['timecreated'])) {
-            $record['timecreated'] = time();
-        }
-
-        $record['timemodified'] = $record['timecreated'];
-        $record['lastip'] = '0.0.0.0';
-
-        if ($record['deleted']) {
-            $delname = $record['email'].'.'.time();
-            while ($DB->record_exists('user', array('username'=>$delname))) {
-                $delname++;
+            // Save custom profile fields data.
+            $hasprofilefields = array_filter($record, function($key){
+                return strpos($key, 'profile_field_') === 0;
+            }, ARRAY_FILTER_USE_KEY);
+            if ($hasprofilefields) {
+                require_once($CFG->dirroot.'/user/profile/lib.php');
+                $usernew = (object)(['id' => $userid] + $record);
+                profile_save_data($usernew);
             }
-            $record['idnumber'] = '';
-            $record['email']    = md5($record['username']);
-            $record['username'] = $delname;
-            $record['picture']  = 0;
         }
 
-        $userid = $DB->insert_record('user', $record);
+        $user = $DB->get_record('user', array('id' => $userid), '*', MUST_EXIST);
 
-        if (!$record['deleted']) {
-            context_user::instance($userid);
+        if (!$tobedeleted && isset($record['interests'])) {
+            require_once($CFG->dirroot . '/user/editlib.php');
+            if (!is_array($record['interests'])) {
+                $record['interests'] = preg_split('/\s*,\s*/', trim($record['interests']), -1, PREG_SPLIT_NO_EMPTY);
+            }
+            useredit_update_interests($user, $record['interests']);
         }
 
-        return $DB->get_record('user', array('id'=>$userid), '*', MUST_EXIST);
+        \core\event\user_created::create_from_userid($userid)->trigger();
+
+        if ($tobedeleted) {
+            delete_user($user);
+            $user = $DB->get_record('user', array('id' => $userid));
+        }
+        return $user;
     }
 
     /**
      * Create a test course category
      * @param array|stdClass $record
      * @param array $options
-     * @return coursecat course category record
+     * @return core_course_category course category record
      */
     public function create_category($record=null, array $options=null) {
-        global $DB, $CFG;
-        require_once("$CFG->libdir/coursecatlib.php");
-
         $this->categorycount++;
         $i = $this->categorycount;
 
@@ -302,7 +296,7 @@ EOD;
             $record['idnumber'] = '';
         }
 
-        return coursecat::create($record);
+        return core_course_category::create($record);
     }
 
     /**
@@ -333,7 +327,7 @@ EOD;
         }
 
         if (!isset($record['description'])) {
-            $record['description'] = "Test cohort $i\n$this->loremipsum";
+            $record['description'] = "Description for '{$record['name']}' \n$this->loremipsum";
         }
 
         if (!isset($record['descriptionformat'])) {
@@ -405,15 +399,28 @@ EOD;
             $record['category'] = $DB->get_field_select('course_categories', "MIN(id)", "parent=0");
         }
 
-        $course = create_course((object)$record);
-        context_course::instance($course->id);
-        if (!empty($options['createsections'])) {
-            if (isset($course->numsections)) {
-                course_create_sections_if_missing($course, range(0, $course->numsections));
-            } else {
-                course_create_sections_if_missing($course, 0);
+        if (!isset($record['startdate'])) {
+            $record['startdate'] = usergetmidnight(time());
+        }
+
+        if (isset($record['tags']) && !is_array($record['tags'])) {
+            $record['tags'] = preg_split('/\s*,\s*/', trim($record['tags']), -1, PREG_SPLIT_NO_EMPTY);
+        }
+
+        if (!empty($options['createsections']) && empty($record['numsections'])) {
+            // Since Moodle 3.3 function create_course() automatically creates sections if numsections is specified.
+            // For BC if 'createsections' is given but 'numsections' is not, assume the default value from config.
+            $record['numsections'] = get_config('moodlecourse', 'numsections');
+        }
+
+        if (!empty($record['customfields'])) {
+            foreach ($record['customfields'] as $field) {
+                $record['customfield_'.$field['shortname']] = $field['value'];
             }
         }
+
+        $course = create_course((object)$record);
+        context_course::instance($course->id);
 
         return $course;
     }
@@ -443,23 +450,45 @@ EOD;
     }
 
     /**
-     * Create a test block
-     * @param string $blockname
-     * @param array|stdClass $record
-     * @param array $options
-     * @return stdClass block instance record
+     * Create a test block.
+     *
+     * The $record passed in becomes the basis for the new row added to the
+     * block_instances table. You only need to supply the values of interest.
+     * Any missing values have sensible defaults filled in, and ->blockname will be set based on $blockname.
+     *
+     * The $options array provides additional data, not directly related to what
+     * will be inserted in the block_instance table, which may affect the block
+     * that is created. The meanings of any data passed here depends on the particular
+     * type of block being created.
+     *
+     * @param string $blockname the type of block to create. E.g. 'html'.
+     * @param array|stdClass $record forms the basis for the entry to be inserted in the block_instances table.
+     * @param array $options further, block-specific options to control how the block is created.
+     * @return stdClass new block_instance record.
      */
-    public function create_block($blockname, $record=null, array $options=null) {
+    public function create_block($blockname, $record=null, array $options=array()) {
         $generator = $this->get_plugin_generator('block_'.$blockname);
         return $generator->create_instance($record, $options);
     }
 
     /**
-     * Create a test module
-     * @param string $modulename
-     * @param array|stdClass $record
-     * @param array $options
-     * @return stdClass activity record
+     * Create a test activity module.
+     *
+     * The $record should contain the same data that you would call from
+     * ->get_data() when the mod_[type]_mod_form is submitted, except that you
+     * only need to supply values of interest. The only required value is
+     * 'course'. Any missing values will have a sensible default supplied.
+     *
+     * The $options array provides additional data, not directly related to what
+     * would come back from the module edit settings form, which may affect the activity
+     * that is created. The meanings of any data passed here depends on the particular
+     * type of activity being created.
+     *
+     * @param string $modulename the type of activity to create. E.g. 'forum' or 'quiz'.
+     * @param array|stdClass $record data, as if from the module edit settings form.
+     * @param array $options additional data that may affect how the module is created.
+     * @return stdClass activity record new new record that was just inserted in the table
+     *      like 'forum' or 'quiz', with a ->cmid field added.
      */
     public function create_module($modulename, $record=null, array $options=null) {
         $generator = $this->get_plugin_generator('mod_'.$modulename);
@@ -484,7 +513,7 @@ EOD;
         require_once($CFG->dirroot . '/group/lib.php');
 
         $this->groupcount++;
-        $i = $this->groupcount;
+        $i = str_pad($this->groupcount, 4, '0', STR_PAD_LEFT);
 
         $record = (array)$record;
 
@@ -505,6 +534,18 @@ EOD;
         }
 
         $id = groups_create_group((object)$record);
+
+        // Allow tests to set group pictures.
+        if (!empty($record['picturepath'])) {
+            require_once($CFG->dirroot . '/lib/gdlib.php');
+            $grouppicture = process_new_icon(\context_course::instance($record['courseid']), 'group', 'icon', $id,
+                $record['picturepath']);
+
+            $DB->set_field('groups', 'picture', $grouppicture, ['id' => $id]);
+
+            // Invalidate the group data as we've updated the group record.
+            cache_helper::invalidate_by_definition('core', 'groupdata', array(), [$record['courseid']]);
+        }
 
         return $DB->get_record('groups', array('id'=>$id));
     }
@@ -754,13 +795,13 @@ EOD;
 
         if ($record['archetype']) {
 
-            // We copy all the roles the archetype can assign, override and switch to.
+            // We copy all the roles the archetype can assign, override, switch to and view.
             if ($record['archetype']) {
-                $types = array('assign', 'override', 'switch');
+                $types = array('assign', 'override', 'switch', 'view');
                 foreach ($types as $type) {
                     $rolestocopy = get_default_role_archetype_allows($type, $record['archetype']);
                     foreach ($rolestocopy as $tocopy) {
-                        $functionname = 'allow_' . $type;
+                        $functionname = "core_role_set_{$type}_allowed";
                         $functionname($newroleid, $tocopy);
                     }
                 }
@@ -792,16 +833,23 @@ EOD;
             $record['userid'] = $USER->id;
         }
 
-        if (!isset($record['name'])) {
-            $record['name'] = 'Tag name ' . $i;
-        }
-
         if (!isset($record['rawname'])) {
-            $record['rawname'] = 'Raw tag name ' . $i;
+            if (isset($record['name'])) {
+                $record['rawname'] = $record['name'];
+            } else {
+                $record['rawname'] = 'Tag name ' . $i;
+            }
         }
 
-        if (!isset($record['tagtype'])) {
-            $record['tagtype'] = 'default';
+        // Attribute 'name' should be a lowercase version of 'rawname', if not set.
+        if (!isset($record['name'])) {
+            $record['name'] = core_text::strtolower($record['rawname']);
+        } else {
+            $record['name'] = core_text::strtolower($record['name']);
+        }
+
+        if (!isset($record['tagcollid'])) {
+            $record['tagcollid'] = core_tag_collection::get_default();
         }
 
         if (!isset($record['description'])) {
@@ -852,7 +900,7 @@ EOD;
      *
      * @param int $userid
      * @param int $courseid
-     * @param int $roleid optional role id, use only with manual plugin
+     * @param int|string $roleidorshortname optional role id or role shortname, use only with manual plugin
      * @param string $enrol name of enrol plugin,
      *     there must be exactly one instance in course,
      *     it must support enrol_user() method.
@@ -861,8 +909,16 @@ EOD;
      * @param int $status (optional) default to ENROL_USER_ACTIVE for new enrolments
      * @return bool success
      */
-    public function enrol_user($userid, $courseid, $roleid = null, $enrol = 'manual', $timestart = 0, $timeend = 0, $status = null) {
+    public function enrol_user($userid, $courseid, $roleidorshortname = null, $enrol = 'manual',
+            $timestart = 0, $timeend = 0, $status = null) {
         global $DB;
+
+        // If role is specified by shortname, convert it into an id.
+        if (!is_numeric($roleidorshortname) && is_string($roleidorshortname)) {
+            $roleid = $DB->get_field('role', 'id', array('shortname' => $roleidorshortname), MUST_EXIST);
+        } else {
+            $roleid = $roleidorshortname;
+        }
 
         if (!$plugin = enrol_get_plugin($enrol)) {
             return false;
@@ -1009,4 +1065,317 @@ EOD;
         $gradeoutcome->update_from_db();
         return $gradeoutcome->get_record_data();
     }
+
+    /**
+     * Helper function used to create an LTI tool.
+     *
+     * @param array $data
+     * @return stdClass the tool
+     */
+    public function create_lti_tool($data = array()) {
+        global $DB;
+
+        $studentrole = $DB->get_record('role', array('shortname' => 'student'));
+        $teacherrole = $DB->get_record('role', array('shortname' => 'teacher'));
+
+        // Create a course if no course id was specified.
+        if (empty($data->courseid)) {
+            $course = $this->create_course();
+            $data->courseid = $course->id;
+        } else {
+            $course = get_course($data->courseid);
+        }
+
+        if (!empty($data->cmid)) {
+            $data->contextid = context_module::instance($data->cmid)->id;
+        } else {
+            $data->contextid = context_course::instance($data->courseid)->id;
+        }
+
+        // Set it to enabled if no status was specified.
+        if (!isset($data->status)) {
+            $data->status = ENROL_INSTANCE_ENABLED;
+        }
+
+        // Default to legacy lti version.
+        if (empty($data->ltiversion) || !in_array($data->ltiversion, ['LTI-1p0/LTI-2p0', 'LTI-1p3'])) {
+            $data->ltiversion = 'LTI-1p0/LTI-2p0';
+        }
+
+        // Add some extra necessary fields to the data.
+        $data->name = $data->name ?? 'Test LTI';
+        $data->roleinstructor = $teacherrole->id;
+        $data->rolelearner = $studentrole->id;
+
+        // Get the enrol LTI plugin.
+        $enrolplugin = enrol_get_plugin('lti');
+        $instanceid = $enrolplugin->add_instance($course, (array) $data);
+
+        // Get the tool associated with this instance.
+        return $DB->get_record('enrol_lti_tools', array('enrolid' => $instanceid));
+    }
+
+    /**
+     * Helper function used to create an event.
+     *
+     * @param   array   $data
+     * @return  stdClass
+     */
+    public function create_event($data = []) {
+        global $CFG;
+
+        require_once($CFG->dirroot . '/calendar/lib.php');
+        $record = new \stdClass();
+        $record->name = 'event name';
+        $record->repeat = 0;
+        $record->repeats = 0;
+        $record->timestart = time();
+        $record->timeduration = 0;
+        $record->timesort = 0;
+        $record->eventtype = 'user';
+        $record->courseid = 0;
+        $record->categoryid = 0;
+
+        foreach ($data as $key => $value) {
+            $record->$key = $value;
+        }
+
+        switch ($record->eventtype) {
+            case 'user':
+                unset($record->categoryid);
+                unset($record->courseid);
+                unset($record->groupid);
+                break;
+            case 'group':
+                unset($record->categoryid);
+                break;
+            case 'course':
+                unset($record->categoryid);
+                unset($record->groupid);
+                break;
+            case 'category':
+                unset($record->courseid);
+                unset($record->groupid);
+                break;
+            case 'site':
+                unset($record->categoryid);
+                unset($record->courseid);
+                unset($record->groupid);
+                break;
+        }
+
+        $event = new calendar_event($record);
+        $event->create($record);
+
+        return $event->properties();
+    }
+
+    /**
+     * Create a new course custom field category with the given name.
+     *
+     * @param   array $data Array with data['name'] of category
+     * @return  \core_customfield\category_controller   The created category
+     */
+    public function create_custom_field_category($data) : \core_customfield\category_controller {
+        return $this->get_plugin_generator('core_customfield')->create_category($data);
+    }
+
+    /**
+     * Create a new custom field
+     *
+     * @param   array $data Array with 'name', 'shortname' and 'type' of the field
+     * @return  \core_customfield\field_controller   The created field
+     */
+    public function create_custom_field($data) : \core_customfield\field_controller {
+        global $DB;
+        if (empty($data['categoryid']) && !empty($data['category'])) {
+            $data['categoryid'] = $DB->get_field('customfield_category', 'id', ['name' => $data['category']]);
+            unset($data['category']);
+        }
+        return $this->get_plugin_generator('core_customfield')->create_field($data);
+    }
+
+    /**
+     * Create a new category for custom profile fields.
+     *
+     * @param array $data Array with 'name' and optionally 'sortorder'
+     * @return \stdClass New category object
+     */
+    public function create_custom_profile_field_category(array $data): \stdClass {
+        global $DB;
+
+        // Pick next sortorder if not defined.
+        if (!array_key_exists('sortorder', $data)) {
+            $data['sortorder'] = (int)$DB->get_field_sql('SELECT MAX(sortorder) FROM {user_info_category}') + 1;
+        }
+
+        $category = (object)[
+            'name' => $data['name'],
+            'sortorder' => $data['sortorder']
+        ];
+        $category->id = $DB->insert_record('user_info_category', $category);
+
+        return $category;
+    }
+
+    /**
+     * Creates a new custom profile field.
+     *
+     * Optional fields are:
+     *
+     * categoryid (or use 'category' to specify by name). If you don't specify
+     * either, it will add the field to a 'Testing' category, which will be created for you if
+     * necessary.
+     *
+     * sortorder (if you don't specify this, it will pick the next one in the category).
+     *
+     * all the other database fields (if you don't specify this, it will pick sensible defaults
+     * based on the data type).
+     *
+     * @param array $data Array with 'datatype', 'shortname', and 'name'
+     * @return \stdClass Database object from the user_info_field table
+     */
+    public function create_custom_profile_field(array $data): \stdClass {
+        global $DB, $CFG;
+        require_once($CFG->dirroot . '/user/profile/lib.php');
+
+        // Set up category if necessary.
+        if (!array_key_exists('categoryid', $data)) {
+            if (array_key_exists('category', $data)) {
+                $data['categoryid'] = $DB->get_field('user_info_category', 'id',
+                        ['name' => $data['category']], MUST_EXIST);
+            } else {
+                // Make up a 'Testing' category or use existing.
+                $data['categoryid'] = $DB->get_field('user_info_category', 'id', ['name' => 'Testing']);
+                if (!$data['categoryid']) {
+                    $created = $this->create_custom_profile_field_category(['name' => 'Testing']);
+                    $data['categoryid'] = $created->id;
+                }
+            }
+        }
+
+        // Pick sort order if necessary.
+        if (!array_key_exists('sortorder', $data)) {
+            $data['sortorder'] = (int)$DB->get_field_sql(
+                    'SELECT MAX(sortorder) FROM {user_info_field} WHERE categoryid = ?',
+                    [$data['categoryid']]) + 1;
+        }
+
+        // Defaults for other values.
+        $defaults = [
+            'description' => '',
+            'descriptionformat' => 0,
+            'required' => 0,
+            'locked' => 0,
+            'visible' => PROFILE_VISIBLE_ALL,
+            'forceunique' => 0,
+            'signup' => 0,
+            'defaultdata' => '',
+            'defaultdataformat' => 0,
+            'param1' => '',
+            'param2' => '',
+            'param3' => '',
+            'param4' => '',
+            'param5' => ''
+        ];
+
+        // Type-specific defaults for other values.
+        $typedefaults = [
+            'text' => [
+                'param1' => 30,
+                'param2' => 2048
+            ],
+            'menu' => [
+                'param1' => "Yes\nNo",
+                'defaultdata' => 'No'
+            ],
+            'datetime' => [
+                'param1' => '2010',
+                'param2' => '2015',
+                'param3' => 1
+            ],
+            'checkbox' => [
+                'defaultdata' => 0
+            ]
+        ];
+        foreach ($typedefaults[$data['datatype']] ?? [] as $field => $value) {
+            $defaults[$field] = $value;
+        }
+
+        foreach ($defaults as $field => $value) {
+            if (!array_key_exists($field, $data)) {
+                $data[$field] = $value;
+            }
+        }
+
+        $data['id'] = $DB->insert_record('user_info_field', $data);
+        return (object)$data;
+    }
+
+    /**
+     * Create a new user, and enrol them in the specified course as the supplied role.
+     *
+     * @param   \stdClass   $course The course to enrol in
+     * @param   string      $role The role to give within the course
+     * @param   \stdClass   $userparams User parameters
+     * @return  \stdClass   The created user
+     */
+    public function create_and_enrol($course, $role = 'student', $userparams = null, $enrol = 'manual',
+            $timestart = 0, $timeend = 0, $status = null) {
+        global $DB;
+
+        $user = $this->create_user($userparams);
+        $roleid = $DB->get_field('role', 'id', ['shortname' => $role ]);
+
+        $this->enrol_user($user->id, $course->id, $roleid, $enrol, $timestart, $timeend, $status);
+
+        return $user;
+    }
+
+    /**
+     * Create a new last access record for a given user in a course.
+     *
+     * @param   \stdClass   $user The user
+     * @param   \stdClass   $course The course the user accessed
+     * @param   int         $timestamp The timestamp for when the user last accessed the course
+     * @return  \stdClass   The user_lastaccess record
+     */
+    public function create_user_course_lastaccess(\stdClass $user, \stdClass $course, int $timestamp): \stdClass {
+        global $DB;
+
+        $record = [
+            'userid' => $user->id,
+            'courseid' => $course->id,
+            'timeaccess' => $timestamp,
+        ];
+
+        $recordid = $DB->insert_record('user_lastaccess', $record);
+
+        return $DB->get_record('user_lastaccess', ['id' => $recordid], '*', MUST_EXIST);
+    }
+
+    /**
+     * Gets a default generator for a given component.
+     *
+     * @param string $component The component name, e.g. 'mod_forum' or 'core_question'.
+     * @param string $classname The name of the class missing from the generators file.
+     * @return component_generator_base The generator.
+     */
+    protected function get_default_plugin_generator(string $component, ?string $classname = null) {
+        [$type, $plugin] = core_component::normalize_component($component);
+
+        switch ($type) {
+            case 'block':
+                return new default_block_generator($this, $plugin);
+        }
+
+        if (is_null($classname)) {
+            throw new coding_exception("Component {$component} does not support " .
+                "generators yet. Missing tests/generator/lib.php.");
+        }
+
+        throw new coding_exception("Component {$component} does not support " .
+            "data generators yet. Class {$classname} not found.");
+    }
+
 }

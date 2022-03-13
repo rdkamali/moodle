@@ -32,7 +32,7 @@ defined('MOODLE_INTERNAL') || die();
  * @property-read array $other {
  *      Extra information about event.
  *
- *      - int messageid: the id of the message.
+ *      - int courseid: the id of the related course.
  * }
  *
  * @package    core
@@ -46,9 +46,10 @@ class message_sent extends base {
      * @param int $userfromid
      * @param int $usertoid
      * @param int $messageid
+     * @param int $courseid course id the event is related with.
      * @return message_sent
      */
-    public static function create_from_ids($userfromid, $usertoid, $messageid) {
+    public static function create_from_ids(int $userfromid, int $usertoid, int $messageid, int $courseid) {
         // We may be sending a message from the 'noreply' address, which means we are not actually sending a
         // message from a valid user. In this case, we will set the userid to 0.
         // Check if the userid is valid.
@@ -57,14 +58,12 @@ class message_sent extends base {
         }
 
         $event = self::create(array(
+            'objectid' => $messageid,
             'userid' => $userfromid,
             'context' => \context_system::instance(),
             'relateduserid' => $usertoid,
             'other' => array(
-                // In earlier versions it can either be the id in the 'message_read' or 'message' table.
-                // Now it is always the id from 'message' table. Please note that the record is still moved
-                // to the 'message_read' table later when message marked as read.
-                'messageid' => $messageid
+                'courseid' => $courseid
             )
         ));
 
@@ -75,6 +74,7 @@ class message_sent extends base {
      * Init method.
      */
     protected function init() {
+        $this->data['objecttable'] = 'messages';
         $this->data['crud'] = 'c';
         $this->data['edulevel'] = self::LEVEL_OTHER;
     }
@@ -120,8 +120,9 @@ class message_sent extends base {
         // The add_to_log function was only ever called when we sent a message from one user to another. We do not want
         // to return the legacy log data if we are sending a system message, so check that the userid is valid.
         if (\core_user::is_real_user($this->userid)) {
+            $messageid = $this->other['messageid'] ?? $this->objectid; // For BC we may have 'messageid' in other.
             return array(SITEID, 'message', 'write', 'index.php?user=' . $this->userid . '&id=' . $this->relateduserid .
-                '&history=1#m' . $this->other['messageid'], $this->userid);
+                '&history=1#m' . $messageid, $this->userid);
         }
 
         return null;
@@ -140,8 +141,18 @@ class message_sent extends base {
             throw new \coding_exception('The \'relateduserid\' must be set.');
         }
 
-        if (!isset($this->other['messageid'])) {
-            throw new \coding_exception('The \'messageid\' value must be set in other.');
+        if (!isset($this->other['courseid'])) {
+            throw new \coding_exception('The \'courseid\' value must be set in other.');
         }
+    }
+
+    public static function get_objectid_mapping() {
+        return array('db' => 'messages', 'restore' => base::NOT_MAPPED);
+    }
+
+    public static function get_other_mapping() {
+        $othermapped = array();
+        $othermapped['courseid'] = array('db' => 'course', 'restore' => base::NOT_MAPPED);
+        return $othermapped;
     }
 }

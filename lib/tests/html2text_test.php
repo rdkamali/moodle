@@ -78,9 +78,9 @@ class core_html2text_testcase extends basic_testcase {
      */
     public function test_build_link_list() {
 
-        // Note the trailing whitespace left intentionally in the text.
+        // Note the trailing whitespace left intentionally in the text after first link.
         $text = 'Total of <a title="List of integrated issues"
-            href="http://tr.mdl.org/sh.jspa?r=1&j=p+%3D+%22I+d%22+%3D">     
+            href="http://tr.mdl.org/sh.jspa?r=1&j=p+%3D+%22I+d%22+%3D">     ' . '
             <strong>27 issues</strong></a> and <a href="http://another.url/?f=a&amp;b=2">some</a> other
 have been fixed <strong><a href="http://third.url/view.php">last week</a></strong>';
 
@@ -133,8 +133,8 @@ have been fixed <strong><a href="http://third.url/view.php">last week</a></stron
      * Basic text formatting.
      */
     public function test_simple() {
-        $this->assertSame("_Hello_ WORLD!", html_to_text('<p><i>Hello</i> <b>world</b>!</p>'));
-        $this->assertSame("All the WORLD’S a stage.\n\n-- William Shakespeare", html_to_text('<p>All the <strong>world’s</strong> a stage.</p><p>-- William Shakespeare</p>'));
+        $this->assertSame("_Hello_ WORLD!\n", html_to_text('<p><i>Hello</i> <b>world</b>!</p>'));
+        $this->assertSame("All the WORLD’S a stage.\n\n-- William Shakespeare\n", html_to_text('<p>All the <strong>world’s</strong> a stage.</p><p>-- William Shakespeare</p>'));
         $this->assertSame("HELLO WORLD!\n\n", html_to_text('<h1>Hello world!</h1>'));
         $this->assertSame("Hello\nworld!", html_to_text('Hello<br />world!'));
     }
@@ -164,19 +164,28 @@ have been fixed <strong><a href="http://third.url/view.php">last week</a></stron
             '<br />  int i = 0;<br />  while (in_string[i] != \'\0\') {<br />    in_string[i] = \'X\';<br />    i++;<br />  }<br />'.
             '}</span></pre>What would happen if a non-terminated string were input to this function?<br /><br />';
 
+        // Note, the spaces in the <pre> section are Unicode NBSPs - they may not be displayed in your editor.
         $strconv = 'Consider the following function:
 
-void FillMeUp(char* in_string) {
- int i = 0;
- while (in_string[i] != \'\0\') {
- in_string[i] = \'X\';
- i++;
- }
+void FillMeUp(char* in_string) {
+  int i = 0;
+  while (in_string[i] != \'\0\') {
+    in_string[i] = \'X\';
+    i++;
+  }
 }
 What would happen if a non-terminated string were input to this function?
 
 ';
 
         $this->assertSame($strconv, html_to_text($strorig));
+    }
+
+    /**
+     * Scripts should be stripped.
+     */
+    public function test_strip_scripts() {
+        $this->assertSame('Interesting text',
+                html_to_text('Interesting <script type="text/javascript">var what_a_mess = "Yuck!";</script> text', 0));
     }
 }

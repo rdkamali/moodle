@@ -7,7 +7,7 @@ Feature: The questions in the question bank can be sorted in various ways
   Background:
     Given the following "users" exist:
       | username | firstname | lastname | email |
-      | teacher1 | Teacher | 1 | teacher1@asd.com |
+      | teacher1 | Teacher | 1 | teacher1@example.com |
     And the following "courses" exist:
       | fullname | shortname | format |
       | Course 1 | C1 | weeks |
@@ -18,17 +18,26 @@ Feature: The questions in the question bank can be sorted in various ways
       | contextlevel | reference | name           |
       | Course       | C1        | Test questions |
     And the following "questions" exist:
-      | questioncategory | qtype     | name              | user     | questiontext    |
-      | Test questions   | essay     | A question 1 name | admin    | Question 1 text |
-      | Test questions   | essay     | B question 2 name | teacher1 | Question 2 text |
-      | Test questions   | numerical | C question 3 name | teacher1 | Question 3 text |
+      | questioncategory | qtype     | name              | user     | questiontext    | idnumber    |
+      | Test questions   | essay     | A question 1 name | admin    | Question 1 text | numidnum</a |
+      | Test questions   | essay     | B question 2 name | teacher1 | Question 2 text |             |
+      | Test questions   | numerical | C question 3 name | teacher1 | Question 3 text | numidnum</c |
     And I log in as "teacher1"
-    And I follow "Course 1"
-    And I navigate to "Questions" node in "Course administration > Question bank"
+    And I am on "Course 1" course homepage
+    And I navigate to "Question bank" in current page administration
 
   @javascript
   Scenario: The questions are sorted by type by default
     Then "A question 1 name" "checkbox" should appear before "C question 3 name" "checkbox"
+
+  @javascript
+  Scenario: The questions can be sorted by idnumber
+    When I change the window size to "large"
+    And I follow "Sort by ID number ascending"
+    Then "C question 3 name" "checkbox" should appear after "A question 1 name" "checkbox"
+    And I should see "numidnum</c" in the "C question 3 name" "table_row"
+    And I follow "Sort by ID number descending"
+    And "C question 3 name" "checkbox" should appear before "A question 1 name" "checkbox"
 
   @javascript
   Scenario: The questions can be sorted in reverse order by type
@@ -37,14 +46,14 @@ Feature: The questions in the question bank can be sorted in various ways
 
   @javascript
   Scenario: The questions can be sorted by name
-    When I follow "Sort by Question ascending"
+    When I follow "Sort by Question name ascending"
     Then "A question 1 name" "checkbox" should appear before "B question 2 name" "checkbox"
     And "B question 2 name" "checkbox" should appear before "C question 3 name" "checkbox"
 
   @javascript
   Scenario: The questions can be sorted in reverse order by name
-    When I follow "Sort by Question ascending"
-    And I follow "Sort by Question descending"
+    When I follow "Sort by Question name ascending"
+    And I follow "Sort by Question name descending"
     Then "C question 3 name" "checkbox" should appear before "B question 2 name" "checkbox"
     And "B question 2 name" "checkbox" should appear before "A question 1 name" "checkbox"
 

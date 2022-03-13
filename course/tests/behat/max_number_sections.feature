@@ -7,12 +7,12 @@ Feature: The maximum number of weeks/topics in a course can be configured
   Background:
     Given the following "users" exist:
       | username | firstname | lastname | email |
-      | manager1 | Manager | 1 | manager1@asd.com |
+      | manager1 | Manager | 1 | manager1@example.com |
     And the following "system role assigns" exist:
       | user | course | role |
       | manager1 | Acceptance test site | manager |
     And I log in as "admin"
-    And I navigate to "Course default settings" node in "Site administration >  Courses"
+    And I navigate to "Courses > Course default settings" in site administration
 
   @javascript
   Scenario: The number of sections can be increased and the limits are applied to courses
@@ -27,7 +27,6 @@ Feature: The maximum number of weeks/topics in a course can be configured
       | Course short name | New course shortname |
       | Number of sections | 90 |
       | Format | Topics format |
-    And I follow "New course fullname"
     And I should see "Topic 90"
 
   @javascript
@@ -44,5 +43,4 @@ Feature: The maximum number of weeks/topics in a course can be configured
       | Course short name | New course shortname |
       | Number of sections | 0 |
       | Format | Topics format |
-    And I follow "New course fullname"
     And I should not see "Topic 1"

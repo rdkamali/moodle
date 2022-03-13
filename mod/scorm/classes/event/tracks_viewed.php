@@ -92,8 +92,8 @@ class tracks_viewed extends \core\event\base {
      */
     protected function get_legacy_logdata() {
         return array($this->courseid, 'scorm', 'userreporttracks', 'report/userreporttracks.php?id=' . $this->contextinstanceid
-            . '&user=' . $this->relateduserid . '&attempt=' . $this->other['attemptid'] . '&scoid=' . $this->other['scoid'],
-            $this->other['instanceid'], $this->contextinstanceid);
+            . '&user=' . $this->relateduserid . '&attempt=' . $this->other['attemptid'] . '&scoid=' . $this->other['scoid']
+            . '&mode=' . $this->other['mode'], $this->other['instanceid'], $this->contextinstanceid);
     }
 
     /**
@@ -117,5 +117,13 @@ class tracks_viewed extends \core\event\base {
         if (empty($this->other['scoid'])) {
             throw new \coding_exception('The \'scoid\' value must be set in other.');
         }
+    }
+
+    public static function get_other_mapping() {
+        $othermapped = array();
+        $othermapped['instanceid'] = array('db' => 'scorm', 'restore' => 'scorm');
+        $othermapped['scoid'] = array('db' => 'scorm_scoes', 'restore' => 'scorm_scoe');
+
+        return $othermapped;
     }
 }

@@ -97,7 +97,10 @@ class restore_log_rule implements processable {
         return $this->module . '-' . $this->action;
     }
 
-    public function process($log) {
+    public function process($inputlog) {
+
+        // There might be multiple rules that process this log, we can't alter it in the process of checking it.
+        $log = clone($inputlog);
 
         // Reset the allpairs array
         $this->allpairs = array();
@@ -235,12 +238,12 @@ class restore_log_rule implements processable {
     protected function build_regexp($expression, $tokens) {
         // Replace to temp (and preg_quote() safe) placeholders
         foreach ($tokens as $token) {
-            $expression = preg_replace('~' . preg_quote($token, '~') . '~', '#@@#@@#', $expression, 1);
+            $expression = preg_replace('~' . preg_quote($token, '~') . '~', '%@@%@@%', $expression, 1);
         }
         // quote the expression
         $expression = preg_quote($expression, '~');
         // Replace all the placeholders
-        $expression = preg_replace('~#@@#@@#~', '(.*)', $expression);
+        $expression = preg_replace('~%@@%@@%~', '(.*)', $expression);
         return '~' . $expression . '~';
     }
 }

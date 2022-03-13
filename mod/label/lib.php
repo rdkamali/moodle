@@ -62,7 +62,21 @@ function label_add_instance($label) {
     $label->name = get_label_name($label);
     $label->timemodified = time();
 
-    return $DB->insert_record("label", $label);
+    $id = $DB->insert_record("label", $label);
+
+    $completiontimeexpected = !empty($label->completionexpected) ? $label->completionexpected : null;
+    \core_completion\api::update_completion_date_event($label->coursemodule, 'label', $id, $completiontimeexpected);
+
+    return $id;
+}
+
+/**
+ * Sets the special label display on course page.
+ *
+ * @param cm_info $cm Course-module object
+ */
+function label_cm_info_view(cm_info $cm) {
+    $cm->set_custom_cmlist_item(true);
 }
 
 /**
@@ -80,6 +94,9 @@ function label_update_instance($label) {
     $label->name = get_label_name($label);
     $label->timemodified = time();
     $label->id = $label->instance;
+
+    $completiontimeexpected = !empty($label->completionexpected) ? $label->completionexpected : null;
+    \core_completion\api::update_completion_date_event($label->coursemodule, 'label', $label->id, $completiontimeexpected);
 
     return $DB->update_record("label", $label);
 }
@@ -101,6 +118,9 @@ function label_delete_instance($id) {
     }
 
     $result = true;
+
+    $cm = get_coursemodule_from_instance('label', $id);
+    \core_completion\api::update_completion_date_event($cm->id, 'label', $label->id, null);
 
     if (! $DB->delete_records("label", array("id"=>$label->id))) {
         $result = false;
@@ -145,16 +165,11 @@ function label_get_coursemodule_info($coursemodule) {
  * @return array status array
  */
 function label_reset_userdata($data) {
-    return array();
-}
 
-/**
- * Returns all other caps used in module
- *
- * @return array
- */
-function label_get_extra_capabilities() {
-    return array('moodle/site:accessallgroups');
+    // Any changes to the list of dates that needs to be rolled should be same during course restore and course reset.
+    // See MDL-9367.
+
+    return array();
 }
 
 /**
@@ -166,11 +181,11 @@ function label_get_extra_capabilities() {
  * @uses FEATURE_GRADE_HAS_GRADE
  * @uses FEATURE_GRADE_OUTCOMES
  * @param string $feature FEATURE_xx constant for requested feature
- * @return bool|null True if module supports feature, false if not, null if doesn't know
+ * @return mixed True if module supports feature, false if not, null if doesn't know or string for the module purpose.
  */
 function label_supports($feature) {
     switch($feature) {
-        case FEATURE_IDNUMBER:                return false;
+        case FEATURE_IDNUMBER:                return true;
         case FEATURE_GROUPS:                  return false;
         case FEATURE_GROUPINGS:               return false;
         case FEATURE_MOD_INTRO:               return true;
@@ -180,6 +195,7 @@ function label_supports($feature) {
         case FEATURE_MOD_ARCHETYPE:           return MOD_ARCHETYPE_RESOURCE;
         case FEATURE_BACKUP_MOODLE2:          return true;
         case FEATURE_NO_VIEW_LINK:            return true;
+        case FEATURE_MOD_PURPOSE:             return MOD_PURPOSE_CONTENT;
 
         default: return null;
     }
@@ -192,7 +208,7 @@ function label_supports($feature) {
 function label_dndupload_register() {
     $strdnd = get_string('dnduploadlabel', 'mod_label');
     if (get_config('label', 'dndmedia')) {
-        $mediaextensions = file_get_typegroup('extension', 'web_image');
+        $mediaextensions = file_get_typegroup('extension', ['web_image', 'web_video', 'web_audio']);
         $files = array();
         foreach ($mediaextensions as $extn) {
             $extn = trim($extn, '.');
@@ -290,11 +306,7 @@ function label_generate_resized_image(stored_file $file, $maxwidth, $maxheight) 
             $mimetype = $file->get_mimetype();
             if ($mimetype === 'image/gif' or $mimetype === 'image/jpeg' or $mimetype === 'image/png') {
                 require_once($CFG->libdir.'/gdlib.php');
-                $tmproot = make_temp_directory('mod_label');
-                $tmpfilepath = $tmproot.'/'.$file->get_contenthash();
-                $file->copy_content_to($tmpfilepath);
-                $data = generate_image_thumbnail($tmpfilepath, $width, $height);
-                unlink($tmpfilepath);
+                $data = $file->generate_image_thumbnail($width, $height);
 
                 if (!empty($data)) {
                     $fs = get_file_storage();
@@ -321,10 +333,62 @@ function label_generate_resized_image(stored_file $file, $maxwidth, $maxheight) 
         $attrib['width'] = $maxwidth;
     }
 
+    $attrib['class'] = "img-fluid";
     $img = html_writer::empty_tag('img', $attrib);
     if ($link) {
         return html_writer::link($link, $img);
     } else {
         return $img;
     }
+}
+
+/**
+ * Check if the module has any update that affects the current user since a given time.
+ *
+ * @param  cm_info $cm course module data
+ * @param  int $from the time to check updates from
+ * @param  array $filter  if we need to check only specific updates
+ * @return stdClass an object with the different type of areas indicating if they were updated or not
+ * @since Moodle 3.2
+ */
+function label_check_updates_since(cm_info $cm, $from, $filter = array()) {
+    $updates = course_check_module_updates_since($cm, $from, array(), $filter);
+    return $updates;
+}
+
+/**
+ * This function receives a calendar event and returns the action associated with it, or null if there is none.
+ *
+ * This is used by block_myoverview in order to display the event appropriately. If null is returned then the event
+ * is not displayed on the block.
+ *
+ * @param calendar_event $event
+ * @param \core_calendar\action_factory $factory
+ * @param int $userid User id to use for all capability checks, etc. Set to 0 for current user (default).
+ * @return \core_calendar\local\event\entities\action_interface|null
+ */
+function mod_label_core_calendar_provide_event_action(calendar_event $event,
+                                                      \core_calendar\action_factory $factory,
+                                                      int $userid = 0) {
+    $cm = get_fast_modinfo($event->courseid, $userid)->instances['label'][$event->instance];
+
+    if (!$cm->uservisible) {
+        // The module is not visible to the user for any reason.
+        return null;
+    }
+
+    $completion = new \completion_info($cm->get_course());
+
+    $completiondata = $completion->get_data($cm, false, $userid);
+
+    if ($completiondata->completionstate != COMPLETION_INCOMPLETE) {
+        return null;
+    }
+
+    return $factory->create_instance(
+        get_string('view'),
+        new \moodle_url('/mod/label/view.php', ['id' => $cm->id]),
+        1,
+        true
+    );
 }

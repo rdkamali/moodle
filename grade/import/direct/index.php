@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-require_once(__DIR__ . "../../../../config.php");
+require_once(__DIR__ . "/../../../config.php");
 require_once($CFG->libdir.'/gradelib.php');
 require_once($CFG->dirroot.'/grade/lib.php');
 require_once($CFG->dirroot.'/grade/import/lib.php');
@@ -35,7 +35,7 @@ if ($verbosescales !== 1) {
 $PAGE->set_url($url);
 
 if (!$course = $DB->get_record('course', array('id' => $id))) {
-    print_error('nocourseid');
+    print_error('invalidcourseid');
 }
 
 require_login($course);
@@ -47,8 +47,9 @@ $separatemode = (groups_get_course_groupmode($COURSE) == SEPARATEGROUPS and
         !has_capability('moodle/site:accessallgroups', $context));
 $currentgroup = groups_get_course_group($course);
 
+$actionbar = new \core_grades\output\import_action_bar($context, $PAGE->url, 'direct');
 print_grade_page_head($course->id, 'import', 'direct', get_string('pluginname', 'gradeimport_direct'), false, false, true,
-        'userdata', 'gradeimport_direct');
+    'userdata', 'gradeimport_direct', null, $actionbar);
 
 $renderer = $PAGE->get_renderer('gradeimport_csv');
 

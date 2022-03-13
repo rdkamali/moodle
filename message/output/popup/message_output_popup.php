@@ -15,14 +15,14 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Popup message processor, stores messages to be shown using the message popup
+ * Popup message processor
  *
  * @package   message_popup
  * @copyright 2008 Luis Rodrigues
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v2 or later
  */
 
-require_once(dirname(dirname(dirname(dirname(__FILE__)))) . '/config.php'); //included from messagelib (how to fix?)
+require_once(__DIR__ . '/../../../config.php'); //included from messagelib (how to fix?)
 require_once($CFG->dirroot.'/message/output/lib.php');
 
 /**
@@ -32,34 +32,33 @@ require_once($CFG->dirroot.'/message/output/lib.php');
  * @copyright 2008 Luis Rodrigues and Martin Dougiamas
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class message_output_popup extends message_output{
+class message_output_popup extends message_output {
 
     /**
-     * Process the popup message.
-     * The popup doesn't send data only saves in the database for later use,
-     * the popup_interface.php takes the message from the message table into
-     * the message_read.
+     * Adds notifications to the 'message_popup_notifications' table if applicable.
+     *
+     * The reason for this is because we may not want to show all notifications in the notification popover. This
+     * can happen if the popup processor was disabled when the notification was sent. If the processor is disabled this
+     * function is never called so the notification will never be added to the 'message_popup_notifications' table.
+     * Essentially this table is used to filter what notifications to display from the 'notifications' table.
+     *
      * @param object $eventdata the event data submitted by the message sender plus $eventdata->savedmessageid
      * @return true if ok, false if error
      */
     public function send_message($eventdata) {
         global $DB;
 
-        //hold onto the popup processor id because /admin/cron.php sends a lot of messages at once
-        static $processorid = null;
+        // Prevent users from getting popup notifications from themselves (happens with forum notifications).
+        if ($eventdata->notification) {
+            if (($eventdata->userfrom->id != $eventdata->userto->id) ||
+                (isset($eventdata->anonymous) && $eventdata->anonymous)) {
+                if (!$DB->record_exists('message_popup_notifications', ['notificationid' => $eventdata->savedmessageid])) {
+                    $record = new stdClass();
+                    $record->notificationid = $eventdata->savedmessageid;
 
-        //prevent users from getting popup notifications of messages to themselves (happens with forum notifications)
-        if ($eventdata->userfrom->id!=$eventdata->userto->id) {
-            if (empty($processorid)) {
-                $processor = $DB->get_record('message_processors', array('name'=>'popup'));
-                $processorid = $processor->id;
+                    $DB->insert_record('message_popup_notifications', $record);
+                }
             }
-            $procmessage = new stdClass();
-            $procmessage->unreadmessageid = $eventdata->savedmessageid;
-            $procmessage->processorid     = $processorid;
-
-            //save this message for later delivery
-            $DB->insert_record('message_working', $procmessage);
         }
 
         return true;
@@ -93,5 +92,52 @@ class message_output_popup extends message_output{
     public function load_data(&$preferences, $userid) {
         global $USER;
         return true;
+    }
+
+    /**
+     * Don't show this processor on the message preferences page. The user can't disable
+     * the notifications for user-to-user messaging.
+     *
+     * @return bool
+     */
+    public function has_message_preferences() {
+        return false;
+    }
+
+    /**
+     * Determines if this processor should process a message regardless of user preferences or site settings.
+     *
+     * @return bool
+     */
+    public function force_process_messages() {
+        global $CFG;
+
+        return !empty($CFG->messaging);
+    }
+
+    /**
+     * Remove all popup notifications up to specified time
+     *
+     * @param int $notificationdeletetime
+     * @return void
+     */
+    public function cleanup_all_notifications(int $notificationdeletetime): void {
+        global $DB;
+
+        $DB->delete_records_select('message_popup_notifications',
+            'notificationid IN (SELECT id FROM {notifications} WHERE timecreated < ?)', [$notificationdeletetime]);
+    }
+
+    /**
+     * Remove read popup notifications up to specified time
+     *
+     * @param int $notificationdeletetime
+     * @return void
+     */
+    public function cleanup_read_notifications(int $notificationdeletetime): void {
+        global $DB;
+
+        $DB->delete_records_select('message_popup_notifications',
+            'notificationid IN (SELECT id FROM {notifications} WHERE timeread < ?)', [$notificationdeletetime]);
     }
 }

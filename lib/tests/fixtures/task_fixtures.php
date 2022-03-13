@@ -31,6 +31,11 @@ class adhoc_test_task extends \core\task\adhoc_task {
     }
 }
 
+class adhoc_test2_task extends \core\task\adhoc_task {
+    public function execute() {
+    }
+}
+
 class scheduled_test_task extends \core\task\scheduled_task {
     public function get_name() {
         return "Test task";
@@ -55,5 +60,13 @@ class scheduled_test3_task extends \core\task\scheduled_task {
     }
 
     public function execute() {
+    }
+}
+
+namespace mod_fake\task;
+
+class adhoc_component_task extends \core\task\adhoc_task {
+    public function execute() {
+
     }
 }

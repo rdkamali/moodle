@@ -22,42 +22,52 @@
  * @license   http://www.gnu.org/copyleft/gpl.html GNU Public License
  */
 
+defined('MOODLE_INTERNAL') || die();
+
 /**
  * Upgrade code for the popup message processor
  *
  * @param int $oldversion The version that we are upgrading from
  */
 function xmldb_message_popup_upgrade($oldversion) {
-    global $CFG, $DB;
+    global $DB;
 
-    $dbman = $DB->get_manager();
-
-
-    // Moodle v2.2.0 release upgrade line
-    // Put any upgrade step following this
-
-    // Moodle v2.3.0 release upgrade line
-    // Put any upgrade step following this
-
-
-    // Moodle v2.4.0 release upgrade line
-    // Put any upgrade step following this
-
-
-    // Moodle v2.5.0 release upgrade line.
+    // Automatically generated Moodle v3.6.0 release upgrade line.
     // Put any upgrade step following this.
 
-
-    // Moodle v2.6.0 release upgrade line.
+    // Automatically generated Moodle v3.7.0 release upgrade line.
     // Put any upgrade step following this.
 
-    // Moodle v2.7.0 release upgrade line.
+    // Automatically generated Moodle v3.8.0 release upgrade line.
     // Put any upgrade step following this.
 
-    // Moodle v2.8.0 release upgrade line.
+    if ($oldversion < 2020020600) {
+        // Clean up orphaned popup notification records.
+        $fromsql = "FROM {message_popup_notifications} mpn
+               LEFT JOIN {notifications} n
+                      ON mpn.notificationid = n.id
+                   WHERE n.id IS NULL";
+        $total = $DB->count_records_sql("SELECT COUNT(mpn.id) " . $fromsql);
+        if ($total > 0) {
+            $i = 0;
+            $pbar = new progress_bar('deletepopupnotification', 500, true);
+            do {
+                if ($popupnotifications = $DB->get_records_sql("SELECT mpn.id " . $fromsql, null, 0, 1000)) {
+                    list($insql, $inparams) = $DB->get_in_or_equal(array_keys($popupnotifications));
+                    $DB->delete_records_select('message_popup_notifications', "id $insql", $inparams);
+                    // Update progress.
+                    $i += count($inparams);
+                    $pbar->update($i, $total, "Cleaning up orphaned popup notification records - $i/$total.");
+                }
+            } while ($popupnotifications);
+        }
+
+        // Popup message processor savepoint reached.
+        upgrade_plugin_savepoint(true, 2020020600, 'message', 'popup');
+    }
+
+    // Automatically generated Moodle v3.9.0 release upgrade line.
     // Put any upgrade step following this.
 
     return true;
 }
-
-

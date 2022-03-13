@@ -24,6 +24,9 @@ require_once($CFG->dirroot.'/grade/export/grade_export_form.php');
  */
 abstract class grade_export {
 
+    /** @var int Value to state nothing is being exported. */
+    protected const EXPORT_SELECT_NONE = -1;
+
     public $plugin; // plgin name - must be filled in subclasses!
 
     public $grade_items; // list of all course grade items
@@ -112,9 +115,8 @@ abstract class grade_export {
         //with an empty $itemlist then reconstruct it in process_form() using $formdata
         $this->columns = array();
         if (!empty($itemlist)) {
-            if ($itemlist=='-1') {
-                //user deselected all items
-            } else {
+            // Check that user selected something.
+            if ($itemlist != self::EXPORT_SELECT_NONE) {
                 $itemids = explode(',', $itemlist);
                 // remove items that are not requested
                 foreach ($itemids as $itemid) {
@@ -149,9 +151,8 @@ abstract class grade_export {
 
         $this->columns = array();
         if (!empty($formdata->itemids)) {
-            if ($formdata->itemids=='-1') {
-                //user deselected all items
-            } else {
+            // Check that user selected something.
+            if ($formdata->itemids != self::EXPORT_SELECT_NONE) {
                 foreach ($formdata->itemids as $itemid=>$selected) {
                     if ($selected and array_key_exists($itemid, $this->grade_items)) {
                         $this->columns[$itemid] =& $this->grade_items[$itemid];
@@ -237,7 +238,24 @@ abstract class grade_export {
         if (is_array($this->displaytype) && !is_null($gradedisplayconst)) {
             $displaytype = $gradedisplayconst;
         }
-        return grade_format_gradevalue($grade->finalgrade, $this->grade_items[$grade->itemid], false, $displaytype, $this->decimalpoints);
+
+        $gradeitem = $this->grade_items[$grade->itemid];
+
+        // We are going to store the min and max so that we can "reset" the grade_item for later.
+        $grademax = $gradeitem->grademax;
+        $grademin = $gradeitem->grademin;
+
+        // Updating grade_item with this grade_grades min and max.
+        $gradeitem->grademax = $grade->get_grade_max();
+        $gradeitem->grademin = $grade->get_grade_min();
+
+        $formattedgrade = grade_format_gradevalue($grade->finalgrade, $gradeitem, false, $displaytype, $this->decimalpoints);
+
+        // Resetting the grade item in case it is reused.
+        $gradeitem->grademax = $grademax;
+        $gradeitem->grademin = $grademin;
+
+        return $formattedgrade;
     }
 
     /**
@@ -253,7 +271,7 @@ abstract class grade_export {
         if ($grade_item->itemtype == 'mod') {
             $column->name = get_string('modulename', $grade_item->itemmodule).get_string('labelsep', 'langconfig').$grade_item->get_name();
         } else {
-            $column->name = $grade_item->get_name();
+            $column->name = $grade_item->get_name(true);
         }
 
         // We can't have feedback and display type at the same time.
@@ -265,10 +283,24 @@ abstract class grade_export {
     /**
      * Returns formatted grade feedback
      * @param object $feedback object with properties feedback and feedbackformat
+     * @param object $grade Grade object with grade properties
      * @return string
      */
-    public function format_feedback($feedback) {
-        return strip_tags(format_text($feedback->feedback, $feedback->feedbackformat));
+    public function format_feedback($feedback, $grade = null) {
+        $string = $feedback->feedback;
+        if (!empty($grade)) {
+            // Rewrite links to get the export working for 36, refer MDL-63488.
+            $string = file_rewrite_pluginfile_urls(
+                $feedback->feedback,
+                'pluginfile.php',
+                $grade->get_context()->id,
+                GRADE_FILE_COMPONENT,
+                GRADE_FEEDBACK_FILEAREA,
+                $grade->id
+            );
+        }
+
+        return strip_tags(format_text($string, $feedback->feedbackformat));
     }
 
     /**
@@ -380,7 +412,7 @@ abstract class grade_export {
         $itemids = array_keys($this->columns);
         $itemidsparam = implode(',', $itemids);
         if (empty($itemidsparam)) {
-            $itemidsparam = '-1';
+            $itemidsparam = self::EXPORT_SELECT_NONE;
         }
 
         // We have a single grade display type constant.
@@ -608,9 +640,19 @@ class grade_export_update_buffer {
     /**
      * Constructor - creates the buffer and initialises the time stamp
      */
-    public function grade_export_update_buffer() {
+    public function __construct() {
         $this->update_list = array();
         $this->export_time = time();
+    }
+
+    /**
+     * Old syntax of class constructor. Deprecated in PHP7.
+     *
+     * @deprecated since Moodle 3.1
+     */
+    public function grade_export_update_buffer() {
+        debugging('Use of class name as constructor is deprecated', DEBUG_DEVELOPER);
+        self::__construct();
     }
 
     public function flush($buffersize) {
@@ -672,8 +714,7 @@ class grade_export_update_buffer {
  * @param $courseid int The course being exported
  */
 function export_verify_grades($courseid) {
-    $regraderesult = grade_regrade_final_grades($courseid);
-    if (is_array($regraderesult)) {
-        throw new moodle_exception('gradecantregrade', 'error', '', implode(', ', array_unique($regraderesult)));
+    if (grade_needs_regrade_final_grades($courseid)) {
+        throw new moodle_exception('gradesneedregrading', 'grades');
     }
 }

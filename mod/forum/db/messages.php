@@ -24,12 +24,14 @@
  */
 
 $messageproviders = array (
+    // Ordinary single forum posts.
+    'posts' => array(
+        'defaults' => array(
+            'airnotifier' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
+        ),
+    ),
 
-/// Ordinary single forum posts
-    'posts' => array (
-    )
-
+    // Forum digest messages.
+    'digests' => array(
+    ),
 );
-
-
-

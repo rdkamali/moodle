@@ -135,262 +135,6 @@ class core_grades_external_testcase extends externallib_advanced_testcase {
     }
 
     /**
-     * Test get_grades()
-     */
-    public function test_get_grades() {
-        global $CFG;
-
-        $this->resetAfterTest(true);
-        $CFG->enableoutcomes = 1;
-
-        $assignmentname = 'The assignment';
-        $student1rawgrade = 10;
-        $student2rawgrade = 20;
-        list($course, $assignment, $student1, $student2, $teacher, $parent) =
-            $this->load_test_data($assignmentname, $student1rawgrade, $student2rawgrade);
-        $assigmentcm = get_coursemodule_from_id('assign', $assignment->cmid, 0, false, MUST_EXIST);
-
-        // Teacher requesting a student grade for the assignment.
-        $this->setUser($teacher);
-        $grades = core_grades_external::get_grades(
-            $course->id,
-            'mod_assign',
-            $assigmentcm->id,
-            array($student1->id)
-        );
-        $grades = external_api::clean_returnvalue(core_grades_external::get_grades_returns(), $grades);
-        $this->assertEquals($student1rawgrade, $this->get_activity_student_grade($grades, $assigmentcm->id, $student1->id));
-
-        // Teacher requesting all the grades of student1 in a course.
-        $grades = core_grades_external::get_grades(
-            $course->id,
-            null,
-            null,
-            array($student1->id)
-        );
-        $grades = external_api::clean_returnvalue(core_grades_external::get_grades_returns(), $grades);
-        $this->assertTrue(count($grades['items']) == 2);
-        $this->assertEquals($student1rawgrade, $this->get_activity_student_grade($grades, $assigmentcm->id, $student1->id));
-        $this->assertEquals($student1rawgrade, $this->get_activity_student_grade($grades, 'course', $student1->id));
-
-        $outcome = $this->get_outcome($grades, $assigmentcm->id);
-        $this->assertEquals($outcome['name'], 'Team work');
-        $this->assertEquals(0, $this->get_outcome_student_grade($grades, $assigmentcm->id, $student1->id));
-
-        // Teacher requesting all the grades of all the students in a course.
-        $grades = core_grades_external::get_grades(
-            $course->id,
-            null,
-            null,
-            array($student1->id, $student2->id)
-        );
-        $grades = external_api::clean_returnvalue(core_grades_external::get_grades_returns(), $grades);
-        $this->assertTrue(count($grades['items']) == 2);
-        $this->assertTrue(count($grades['items'][0]['grades']) == 2);
-        $this->assertTrue(count($grades['items'][1]['grades']) == 2);
-
-        // Student requesting another student's grade for the assignment (should fail).
-        $this->setUser($student1);
-        try {
-            $grades = core_grades_external::get_grades(
-                $course->id,
-                'mod_assign',
-                $assigmentcm->id,
-                array($student2->id)
-            );
-            $this->fail('moodle_exception expected');
-        } catch (moodle_exception $ex) {
-            $this->assertTrue(true);
-        }
-
-        // Parent requesting their child's grade for the assignment (should fail).
-        $this->setUser($parent);
-        try {
-            $grades = core_grades_external::get_grades(
-                $course->id,
-                'mod_assign',
-                $assigmentcm->id,
-                array($student1->id)
-            );
-            $this->fail('moodle_exception expected');
-        } catch (moodle_exception $ex) {
-            $this->assertTrue(true);
-        }
-
-        // Parent requesting another student's grade for the assignment(should fail).
-        try {
-            $grades = core_grades_external::get_grades(
-                $course->id,
-                'mod_assign',
-                $assigmentcm->id,
-                array($student2->id)
-            );
-            $this->fail('moodle_exception expected');
-        } catch (moodle_exception $ex) {
-            $this->assertTrue(true);
-        }
-
-        // Student requesting all other student grades for the assignment (should fail).
-        try {
-            $grades = core_grades_external::get_grades(
-                $course->id,
-                'mod_assign',
-                $assigmentcm->id,
-                array($student1->id, $student2->id)
-            );
-            $this->fail('moodle_exception expected');
-        } catch (moodle_exception $ex) {
-            $this->assertTrue(true);
-        }
-
-        // Student requesting only grade item information (should fail).
-        try {
-            $grades = core_grades_external::get_grades(
-                $course->id,
-                'mod_assign',
-                $assigmentcm->id,
-                array()
-            );
-            $this->fail('moodle_exception expected');
-        } catch (moodle_exception $ex) {
-            $this->assertTrue(true);
-        }
-
-        // Teacher requesting student grades for a course.
-        $this->setUser($teacher);
-        $grades = core_grades_external::get_grades(
-            $course->id,
-            'mod_assign',
-            $assigmentcm->id,
-            array($student1->id, $student2->id)
-        );
-        $grades = external_api::clean_returnvalue(core_grades_external::get_grades_returns(), $grades);
-        $this->assertEquals($student1rawgrade, $this->get_activity_student_grade($grades, $assigmentcm->id, $student1->id));
-        $this->assertEquals($student2rawgrade, $this->get_activity_student_grade($grades, $assigmentcm->id, $student2->id));
-
-        // Teacher requesting grade item information.
-        $grades = core_grades_external::get_grades(
-            $course->id,
-            'mod_assign',
-            $assigmentcm->id
-        );
-        $grades = external_api::clean_returnvalue(core_grades_external::get_grades_returns(), $grades);
-        $activity = $this->get_activity($grades, $assigmentcm->id);
-        $this->assertEquals($activity['name'], $assignmentname);
-        $this->assertEquals(count($activity['grades']), 0);
-
-        // Teacher requesting all grade items in a course.
-        $grades = core_grades_external::get_grades(
-            $course->id
-        );
-        $grades = external_api::clean_returnvalue(core_grades_external::get_grades_returns(), $grades);
-        $this->assertTrue(count($grades['items']) == 2);
-
-        $activity = $this->get_activity($grades, $assigmentcm->id);
-        $this->assertEquals($activity['name'], $assignmentname);
-        $this->assertEquals(count($activity['grades']), 0);
-
-        $outcome = $this->get_outcome($grades, $assigmentcm->id);
-        $this->assertEquals($outcome['name'], 'Team work');
-
-        // Hide a grade item then have student request it.
-        $result = core_grades_external::update_grades(
-            'test',
-            $course->id,
-            'mod_assign',
-            $assigmentcm->id,
-            0,
-            array(),
-            array('hidden' => 1)
-        );
-        $result = external_api::clean_returnvalue(core_grades_external::update_grades_returns(), $result);
-        $this->assertTrue($result == GRADE_UPDATE_OK);
-
-        // Check it's definitely hidden.
-        $grades = grade_get_grades($course->id, 'mod', 'assign', $assignment->id);
-        $this->assertEquals($grades->items[0]->hidden, 1);
-
-        // Teacher should still be able to see the hidden grades.
-        $this->setUser($teacher);
-        $grades = core_grades_external::get_grades(
-            $course->id,
-            'mod_assign',
-            $assigmentcm->id,
-            array($student1->id)
-        );
-        $grades = external_api::clean_returnvalue(core_grades_external::get_grades_returns(), $grades);
-        $this->assertEquals($student1rawgrade, $this->get_activity_student_grade($grades, $assigmentcm->id, $student1->id));
-    }
-
-    /**
-     * Get an activity
-     *
-     * @param  array $grades    Array of grades
-     * @param  int $cmid        Activity course module id
-     * @return strdClass        Activity object
-     */
-    private function get_activity($grades, $cmid) {
-        foreach ($grades['items'] as $item) {
-            if ($item['activityid'] == $cmid) {
-                return $item;
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Get a grade for an activity
-     *
-     * @param  array $grades    Array of grades
-     * @param  int $cmid        Activity course module id
-     * @param  int $studentid   Student it
-     * @return stdClass         Activity Object
-     */
-    private function get_activity_student_grade($grades, $cmid, $studentid) {
-        $item = $this->get_activity($grades, $cmid);
-        foreach ($item['grades'] as $grade) {
-            if ($grade['userid'] == $studentid) {
-                return $grade['grade'];
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Get an ouctome
-     *
-     * @param  array $grades    Array of grades
-     * @param  int $cmid        Activity course module id
-     * @return stdClass         Outcome object
-     */
-    private function get_outcome($grades, $cmid) {
-        foreach ($grades['outcomes'] as $outcome) {
-            if ($outcome['activityid'] == $cmid) {
-                return $outcome;
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Get a grade from an outcome
-     *
-     * @param  array $grades    Array of grades
-     * @param  int $cmid        Activity course module id
-     * @param  int $studentid   Student id
-     * @return stdClass         Outcome object
-     */
-    private function get_outcome_student_grade($grades, $cmid, $studentid) {
-        $outcome = $this->get_outcome($grades, $cmid);
-        foreach ($outcome['grades'] as $grade) {
-            if ($grade['userid'] == $studentid) {
-                return $grade['grade'];
-            }
-        }
-        return null;
-    }
-
-    /**
      * Test update_grades()
      */
     public function test_update_grades() {
@@ -532,6 +276,85 @@ class core_grades_external_testcase extends externallib_advanced_testcase {
         $this->assertTrue($result == GRADE_UPDATE_OK);
         $grades = grade_get_grades($course->id, 'mod', 'assign', $assignment->id);
         $this->assertTrue($grades->items[0]->hidden == 1);
+    }
+
+    /**
+     * Test create_gradecategory.
+     *
+     * @return void
+     */
+    public function test_create_gradecategory() {
+        global $DB;
+        $this->resetAfterTest(true);
+        $course = $this->getDataGenerator()->create_course();
+        $this->setAdminUser();
+
+        // Test the most basic gradecategory creation.
+        $status1 = core_grades_external::create_gradecategory($course->id, 'Test Category 1', []);
+
+        $courseparentcat = new grade_category(['courseid' => $course->id, 'depth' => 1], true);
+        $record1 = $DB->get_record('grade_categories', ['id' => $status1['categoryid']]);
+        $this->assertEquals('Test Category 1', $record1->fullname);
+        // Confirm that the parent category for this category is the top level category for the course.
+        $this->assertEquals($courseparentcat->id, $record1->parent);
+        $this->assertEquals(2, $record1->depth);
+
+        // Now create a category as a child of the newly created category.
+        $status2 = core_grades_external::create_gradecategory($course->id, 'Test Category 2', ['parentcategoryid' => $record1->id]);
+        $record2 = $DB->get_record('grade_categories', ['id' => $status2['categoryid']]);
+        $this->assertEquals($record1->id, $record2->parent);
+        $this->assertEquals(3, $record2->depth);
+        // Check the path is correct.
+        $this->assertEquals('/' . implode('/', [$courseparentcat->id, $record1->id, $record2->id]) . '/', $record2->path);
+
+        /* MDL-72377 commenting broken test.
+        // Now create a category with some customised data and check the returns. This customises every value.
+        $customopts = [
+            'aggregation' => GRADE_AGGREGATE_MEAN,
+            'aggregateonlygraded' => 0,
+            'aggregateoutcomes' => 1,
+            'droplow' => 1,
+            'itemname' => 'item',
+            'iteminfo' => 'info',
+            'idnumber' => 'idnumber',
+            'gradetype' => GRADE_TYPE_TEXT,
+            'grademax' => 5,
+            'grademin' => 2,
+            'gradepass' => 3,
+            'display' => GRADE_DISPLAY_TYPE_LETTER,
+            // Hack. This must be -2 to use the default setting.
+            'decimals' => 3,
+            'hiddenuntil' => time(),
+            'locktime' => time(),
+            'weightoverride' => 1,
+            'aggregationcoef2' => 20,
+            'parentcategoryid' => $record2->id
+        ];
+
+        $status3 = core_grades_external::create_gradecategory($course->id, 'Test Category 3', $customopts);
+        $cat3 = new grade_category(['courseid' => $course->id, 'id' => $status3['categoryid']], true);
+        $cat3->load_grade_item();
+
+        // Lets check all of the data is in the right shape.
+        $this->assertEquals(GRADE_AGGREGATE_MEAN, $cat3->aggregation);
+        $this->assertEquals(0, $cat3->aggregateonlygraded);
+        $this->assertEquals(1, $cat3->aggregateoutcomes);
+        $this->assertEquals(1, $cat3->droplow);
+        $this->assertEquals('item', $cat3->grade_item->itemname);
+        $this->assertEquals('info', $cat3->grade_item->iteminfo);
+        $this->assertEquals('idnumber', $cat3->grade_item->idnumber);
+        $this->assertEquals(GRADE_TYPE_TEXT, $cat3->grade_item->gradetype);
+        $this->assertEquals(5, $cat3->grade_item->grademax);
+        $this->assertEquals(2, $cat3->grade_item->grademin);
+        $this->assertEquals(3, $cat3->grade_item->gradepass);
+        $this->assertEquals(GRADE_DISPLAY_TYPE_LETTER, $cat3->grade_item->display);
+        $this->assertEquals(3, $cat3->grade_item->decimals);
+        $this->assertGreaterThanOrEqual($cat3->grade_item->hidden, time());
+        $this->assertGreaterThanOrEqual($cat3->grade_item->locktime, time());
+        $this->assertEquals(1, $cat3->grade_item->weightoverride);
+        // Coefficient is converted to percentage.
+        $this->assertEquals(0.2, $cat3->grade_item->aggregationcoef2);
+        $this->assertEquals($record2->id, $cat3->parent);*/
     }
 
 }

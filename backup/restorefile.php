@@ -23,7 +23,7 @@
  */
 
 require_once('../config.php');
-require_once(dirname(__FILE__) . '/restorefile_form.php');
+require_once(__DIR__ . '/restorefile_form.php');
 require_once($CFG->dirroot . '/backup/util/includes/restore_includes.php');
 
 // current context
@@ -48,13 +48,22 @@ if (!empty($filecontextid)) {
 
 $url = new moodle_url('/backup/restorefile.php', array('contextid'=>$contextid));
 
+$PAGE->set_url($url);
+$PAGE->set_context($context);
+
 switch ($context->contextlevel) {
+    case CONTEXT_COURSECAT:
+        core_course_category::page_setup();
+        break;
     case CONTEXT_MODULE:
-        $heading = get_string('restoreactivity', 'backup');
+        $PAGE->set_heading(get_string('restoreactivity', 'backup'));
         break;
     case CONTEXT_COURSE:
+        $course = get_course($context->instanceid);
+        $PAGE->set_heading($course->fullname);
+        break;
     default:
-        $heading = get_string('restorecourse', 'backup');
+        $PAGE->set_heading($SITE->fullname);
 }
 
 
@@ -72,13 +81,16 @@ if (is_null($course)) {
 $browser = get_file_browser();
 
 // check if tmp dir exists
-$tmpdir = $CFG->tempdir . '/backup';
+$tmpdir = make_backup_temp_directory('', false);
 if (!check_dir_exists($tmpdir, true, true)) {
     throw new restore_controller_exception('cannot_create_backup_temp_dir');
 }
 
 // choose the backup file from backup files tree
 if ($action == 'choosebackupfile') {
+    if ($filearea == 'automated') {
+        require_capability('moodle/restore:viewautomatedfilearea', $context);
+    }
     if ($fileinfo = $browser->get_file_info($filecontext, $component, $filearea, $itemid, $filepath, $filename)) {
         if (is_a($fileinfo, 'file_info_stored')) {
             // Use the contenthash rather than copying the file where possible,
@@ -93,7 +105,9 @@ if ($action == 'choosebackupfile') {
             // If it's some weird other kind of file then use old code.
             $filename = restore_controller::get_tempdir_name($courseid, $USER->id);
             $pathname = $tmpdir . '/' . $filename;
-            $fileinfo->copy_to_pathname($pathname);
+            if (!$fileinfo->copy_to_pathname($pathname)) {
+                throw new restore_ui_exception('errorcopyingbackupfile', null, $pathname);
+            }
             $restore_url = new moodle_url('/backup/restore.php', array(
                     'contextid' => $contextid, 'filename' => $filename));
         }
@@ -104,24 +118,23 @@ if ($action == 'choosebackupfile') {
     die;
 }
 
-$PAGE->set_url($url);
-$PAGE->set_context($context);
 $PAGE->set_title(get_string('course') . ': ' . $coursefullname);
-$PAGE->set_heading($heading);
 $PAGE->set_pagelayout('admin');
+$PAGE->activityheader->disable();
+$PAGE->requires->js_call_amd('core_backup/async_backup', 'asyncBackupAllStatus', array($context->id));
 
 $form = new course_restore_form(null, array('contextid'=>$contextid));
 $data = $form->get_data();
 if ($data && has_capability('moodle/restore:uploadfile', $context)) {
     $filename = restore_controller::get_tempdir_name($courseid, $USER->id);
     $pathname = $tmpdir . '/' . $filename;
-    $form->save_file('backupfile', $pathname);
+    if (!$form->save_file('backupfile', $pathname)) {
+        throw new restore_ui_exception('errorcopyingbackupfile', null, $pathname);
+    }
     $restore_url = new moodle_url('/backup/restore.php', array('contextid'=>$contextid, 'filename'=>$filename));
     redirect($restore_url);
     die;
 }
-
-
 
 echo $OUTPUT->header();
 
@@ -186,6 +199,15 @@ if (!empty($automatedbackups)) {
     $treeview_options['filearea']    = 'automated';
     $renderer = $PAGE->get_renderer('core', 'backup');
     echo $renderer->backup_files_viewer($treeview_options);
+    echo $OUTPUT->container_end();
+}
+
+// In progress course restores.
+if (async_helper::is_async_enabled()) {
+    echo $OUTPUT->heading_with_help(get_string('asyncrestoreinprogress', 'backup'), 'asyncrestoreinprogress', 'backup');
+    echo $OUTPUT->container_start();
+    $renderer = $PAGE->get_renderer('core', 'backup');
+    echo $renderer->restore_progress_viewer($USER->id, $context);
     echo $OUTPUT->container_end();
 }
 

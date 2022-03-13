@@ -1,6 +1,5 @@
 <?php
-
-// This file is part of Moodle - http://moodle.org/
+// This file is part of Moodle - https://moodle.org/
 //
 // Moodle is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -13,7 +12,7 @@
 // GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License
-// along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+// along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 /**
  * Automatically generated strings for Moodle installer
@@ -36,10 +35,10 @@ $string['cliincorrectvalueerror'] = 'שגיאה: ערך לא תקין
 "{$a->value}" עבור "{$a->option}"';
 $string['cliincorrectvalueretry'] = 'ערך שגוי, נסה שנית';
 $string['clitypevalue'] = 'סוג הערך';
-$string['clitypevaluedefault'] = 'סוג הערך, הקש Enter לשימוש בערך ברירת מחדל ({$a})';
+$string['clitypevaluedefault'] = 'יש להזין ערך, או להקיש על כפתור Enter לשימוש בערך בררת־המחדל ({$a})';
 $string['cliunknowoption'] = 'אפשרויות לא מוכרות :
 {$a}
 אנא השתמש באפשרות העזרה.';
 $string['cliyesnoprompt'] = 'רשום y (שפרושו כן) או n (שפרושו לא)';
-$string['environmentrequireinstall'] = 'נדרש להתקין/לאפשר זאת';
-$string['environmentrequireversion'] = 'גירסת {$a->needed} נדרשת ואתה מריץ {$a->current}';
+$string['environmentrequireinstall'] = 'נדרש להתקין ולאפשר הרחבה זו';
+$string['environmentrequireversion'] = 'גרסה {$a->needed} נדרשת אך הגרסה הנוכחית היא {$a->current}';

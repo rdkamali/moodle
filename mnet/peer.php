@@ -39,10 +39,6 @@ class mnet_peer {
     /** @var int $sslverification The level of SSL verification to apply. */
     public $sslverification = self::SSL_HOST_AND_PEER;
 
-    function mnet_peer() {
-        return true;
-    }
-
     /*
      * Fetch information about a peer identified by wwwroot
      * If information does not preexist in db, collect it together based on
@@ -53,7 +49,7 @@ class mnet_peer {
      * @param int $application - table id - what kind of peer are we talking to
      * @return bool - indication of success or failure
      */
-    function bootstrap($wwwroot, $pubkey = null, $application) {
+    function bootstrap($wwwroot, $pubkey, $application) {
         global $DB;
 
         if (substr($wwwroot, -1, 1) == '/') {
@@ -111,6 +107,7 @@ class mnet_peer {
             return false;
         }
         $this->bootstrapped = true;
+        return true;
     }
 
     /*
@@ -174,7 +171,7 @@ class mnet_peer {
             $a['host'] = $this->wwwroot;
             $this->error[] = array('code' => 5, 'text' => get_string("nonmatchingcert", 'mnet', $a));
             return false;
-        } elseif ($credentials['subject']['CN'] != $this->wwwroot) {
+        } else if ($credentials['subject']['CN'] !== substr($this->wwwroot, 0, 64)) {
             $a['subject'] = $credentials['subject']['CN'];
             $a['host'] = $this->wwwroot;
             $this->error[] = array('code' => 4, 'text' => get_string("nonmatchingcert", 'mnet', $a));

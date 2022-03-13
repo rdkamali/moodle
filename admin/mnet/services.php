@@ -25,16 +25,13 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-require_once(dirname(dirname(dirname(__FILE__))) . '/config.php');
+require(__DIR__.'/../../config.php');
 require_once($CFG->libdir.'/adminlib.php');
-require_once($CFG->dirroot . '/admin/mnet/services_form.php');
+require_once($CFG->dirroot . '/' . $CFG->admin . '/mnet/services_form.php');
 $mnet = get_mnet_environment();
 
-require_login();
 admin_externalpage_setup('mnetpeers');
 
-$context = context_system::instance();
-require_capability('moodle/site:config', $context, $USER->id, true, "nopermissions");
 
 $hostid = required_param('hostid', PARAM_INT);
 
@@ -82,7 +79,7 @@ if ($formdata = $mform->get_data()) {
 
 echo $OUTPUT->header();
 $currenttab = 'mnetservices';
-require_once($CFG->dirroot . '/admin/mnet/tabs.php');
+require_once($CFG->dirroot . '/' . $CFG->admin . '/mnet/tabs.php');
 echo $OUTPUT->box_start();
 $s = mnet_get_service_info($mnet_peer, false); // basic data only
 $mform->set_data($s);

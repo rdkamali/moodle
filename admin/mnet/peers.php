@@ -27,15 +27,11 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-require_once(dirname(dirname(dirname(__FILE__))) . '/config.php');
+require(__DIR__.'/../../config.php');
 require_once($CFG->libdir.'/adminlib.php');
 require_once($CFG->dirroot.'/mnet/lib.php');
 require_once($CFG->dirroot.'/'.$CFG->admin.'/mnet/peer_forms.php');
 
-require_login();
-
-$context = context_system::instance();
-require_capability('moodle/site:config', $context, $USER->id, true, 'nopermissions');
 
 /// Initialize variables.
 $hostid = optional_param('hostid', 0, PARAM_INT);
@@ -54,6 +50,8 @@ if ($hostid && $DB->get_field('mnet_host', 'deleted', array('id' => $hostid)) !=
 
 $PAGE->set_url('/admin/mnet/peers.php');
 admin_externalpage_setup($adminsection);
+
+$deprecatenotify = mnet_get_deprecation_notice();
 
 if (!extension_loaded('openssl')) {
     print_error('requiresopenssl', 'mnet');
@@ -94,6 +92,7 @@ if ($formdata = $simpleform->get_data()) {
     $formdata->oldpublickey = $mnet_peer->public_key; // set this so we can confirm on form post without having to recreate the mnet_peer object
     $reviewform->set_data($mnet_peer);
     echo $OUTPUT->header();
+    echo $OUTPUT->render($deprecatenotify);
     echo $OUTPUT->box_start();
     $reviewform->display();
     echo $OUTPUT->box_end();
@@ -109,7 +108,7 @@ if (!empty($hostid)) {
     $mnet_peer->set_id($hostid);
     echo $OUTPUT->header();
     $currenttab = 'mnetdetails';
-    require_once($CFG->dirroot . '/admin/mnet/tabs.php');
+    require_once($CFG->dirroot . '/' . $CFG->admin . '/mnet/tabs.php');
 
     if ($hostid != $CFG->mnet_all_hosts_id) {
         $mnet_peer->currentkey = mnet_get_public_key($mnet_peer->wwwroot, $mnet_peer->application);
@@ -144,7 +143,7 @@ if (empty($noreviewform) && $id = optional_param('id', 0, PARAM_INT)) {
     // we're editing an existing one, so set up the tabs
     $currenttab = 'mnetdetails';
     $mnet_peer->set_id($id);
-    require_once($CFG->dirroot . '/admin/mnet/tabs.php');
+    require_once($CFG->dirroot . '/' . $CFG->admin . '/mnet/tabs.php');
 } else if (empty($noreviewform) && ($wwwroot = optional_param('wwwroot', '', PARAM_URL)) && ($applicationid = optional_param('applicationid', 0, PARAM_INT))) {
     $application = $DB->get_field('mnet_application', 'name', array('id'=>$applicationid));
     $mnet_peer->bootstrap($wwwroot, null, $application);
@@ -181,6 +180,7 @@ if ($formdata = $reviewform->get_data()) {
     }
 } else if ($reviewform->is_submitted()) { // submitted, but errors
     echo $OUTPUT->header();
+    echo $OUTPUT->render($deprecatenotify);
     echo $OUTPUT->box_start();
     $reviewform->display();
     echo $OUTPUT->box_end();
@@ -191,6 +191,7 @@ if ($formdata = $reviewform->get_data()) {
 
 // normal flow - just display all hosts with links
 echo $OUTPUT->header();
+echo $OUTPUT->render($deprecatenotify);
 $hosts = mnet_get_hosts(true);
 
 // print the table to display the register all hosts setting

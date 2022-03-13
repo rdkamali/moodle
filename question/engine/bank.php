@@ -30,7 +30,7 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-require_once(dirname(__FILE__) . '/../type/questiontypebase.php');
+require_once(__DIR__ . '/../type/questiontypebase.php');
 
 
 /**
@@ -264,10 +264,9 @@ abstract class question_bank {
      * @return question_definition loaded from the database.
      */
     public static function load_question($questionid, $allowshuffle = true) {
-        global $DB;
 
         if (self::$testmode) {
-            // Evil, test code in production, but now way round it.
+            // Evil, test code in production, but no way round it.
             return self::return_test_question_data($questionid);
         }
 
@@ -294,10 +293,6 @@ abstract class question_bank {
      */
     public static function get_finder() {
         return question_finder::get_instance();
-        if (is_null(self::$questionfinder)) {
-            self::$questionfinder = new question_finder();
-        }
-        return self::$questionfinder;
     }
 
     /**
@@ -413,18 +408,24 @@ abstract class question_bank {
     }
 
     /**
-     * Perform scheduled maintenance tasks relating to the question bank.
+     * Return a list of the different question types present in the given categories.
+     *
+     * @param  array $categories a list of category ids
+     * @return array the list of question types in the categories
+     * @since  Moodle 3.1
      */
-    public static function cron() {
-        global $CFG;
+    public static function get_all_question_types_in_categories($categories) {
+        global $DB;
 
-        // Delete any old question preview that got left in the database.
-        require_once($CFG->dirroot . '/question/previewlib.php');
-        question_preview_cron();
+        list($categorysql, $params) = $DB->get_in_or_equal($categories);
+        $sql = "SELECT DISTINCT q.qtype
+                           FROM {question} q
+                           JOIN {question_versions} qv ON qv.questionid = q.id
+                           JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                          WHERE qbe.questioncategoryid $categorysql";
 
-        // Clear older calculated stats from cache.
-        require_once($CFG->dirroot . '/question/engine/statisticslib.php');
-        question_usage_statistics_cron();
+        $qtypes = $DB->get_fieldset_sql($sql, $params);
+        return $qtypes;
     }
 }
 
@@ -455,7 +456,7 @@ class question_finder implements cache_data_source {
     }
 
     /**
-     * @return get the question definition cache we are using.
+     * @return cache_application the question definition cache we are using.
      */
     protected function get_data_cache() {
         // Do not double cache here because it may break cache resetting.
@@ -480,7 +481,7 @@ class question_finder implements cache_data_source {
     }
 
     /**
-     * Get the ids of all the questions in a list of categoryies.
+     * Get the ids of all the questions in a list of categories.
      * @param array $categoryids either a categoryid, or a comma-separated list
      *      category ids, or an array of them.
      * @param string $extraconditions extra conditions to AND with the rest of
@@ -497,22 +498,130 @@ class question_finder implements cache_data_source {
         if ($extraconditions) {
             $extraconditions = ' AND (' . $extraconditions . ')';
         }
+        $qcparams['readystatus'] = \core_question\local\bank\question_version_status::QUESTION_STATUS_READY;
+        $sql = "SELECT q.id, q.id AS id2
+                  FROM {question} q
+                  JOIN {question_versions} qv ON qv.questionid = q.id
+                  JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                 WHERE qbe.questioncategoryid {$qcsql}
+                       AND q.parent = 0
+                       AND qv.status = :readystatus
+                       {$extraconditions}";
 
-        return $DB->get_records_select_menu('question',
-                "category {$qcsql}
-                 AND parent = 0
-                 AND hidden = 0
-                 {$extraconditions}", $qcparams + $extraparams, '', 'id,id AS id2');
+        return $DB->get_records_sql_menu($sql, $qcparams + $extraparams);
+    }
+
+    /**
+     * Get the ids of all the questions in a list of categories, with the number
+     * of times they have already been used in a given set of usages.
+     *
+     * The result array is returned in order of increasing (count previous uses).
+     *
+     * @param array $categoryids an array question_category ids.
+     * @param qubaid_condition $qubaids which question_usages to count previous uses from.
+     * @param string $extraconditions extra conditions to AND with the rest of
+     *      the where clause. Must use named parameters.
+     * @param array $extraparams any parameters used by $extraconditions.
+     * @return array questionid => count of number of previous uses.
+     */
+    public function get_questions_from_categories_with_usage_counts($categoryids,
+            qubaid_condition $qubaids, $extraconditions = '', $extraparams = array()) {
+        return $this->get_questions_from_categories_and_tags_with_usage_counts(
+                $categoryids, $qubaids, $extraconditions, $extraparams);
+    }
+
+    /**
+     * Get the ids of all the questions in a list of categories that have ALL the provided tags,
+     * with the number of times they have already been used in a given set of usages.
+     *
+     * The result array is returned in order of increasing (count previous uses).
+     *
+     * @param array $categoryids an array of question_category ids.
+     * @param qubaid_condition $qubaids which question_usages to count previous uses from.
+     * @param string $extraconditions extra conditions to AND with the rest of
+     *      the where clause. Must use named parameters.
+     * @param array $extraparams any parameters used by $extraconditions.
+     * @param array $tagids an array of tag ids
+     * @return array questionid => count of number of previous uses.
+     */
+    public function get_questions_from_categories_and_tags_with_usage_counts($categoryids,
+            qubaid_condition $qubaids, $extraconditions = '', $extraparams = array(), $tagids = array()) {
+        global $DB;
+
+        list($qcsql, $qcparams) = $DB->get_in_or_equal($categoryids, SQL_PARAMS_NAMED, 'qc');
+
+        $readystatus = \core_question\local\bank\question_version_status::QUESTION_STATUS_READY;
+        $select = "q.id, (SELECT COUNT(1)
+                            FROM " . $qubaids->from_question_attempts('qa') . "
+                           WHERE qa.questionid = q.id AND " . $qubaids->where() . "
+                         ) AS previous_attempts";
+        $from   = "{question} q";
+        $join   = "JOIN {question_versions} qv ON qv.questionid = q.id
+                   JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid";
+        $from = $from . " " . $join;
+        $where  = "qbe.questioncategoryid {$qcsql}
+               AND q.parent = 0
+               AND qv.status = '$readystatus'
+               AND qv.version = (SELECT MAX(v.version)
+                                  FROM {question_versions} v
+                                  JOIN {question_bank_entries} be
+                                    ON be.id = v.questionbankentryid
+                                 WHERE be.id = qbe.id)";
+        $params = $qcparams;
+
+        if (!empty($tagids)) {
+            // We treat each additional tag as an AND condition rather than
+            // an OR condition.
+            //
+            // For example, if the user filters by the tags "foo" and "bar" then
+            // we reduce the question list to questions that are tagged with both
+            // "foo" AND "bar". Any question that does not have ALL of the specified
+            // tags will be omitted.
+            list($tagsql, $tagparams) = $DB->get_in_or_equal($tagids, SQL_PARAMS_NAMED, 'ti');
+            $tagparams['tagcount'] = count($tagids);
+            $tagparams['questionitemtype'] = 'question';
+            $tagparams['questioncomponent'] = 'core_question';
+            $where .= " AND q.id IN (SELECT ti.itemid
+                                       FROM {tag_instance} ti
+                                      WHERE ti.itemtype = :questionitemtype
+                                            AND ti.component = :questioncomponent
+                                            AND ti.tagid {$tagsql}
+                                   GROUP BY ti.itemid
+                                     HAVING COUNT(itemid) = :tagcount)";
+            $params += $tagparams;
+        }
+
+        if ($extraconditions) {
+            $extraconditions = ' AND (' . $extraconditions . ')';
+        }
+
+        return $DB->get_records_sql_menu("SELECT $select
+                                                FROM $from
+                                               WHERE $where $extraconditions
+                                            ORDER BY previous_attempts",
+                $qubaids->from_where_params() + $params + $extraparams);
     }
 
     /* See cache_data_source::load_for_cache. */
     public function load_for_cache($questionid) {
         global $DB;
-        $questiondata = $DB->get_record_sql('
-                                    SELECT q.*, qc.contextid
-                                    FROM {question} q
-                                    JOIN {question_categories} qc ON q.category = qc.id
-                                    WHERE q.id = :id', array('id' => $questionid), MUST_EXIST);
+
+        $sql = 'SELECT q.id, qc.id as category, q.parent, q.name, q.questiontext, q.questiontextformat,
+                       q.generalfeedback, q.generalfeedbackformat, q.defaultmark, q.penalty, q.qtype,
+                       q.length, q.stamp, q.timecreated, q.timemodified,
+                       q.createdby, q.modifiedby, qbe.idnumber,
+                       qc.contextid,
+                       qv.status,
+                       qv.id as versionid,
+                       qv.version,
+                       qv.questionbankentryid
+                  FROM {question} q
+                  JOIN {question_versions} qv ON qv.questionid = q.id
+                  JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                  JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+                 WHERE q.id = :id';
+
+        $questiondata = $DB->get_record_sql($sql, ['id' => $questionid], MUST_EXIST);
         get_question_options($questiondata);
         return $questiondata;
     }
@@ -521,15 +630,26 @@ class question_finder implements cache_data_source {
     public function load_many_for_cache(array $questionids) {
         global $DB;
         list($idcondition, $params) = $DB->get_in_or_equal($questionids);
-        $questiondata = $DB->get_records_sql('
-                                            SELECT q.*, qc.contextid
-                                            FROM {question} q
-                                            JOIN {question_categories} qc ON q.category = qc.id
-                                            WHERE q.id ' . $idcondition, $params);
+        $sql = 'SELECT q.id, qc.id as category, q.parent, q.name, q.questiontext, q.questiontextformat,
+                       q.generalfeedback, q.generalfeedbackformat, q.defaultmark, q.penalty, q.qtype,
+                       q.length, q.stamp, q.timecreated, q.timemodified,
+                       q.createdby, q.modifiedby, qbe.idnumber,
+                       qc.contextid,
+                       qv.status,
+                       qv.id as versionid,
+                       qv.version,
+                       qv.questionbankentryid
+                  FROM {question} q
+                  JOIN {question_versions} qv ON qv.questionid = q.id
+                  JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                  JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+                 WHERE q.id ';
+
+        $questiondata = $DB->get_records_sql($sql . $idcondition, $params);
 
         foreach ($questionids as $id) {
-            if (!array_key_exists($id, $questionids)) {
-                throw new dml_missing_record_exception('question', '', array('id' => $id));
+            if (!array_key_exists($id, $questiondata)) {
+                throw new dml_missing_record_exception('question', '', ['id' => $id]);
             }
             get_question_options($questiondata[$id]);
         }

@@ -52,7 +52,7 @@ class MoodleQuickForm_cancel extends MoodleQuickForm_submit
      * @param mixed $attributes (optional) Either a typical HTML attribute string
      *              or an associative array
      */
-    function MoodleQuickForm_cancel($elementName=null, $value=null, $attributes=null)
+    public function __construct($elementName=null, $value=null, $attributes=null)
     {
         if ($elementName==null){
             $elementName='cancel';
@@ -60,8 +60,9 @@ class MoodleQuickForm_cancel extends MoodleQuickForm_submit
         if ($value==null){
             $value=get_string('cancel');
         }
-        MoodleQuickForm_submit::MoodleQuickForm_submit($elementName, $value, $attributes);
-        $this->updateAttributes(array('onclick'=>'skipClientValidation = true; return true;'));
+        parent::__construct($elementName, $value, $attributes);
+        $this->updateAttributes(array('data-skip-validation' => 1, 'data-cancel' => 1,
+            'onclick' => 'skipClientValidation = true; return true;'));
 
         // Add the class btn-cancel.
         $class = $this->getAttribute('class');
@@ -69,6 +70,16 @@ class MoodleQuickForm_cancel extends MoodleQuickForm_submit
             $class = '';
         }
         $this->updateAttributes(array('class' => $class . ' btn-cancel'));
+    }
+
+    /**
+     * Old syntax of class constructor. Deprecated in PHP7.
+     *
+     * @deprecated since Moodle 3.1
+     */
+    public function MoodleQuickForm_cancel($elementName=null, $value=null, $attributes=null) {
+        debugging('Use of class name as constructor is deprecated', DEBUG_DEVELOPER);
+        self::__construct($elementName, $value, $attributes);
     }
 
     /**
@@ -83,8 +94,7 @@ class MoodleQuickForm_cancel extends MoodleQuickForm_submit
     {
         switch ($event) {
             case 'createElement':
-                $className = get_class($this);
-                $this->$className($arg[0], $arg[1], $arg[2]);
+                parent::onQuickFormEvent($event, $arg, $caller);
                 $caller->_registerCancelButton($this->getName());
                 return true;
                 break;
@@ -101,12 +111,4 @@ class MoodleQuickForm_cancel extends MoodleQuickForm_submit
         return HTML_QuickForm_submit::getFrozenHtml();
     }
 
-    /**
-     * Freeze the element so that only its value is returned
-     *
-     * @return bool
-     */
-    function freeze(){
-        return HTML_QuickForm_submit::freeze();
-    }
 }

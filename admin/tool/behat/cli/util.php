@@ -19,6 +19,9 @@
  *
  * All CLI utilities uses $CFG->behat_dataroot and $CFG->prefix_dataroot as
  * $CFG->dataroot and $CFG->prefix
+ * Same applies for $CFG->behat_dbname, $CFG->behat_dbuser, $CFG->behat_dbpass
+ * and $CFG->behat_dbhost. But if any of those is not defined $CFG->dbname,
+ * $CFG->dbuser, $CFG->dbpass and/or $CFG->dbhost will be used.
  *
  * @package    tool_behat
  * @copyright  2012 David Monllaó
@@ -36,11 +39,7 @@ define('NO_OUTPUT_BUFFERING', true);
 define('IGNORE_COMPONENT_CACHE', true);
 define('ABORT_AFTER_CONFIG', true);
 
-require_once(__DIR__ . '/../../../../config.php');
 require_once(__DIR__ . '/../../../../lib/clilib.php');
-require_once(__DIR__ . '/../../../../lib/behat/lib.php');
-require_once(__DIR__ . '/../../../../lib/behat/classes/behat_command.php');
-require_once(__DIR__ . '/../../../../lib/behat/classes/behat_config_manager.php');
 
 // CLI options.
 list($options, $unrecognized) = cli_get_params(
@@ -56,11 +55,16 @@ list($options, $unrecognized) = cli_get_params(
         'updatesteps' => false,
         'fromrun'     => 1,
         'torun'       => 0,
+        'optimize-runs' => '',
+        'add-core-features-to-theme' => false,
+        'axe'         => false,
     ),
     array(
         'h' => 'help',
         'j' => 'parallel',
-        'm' => 'maxruns'
+        'm' => 'maxruns',
+        'o' => 'optimize-runs',
+        'a' => 'add-core-features-to-theme',
     )
 );
 
@@ -68,15 +72,22 @@ list($options, $unrecognized) = cli_get_params(
 $help = "
 Behat utilities to manage the test environment
 
+Usage:
+  php util.php [--install|--drop|--enable|--disable|--diag|--updatesteps|--axe|--help] [--parallel=value [--maxruns=value]]
+
 Options:
 --install      Installs the test environment for acceptance tests
 --drop         Drops the database tables and the dataroot contents
 --enable       Enables test environment and updates tests list
 --disable      Disables test environment
 --diag         Get behat test environment status code
--j, --parallel Number of parallel behat run operation
--m, --maxruns  Max parallel processes to be executed at one time.
 --updatesteps  Update feature step file.
+--axe          Include axe accessibility tests
+
+-j, --parallel Number of parallel behat run operation
+-m, --maxruns Max parallel processes to be executed at one time.
+-o, --optimize-runs Split features with specified tags in all parallel runs.
+-a, --add-core-features-to-theme Add all core features to specified theme's
 
 -h, --help     Print out this help
 
@@ -93,14 +104,37 @@ if (!empty($options['help'])) {
 
 $cwd = getcwd();
 
+// If Behat parallel site is being initiliased, then define a param to be used to ignore single run install.
+if (!empty($options['parallel'])) {
+    define('BEHAT_PARALLEL_UTIL', true);
+}
+
+require_once(__DIR__ . '/../../../../config.php');
+require_once(__DIR__ . '/../../../../lib/behat/lib.php');
+require_once(__DIR__ . '/../../../../lib/behat/classes/behat_command.php');
+require_once(__DIR__ . '/../../../../lib/behat/classes/behat_config_manager.php');
+
+// Remove error handling overrides done in config.php. This is consistent with admin/tool/behat/cli/util_single_run.php.
+$CFG->debug = (E_ALL | E_STRICT);
+$CFG->debugdisplay = 1;
+error_reporting($CFG->debug);
+ini_set('display_errors', '1');
+ini_set('log_errors', '1');
+
+// Import the necessary libraries.
+require_once($CFG->libdir . '/setuplib.php');
+require_once($CFG->libdir . '/behat/classes/util.php');
+
 // For drop option check if parallel site.
-if ((empty($options['parallel'])) && $options['drop']) {
-    // Get parallel run info from first run.
-    $options['parallel'] = behat_config_manager::get_parallel_test_runs($options['fromrun']);
+if ((empty($options['parallel'])) && ($options['drop']) || $options['updatesteps']) {
+    $options['parallel'] = behat_config_manager::get_behat_run_config_value('parallel');
 }
 
 // If not a parallel site then open single run.
 if (empty($options['parallel'])) {
+    // Set run config value for single run.
+    behat_config_manager::set_behat_run_config_value('singlerun', 1);
+
     chdir(__DIR__);
     // Check if behat is initialised, if not exit.
     passthru("php util_single_run.php --diag", $status);
@@ -137,6 +171,21 @@ if ($options['diag'] || $options['enable'] || $options['disable']) {
         $status = (bool)$status || (bool)$exitcode;
     }
 
+    // Remove run config file.
+    $behatrunconfigfile = behat_config_manager::get_behat_run_config_file_path();
+    if (file_exists($behatrunconfigfile)) {
+        if (!unlink($behatrunconfigfile)) {
+            behat_error(BEHAT_EXITCODE_PERMISSIONS, 'Can not delete behat run config file');
+        }
+    }
+
+    // Remove test file path.
+    if (file_exists(behat_util::get_test_file_path())) {
+        if (!unlink(behat_util::get_test_file_path())) {
+            behat_error(BEHAT_EXITCODE_PERMISSIONS, 'Can not delete test file enable info');
+        }
+    }
+
 } else if ($options['install']) {
     // This is intensive compared to behat itself so run them in chunk if option maxruns not set.
     if ($options['maxruns']) {
@@ -169,6 +218,29 @@ if ($options['diag'] || $options['enable'] || $options['disable']) {
         }
     }
 
+} else if ($options['updatesteps']) {
+    // Rewrite config file to ensure we have all the features covered.
+    if (empty($options['parallel'])) {
+        behat_config_manager::update_config_file('', true, '', $options['add-core-features-to-theme'], false, false);
+    } else {
+        // Update config file, ensuring we have up-to-date behat.yml.
+        for ($i = $options['fromrun']; $i <= $options['torun']; $i++) {
+            $CFG->behatrunprocess = $i;
+
+            // Update config file for each run.
+            behat_config_manager::update_config_file('', true, $options['optimize-runs'], $options['add-core-features-to-theme'],
+                $options['parallel'], $i);
+        }
+        unset($CFG->behatrunprocess);
+    }
+
+    // Do it sequentially as it's fast and need to be displayed nicely.
+    foreach (array_chunk($cmds, 1, true) as $cmd) {
+        $processes = cli_execute_parallel($cmd, __DIR__);
+        print_sequential_output($processes);
+    }
+    exit(0);
+
 } else {
     // We should never reach here.
     echo $help;
@@ -200,13 +272,30 @@ if ($options['install']) {
 } else if ($options['enable']) {
     echo "Acceptance tests environment enabled on $CFG->behat_wwwroot, to run the tests use:" . PHP_EOL;
     echo behat_command::get_behat_command(true, true);
+
+    // Save fromrun and to run information.
+    if (isset($options['fromrun'])) {
+        behat_config_manager::set_behat_run_config_value('fromrun', $options['fromrun']);
+    }
+
+    if (isset($options['torun'])) {
+        behat_config_manager::set_behat_run_config_value('torun', $options['torun']);
+    }
+    if (isset($options['parallel'])) {
+        behat_config_manager::set_behat_run_config_value('parallel', $options['parallel']);
+    }
+
     echo PHP_EOL;
 
 } else if ($options['disable']) {
     echo "Acceptance tests environment disabled for " . $options['parallel'] . " parallel sites" . PHP_EOL;
 
+} else if ($options['diag']) {
+    // Valid option, so nothing to do.
 } else {
     echo $help;
+    chdir($cwd);
+    exit(1);
 }
 
 chdir($cwd);
@@ -234,7 +323,7 @@ function commands_to_execute($options) {
         if ($options[$option]) {
             $extra .= " --$option";
             if ($value) {
-                $extra .= "=$value";
+                $extra .= "=\"$value\"";
             }
         }
     }
@@ -325,7 +414,7 @@ function print_combined_install_output($processes) {
     // Show process name in first row.
     foreach ($processes as $name => $process) {
         // If we don't have enough space to show full run name then show runX.
-        if ($lengthofprocessline < strlen($name + 2)) {
+        if ($lengthofprocessline < strlen($name) + 2) {
             $name = substr($name, -5);
         }
         // One extra padding as we are adding | separator for rest of the data.

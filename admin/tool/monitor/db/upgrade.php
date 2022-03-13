@@ -31,26 +31,18 @@ defined('MOODLE_INTERNAL') || die();
  * @return bool always true
  */
 function xmldb_tool_monitor_upgrade($oldversion) {
-    global $DB;
+    global $CFG, $DB;
 
-    $dbman = $DB->get_manager();
+    // Automatically generated Moodle v3.6.0 release upgrade line.
+    // Put any upgrade step following this.
 
-    if ($oldversion < 2014102000) {
+    // Automatically generated Moodle v3.7.0 release upgrade line.
+    // Put any upgrade step following this.
 
-        // Define field lastnotificationsent to be added to tool_monitor_subscriptions.
-        $table = new xmldb_table('tool_monitor_subscriptions');
-        $field = new xmldb_field('lastnotificationsent', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0', 'timecreated');
+    // Automatically generated Moodle v3.8.0 release upgrade line.
+    // Put any upgrade step following this.
 
-        // Conditionally launch add field lastnotificationsent.
-        if (!$dbman->field_exists($table, $field)) {
-            $dbman->add_field($table, $field);
-        }
-
-        // Monitor savepoint reached.
-        upgrade_plugin_savepoint(true, 2014102000, 'tool', 'monitor');
-    }
-
-    // Moodle v2.8.0 release upgrade line.
+    // Automatically generated Moodle v3.9.0 release upgrade line.
     // Put any upgrade step following this.
 
     return true;

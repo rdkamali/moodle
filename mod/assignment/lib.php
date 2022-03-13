@@ -71,22 +71,24 @@ function assignment_delete_instance($id){
         $result = false;
     }
 
+    grade_update('mod/assignment', $assignment->course, 'mod', 'assignment', $assignment->id, 0, NULL, array('deleted'=>1));
+
+    // We must delete the module record after we delete the grade item.
     if (! $DB->delete_records('assignment', array('id'=>$assignment->id))) {
         $result = false;
     }
-
-    grade_update('mod/assignment', $assignment->course, 'mod', 'assignment', $assignment->id, 0, NULL, array('deleted'=>1));
 
     return $result;
 }
 
 /**
  * @param string $feature FEATURE_xx constant for requested feature
- * @return mixed True if module supports feature, null if doesn't know
+ * @return mixed True if module supports feature, false if not, null if doesn't know or string for the module purpose.
  */
 function assignment_supports($feature) {
     switch($feature) {
         case FEATURE_BACKUP_MOODLE2:          return true;
+        case FEATURE_MOD_PURPOSE:             return MOD_PURPOSE_ASSESSMENT;
 
         default: return null;
     }

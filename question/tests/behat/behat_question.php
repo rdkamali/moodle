@@ -27,8 +27,7 @@
 
 require_once(__DIR__ . '/behat_question_base.php');
 
-use Behat\Behat\Context\Step\Given as Given,
-    Behat\Gherkin\Node\TableNode as TableNode,
+use Behat\Gherkin\Node\TableNode as TableNode,
     Behat\Mink\Exception\ExpectationException as ExpectationException,
     Behat\Mink\Exception\ElementNotFoundException as ElementNotFoundException;
 
@@ -48,14 +47,13 @@ class behat_question extends behat_question_base {
      * @Given /^I add a "(?P<question_type_name_string>(?:[^"]|\\")*)" question filling the form with:$/
      * @param string $questiontypename The question type name
      * @param TableNode $questiondata The data to fill the question type form.
-     * @return Given[] the steps.
      */
     public function i_add_a_question_filling_the_form_with($questiontypename, TableNode $questiondata) {
+        // Click on create question.
+        $this->execute('behat_forms::press_button', get_string('createnewquestion', 'question'));
 
-        return array_merge(array(
-            new Given('I follow "' . get_string('questionbank', 'question') . '"'),
-            new Given('I press "' . get_string('createnewquestion', 'question') . '"'),
-                ), $this->finish_adding_question($questiontypename, $questiondata));
+        // Add question.
+        $this->finish_adding_question($questiontypename, $questiondata);
     }
 
     /**
@@ -70,17 +68,71 @@ class behat_question extends behat_question_base {
     public function the_state_of_question_is_shown_as($questiondescription, $state) {
 
         // Using xpath literal to avoid quotes problems.
-        $questiondescriptionliteral = $this->getSession()->getSelectorsHandler()->xpathLiteral($questiondescription);
-        $stateliteral = $this->getSession()->getSelectorsHandler()->xpathLiteral($state);
+        $questiondescriptionliteral = behat_context_helper::escape($questiondescription);
+        $stateliteral = behat_context_helper::escape($state);
 
         // Split in two checkings to give more feedback in case of exception.
         $exception = new ElementNotFoundException($this->getSession(), 'Question "' . $questiondescription . '" ');
         $questionxpath = "//div[contains(concat(' ', normalize-space(@class), ' '), ' que ')]" .
-                "[contains(div[@class='content']/div[@class='formulation'], {$questiondescriptionliteral})]";
+                "[contains(div[@class='content']/div[contains(concat(' ', normalize-space(@class), ' '), ' formulation ')]," .
+                "{$questiondescriptionliteral})]";
         $this->find('xpath', $questionxpath, $exception);
 
         $exception = new ExpectationException('Question "' . $questiondescription . '" state is not "' . $state . '"', $this->getSession());
         $xpath = $questionxpath . "/div[@class='info']/div[@class='state' and contains(., {$stateliteral})]";
         $this->find('xpath', $xpath, $exception);
+    }
+
+    /**
+     * Activates a particular action on a particular question in the question bank UI.
+     *
+     * @When I choose :action action for :questionname in the question bank
+     * @param string $action the label for the action you want to activate.
+     * @param string $questionname the question name.
+     */
+    public function i_action_the_question($action, $questionname) {
+        // Open the menu.
+        $this->execute("behat_general::i_click_on_in_the",
+                [get_string('edit'), 'link', $questionname, 'table_row']);
+
+        // Click the action from the menu.
+        $this->execute("behat_general::i_click_on_in_the",
+                [$action, 'link', $questionname, 'table_row']);
+    }
+
+    /**
+     * A particular bulk action is visible in the question bank UI.
+     *
+     * @When I should see question bulk action :action
+     * @param string $action the value of the input for the action.
+     */
+    public function i_should_see_question_bulk_action($action) {
+        // Check if its visible.
+        $this->execute("behat_general::should_be_visible",
+            ["#bulkactionsui-container input[name='$action']", "css_element"]);
+    }
+
+    /**
+     * A particular bulk action should not be visible in the question bank UI.
+     *
+     * @When I should not see question bulk action :action
+     * @param string $action the value of the input for the action.
+     */
+    public function i_should_not_see_question_bulk_action($action) {
+        // Check if its visible.
+        $this->execute("behat_general::should_not_be_visible",
+            ["#bulkactionsui-container input[name='$action']", "css_element"]);
+    }
+
+    /**
+     * A click on a particular bulk action in the question bank UI.
+     *
+     * @When I click on question bulk action :action
+     * @param string $action the value of the input for the action.
+     */
+    public function i_click_on_question_bulk_action($action) {
+        // Click the bulk action.
+        $this->execute("behat_general::i_click_on",
+            ["#bulkactionsui-container input[name='$action']", "css_element"]);
     }
 }

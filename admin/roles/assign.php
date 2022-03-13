@@ -29,7 +29,7 @@ define("MAX_USERS_TO_LIST_PER_ROLE", 10);
 
 $contextid = required_param('contextid', PARAM_INT);
 $roleid    = optional_param('roleid', 0, PARAM_INT);
-$returnto  = optional_param('return', null, PARAM_ALPHANUMEXT);
+$returnurl = optional_param('returnurl', null, PARAM_LOCALURL);
 
 list($context, $course, $cm) = get_context_info_array($contextid);
 
@@ -53,8 +53,15 @@ if ($course) {
 // Security.
 require_login($course, false, $cm);
 require_capability('moodle/role:assign', $context);
-$PAGE->set_url($url);
+
+navigation_node::override_active_url($url);
+$pageurl = new moodle_url($url);
+if ($returnurl) {
+    $pageurl->param('returnurl', $returnurl);
+}
+$PAGE->set_url($pageurl);
 $PAGE->set_context($context);
+$PAGE->activityheader->disable();
 
 $contextname = $context->get_context_name();
 $courseid = $course->id;
@@ -135,7 +142,16 @@ if ($roleid) {
     }
 }
 
+if (!empty($user) && ($user->id != $USER->id)) {
+    $PAGE->navigation->extend_for_user($user);
+    $PAGE->navbar->includesettingsbase = true;
+}
+
 $PAGE->set_pagelayout('admin');
+if ($context->contextlevel == CONTEXT_BLOCK) {
+    // Do not show blocks when changing block's settings, it is confusing.
+    $PAGE->blocks->show_only_fake_blocks(true);
+}
 $PAGE->set_title($title);
 
 switch ($context->contextlevel) {
@@ -149,7 +165,7 @@ switch ($context->contextlevel) {
         $showroles = 1;
         break;
     case CONTEXT_COURSECAT:
-        $PAGE->set_heading($SITE->fullname);
+        core_course_category::page_setup();
         break;
     case CONTEXT_COURSE:
         if ($isfrontpage) {
@@ -167,7 +183,34 @@ switch ($context->contextlevel) {
         break;
 }
 
+$PAGE->set_navigation_overflow_state(false);
+
+// Within a course context we need to explicitly set active tab as there isn't a reference in the nav tree.
+if ($context->contextlevel == CONTEXT_COURSE) {
+    $PAGE->set_secondary_active_tab('participants');
+}
 echo $OUTPUT->header();
+
+$backurl = null;
+// We are looking at a particular role. The page URL has been set correctly.
+if ($roleid) {
+    $backurl = $pageurl;
+} else if ($context->contextlevel == CONTEXT_COURSE && !$isfrontpage) {
+    // Return to the intermediary page when within the course context.
+    $backurl = new moodle_url('/enrol/otherusers.php', ['id' => $course->id]);
+} else if ($returnurl) {
+    // Factor in for $returnurl being passed.
+    $backurl = new moodle_url($returnurl);
+}
+
+if ($backurl) {
+    $backbutton = new single_button($backurl, get_string('back'), 'get');
+    $backbutton->class = 'singlebutton navitem';
+    echo html_writer::tag('div', $OUTPUT->render($backbutton), ['class' => 'tertiary-navigation']);
+} else if (in_array($context->contextlevel, [CONTEXT_COURSE, CONTEXT_MODULE, CONTEXT_COURSECAT])) {
+    // The front page doesn't have an intermediate page 'other users' but needs similar tertiary nav like a standard course.
+    echo $OUTPUT->render_participants_tertiary_nav($course);
+}
 
 // Print heading.
 echo $OUTPUT->heading_with_help($title, 'assignroles', 'core_role');
@@ -181,9 +224,6 @@ if ($roleid) {
 
     // Print the form.
     $assignurl = new moodle_url($PAGE->url, array('roleid'=>$roleid));
-    if ($returnto !== null) {
-        $assignurl->param('return', $returnto);
-    }
 ?>
 <form id="assignform" method="post" action="<?php echo $assignurl ?>"><div>
   <input type="hidden" name="sesskey" value="<?php echo sesskey() ?>" />
@@ -196,11 +236,13 @@ if ($roleid) {
       </td>
       <td id="buttonscell">
           <div id="addcontrols">
-              <input name="add" id="add" type="submit" value="<?php echo $OUTPUT->larrow().'&nbsp;'.get_string('add'); ?>" title="<?php print_string('add'); ?>" /><br />
+              <input name="add" id="add" type="submit" value="<?php echo $OUTPUT->larrow().'&nbsp;'.get_string('add'); ?>"
+                     title="<?php print_string('add'); ?>" class="btn btn-secondary"/><br />
           </div>
 
           <div id="removecontrols">
-              <input name="remove" id="remove" type="submit" value="<?php echo get_string('remove').'&nbsp;'.$OUTPUT->rarrow(); ?>" title="<?php print_string('remove'); ?>" />
+              <input name="remove" id="remove" type="submit" value="<?php echo get_string('remove').'&nbsp;'.$OUTPUT->rarrow(); ?>"
+                     title="<?php print_string('remove'); ?>" class="btn btn-secondary"/>
           </div>
       </td>
       <td id="potentialcell">
@@ -228,18 +270,9 @@ if ($roleid) {
     // Print a form to swap roles, and a link back to the all roles list.
     echo '<div class="backlink">';
 
-    $newroleurl = new moodle_url($PAGE->url);
-    if ($returnto !== null) {
-        $newroleurl->param('return', $returnto);
-    }
-    $select = new single_select($newroleurl, 'roleid', $nameswithcounts, $roleid, null);
+    $select = new single_select($PAGE->url, 'roleid', $nameswithcounts, $roleid, null);
     $select->label = get_string('assignanotherrole', 'core_role');
     echo $OUTPUT->render($select);
-    $backurl = new moodle_url('/admin/roles/assign.php', array('contextid' => $contextid));
-    if ($returnto !== null) {
-        $backurl->param('return', $returnto);
-    }
-    echo '<p><a href="' . $backurl->out() . '">' . get_string('backtoallroles', 'core_role') . '</a></p>';
     echo '</div>';
 
 } else if (empty($assignableroles)) {
@@ -265,7 +298,8 @@ if ($roleid) {
     foreach ($assignableroles as $roleid => $notused) {
         $roleusers = '';
         if (0 < $assigncounts[$roleid] && $assigncounts[$roleid] <= MAX_USERS_TO_LIST_PER_ROLE) {
-            $userfields = 'u.id, u.username, ' . get_all_user_name_fields(true, 'u');
+            $userfieldsapi = \core_user\fields::for_name();
+            $userfields = 'u.id, u.username' . $userfieldsapi->get_sql('u')->selects;
             $roleusers = get_role_users($roleid, $context, false, $userfields);
             if (!empty($roleusers)) {
                 $strroleusers = array();
@@ -277,9 +311,6 @@ if ($roleid) {
             }
         } else if ($assigncounts[$roleid] > MAX_USERS_TO_LIST_PER_ROLE) {
             $assignurl = new moodle_url($PAGE->url, array('roleid'=>$roleid));
-            if ($returnto !== null) {
-                $assignurl->param('return', $returnto);
-            }
             $roleholdernames[$roleid] = '<a href="'.$assignurl.'">'.$strmorethanmax.'</a>';
         } else {
             $roleholdernames[$roleid] = '';
@@ -300,9 +331,6 @@ if ($roleid) {
     foreach ($assignableroles as $roleid => $rolename) {
         $description = format_string($DB->get_field('role', 'description', array('id'=>$roleid)));
         $assignurl = new moodle_url($PAGE->url, array('roleid'=>$roleid));
-        if ($returnto !== null) {
-            $assignurl->param('return', $returnto);
-        }
         $row = array('<a href="'.$assignurl.'">'.$rolename.'</a>',
                 $description, $assigncounts[$roleid]);
         if ($showroleholders) {
@@ -313,17 +341,13 @@ if ($roleid) {
 
     echo html_writer::table($table);
 
-    if ($context->contextlevel > CONTEXT_USER) {
-
-        if ($context->contextlevel === CONTEXT_COURSECAT && $returnto === 'management') {
-            $url = new moodle_url('/course/management.php', array('categoryid' => $context->instanceid));
-        } else {
+    if (!$PAGE->has_secondary_navigation() && $context->contextlevel > CONTEXT_USER) {
+        if (!$returnurl) {
             $url = $context->get_url();
+            echo html_writer::start_tag('div', array('class' => 'backlink'));
+            echo html_writer::tag('a', get_string('backto', '', $contextname), array('href' => $url));
+            echo html_writer::end_tag('div');
         }
-
-        echo html_writer::start_tag('div', array('class'=>'backlink'));
-        echo html_writer::tag('a', get_string('backto', '', $contextname), array('href' => $url));
-        echo html_writer::end_tag('div');
     }
 }
 

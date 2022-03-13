@@ -42,7 +42,8 @@ class autogroup_form extends moodleform {
      * Form Definition
      */
     function definition() {
-        global $CFG, $COURSE;
+        global $USER, $COURSE;
+        $coursecontext = context_course::instance($COURSE->id);
 
         $mform =& $this->_form;
 
@@ -68,6 +69,12 @@ class autogroup_form extends moodleform {
         $mform->addRule('number', null, 'numeric', null, 'client');
         $mform->addRule('number', get_string('required'), 'required', null, 'client');
 
+        // Enable group messaging for the groups to be auto-created.
+        if (\core_message\api::can_create_group_conversation($USER->id, $coursecontext)) {
+            $mform->addElement('selectyesno', 'enablemessaging', get_string('enablemessaging', 'group'));
+            $mform->addHelpButton('enablemessaging', 'enablemessaging', 'group');
+        }
+
         $mform->addElement('header', 'groupmembershdr', get_string('groupmembers', 'group'));
         $mform->setExpanded('groupmembershdr', true);
 
@@ -82,7 +89,8 @@ class autogroup_form extends moodleform {
             $mform->setDefault('roleid', $student->id);
         }
 
-        if ($cohorts = cohort_get_available_cohorts(context_course::instance($COURSE->id), COHORT_WITH_ENROLLED_MEMBERS_ONLY, 0, 0)) {
+        $coursecontext = context_course::instance($COURSE->id);
+        if ($cohorts = cohort_get_available_cohorts($coursecontext, COHORT_WITH_ENROLLED_MEMBERS_ONLY, 0, 0)) {
             $options = array(0 => get_string('anycohort', 'cohort'));
             foreach ($cohorts as $c) {
                 $options[$c->id] = format_string($c->name, true, context::instance_by_id($c->contextid));
@@ -139,6 +147,12 @@ class autogroup_form extends moodleform {
         $mform->addElement('checkbox', 'notingroup', get_string('notingroup', 'group'));
         $mform->disabledIf('notingroup', 'groupingid', 'neq', 0);
         $mform->disabledIf('notingroup', 'groupid', 'neq', 0);
+
+        if (has_capability('moodle/course:viewsuspendedusers', $coursecontext)) {
+            $mform->addElement('checkbox', 'includeonlyactiveenrol', get_string('includeonlyactiveenrol', 'group'), '');
+            $mform->addHelpButton('includeonlyactiveenrol', 'includeonlyactiveenrol', 'group');
+            $mform->setDefault('includeonlyactiveenrol', true);
+        }
 
         $mform->addElement('header', 'groupinghdr', get_string('grouping', 'group'));
 

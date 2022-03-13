@@ -48,6 +48,8 @@ class block_social_activities extends block_list {
         }
 
         $course = $this->page->course;
+        $format = course_get_format($course);
+        $courserenderer = $format->get_renderer($this->page);
 
         require_once($CFG->dirroot.'/course/lib.php');
 
@@ -55,111 +57,174 @@ class block_social_activities extends block_list {
         $isediting = $this->page->user_is_editing() && has_capability('moodle/course:manageactivities', $context);
         $modinfo = get_fast_modinfo($course);
 
-/// extra fast view mode
+        // Output classes.
+        $cmnameclass = $format->get_output_classname('content\\cm\\cmname');
+        $controlmenuclass = $format->get_output_classname('content\\cm\\controlmenu');
+
+        // Extra fast view mode.
         if (!$isediting) {
             if (!empty($modinfo->sections[0])) {
-                $options = array('overflowdiv'=>true);
                 foreach($modinfo->sections[0] as $cmid) {
                     $cm = $modinfo->cms[$cmid];
-                    if (!$cm->uservisible) {
+                    if (!$cm->uservisible || !$cm->is_visible_on_course_page()) {
                         continue;
                     }
 
-                    $content = $cm->get_formatted_content(array('overflowdiv' => true, 'noclean' => true));
-                    $instancename = $cm->get_formatted_name();
+                    $badges = '';
+                    if (!$cm->visible) {
+                        $badges = html_writer::tag(
+                            'span',
+                            get_string('hiddenfromstudents'),
+                            ['class' => 'badge badge-pill badge-warning mt-2']
+                        );
+                    }
 
-                    if (!($url = $cm->url)) {
+                    if ($cm->is_stealth()) {
+                        $badges = html_writer::tag(
+                            'span',
+                            get_string('hiddenoncoursepage'),
+                            ['class' => 'badge badge-pill badge-warning mt-2']
+                        );
+                    }
+
+                    if (!$cm->url) {
+                        $activitybasis = html_writer::div(
+                            $cm->get_formatted_content(['overflowdiv' => true, 'noclean' => true]),
+                            'activity-basis d-flex align-items-center'
+                        );
+                        $content = html_writer::div(
+                            $activitybasis . $badges,
+                            'contentwithoutlink activity-item activity'
+                        );
                         $this->content->items[] = $content;
                         $this->content->icons[] = '';
                     } else {
-                        $linkcss = $cm->visible ? '' : ' class="dimmed" ';
-                        //Accessibility: incidental image - should be empty Alt text
-                        $icon = '<img src="' . $cm->get_icon_url() . '" class="icon" alt="" />&nbsp;';
-                        $this->content->items[] = '<a title="'.$cm->modplural.'" '.$linkcss.' '.$cm->extra.
-                                ' href="' . $url . '">' . $icon . $instancename . '</a>';
+                        $cmname = new $cmnameclass($format, $cm->get_section_info(), $cm, $isediting);
+                        $activitybasis = html_writer::div(
+                            $courserenderer->render($cmname),
+                            'activity-basis d-flex align-items-center');
+                        $content = html_writer::div(
+                            $activitybasis . $badges,
+                            'activity-item activity'
+                        );
+                        $this->content->items[] = $content;
                     }
                 }
             }
             return $this->content;
         }
 
-
         // Slow & hacky editing mode.
-        /** @var core_course_renderer $courserenderer */
-        $courserenderer = $this->page->get_renderer('core', 'course');
         $ismoving = ismoving($course->id);
-        $modinfo = get_fast_modinfo($course);
         $section = $modinfo->get_section_info(0);
 
         if ($ismoving) {
-            $strmovehere = get_string('movehere');
             $strmovefull = strip_tags(get_string('movefull', '', "'$USER->activitycopyname'"));
             $strcancel= get_string('cancel');
-            $stractivityclipboard = $USER->activitycopyname;
         } else {
             $strmove = get_string('move');
         }
-        $editbuttons = '';
 
         if ($ismoving) {
-            $this->content->icons[] = '&nbsp;<img align="bottom" src="'.$OUTPUT->pix_url('t/move') . '" class="iconsmall" alt="" />';
-            $this->content->items[] = $USER->activitycopyname.'&nbsp;(<a href="'.$CFG->wwwroot.'/course/mod.php?cancelcopy=true&amp;sesskey='.sesskey().'">'.$strcancel.'</a>)';
+            $this->content->icons[] = '&nbsp;' . $OUTPUT->pix_icon('t/move', get_string('move'));
+            $cancelurl = new moodle_url('/course/mod.php', array('cancelcopy' => 'true', 'sesskey' => sesskey()));
+            $this->content->items[] = $USER->activitycopyname . '&nbsp;(<a href="' . $cancelurl . '">' . $strcancel . '</a>)';
         }
 
         if (!empty($modinfo->sections[0])) {
-            $options = array('overflowdiv'=>true);
             foreach ($modinfo->sections[0] as $modnumber) {
                 $mod = $modinfo->cms[$modnumber];
-                if (!$mod->uservisible) {
+                if (!$mod->uservisible || !$mod->is_visible_on_course_page()) {
                     continue;
                 }
                 if (!$ismoving) {
-                    $actions = course_get_cm_edit_actions($mod, -1);
 
-                    // Prepend list of actions with the 'move' action.
-                    $actions = array('move' => new action_menu_link_primary(
-                        new moodle_url('/course/mod.php', array('sesskey' => sesskey(), 'copy' => $mod->id)),
-                        new pix_icon('t/move', $strmove, 'moodle', array('class' => 'iconsmall', 'title' => '')),
-                        $strmove
-                    )) + $actions;
+                    $controlmenu = new $controlmenuclass(
+                        $format,
+                        $mod->get_section_info(),
+                        $mod,
+                        ['disableindentation' => true]
+                    );
+
+                    $menu = $controlmenu->get_action_menu($OUTPUT);
+
+                    // Add a move primary action.
+                    $moveaction = html_writer::link(
+                        new moodle_url('/course/mod.php', ['sesskey' => sesskey(), 'copy' => $mod->id]),
+                        $OUTPUT->pix_icon('i/dragdrop', $strmove),
+                        ['class' => 'editing_move_activity']
+                    );
 
                     $editbuttons = html_writer::tag('div',
-                        $courserenderer->course_section_cm_edit_actions($actions, $mod, array('donotenhance' => true)),
-                        array('class' => 'buttons')
+                        $courserenderer->render($controlmenu),
+                        ['class' => 'buttons activity-actions ml-auto']
                     );
                 } else {
                     $editbuttons = '';
+                    $moveaction = '';
                 }
                 if ($mod->visible || has_capability('moodle/course:viewhiddenactivities', $mod->context)) {
                     if ($ismoving) {
                         if ($mod->id == $USER->activitycopy) {
                             continue;
                         }
-                        $this->content->items[] = '<a title="'.$strmovefull.'" href="'.$CFG->wwwroot.'/course/mod.php?moveto='.$mod->id.'&amp;sesskey='.sesskey().'">'.
-                            '<img style="height:16px; width:80px; border:0px" src="'.$OUTPUT->pix_url('movehere') . '" alt="'.$strmovehere.'" /></a>';
+                        $movingurl = new moodle_url('/course/mod.php', array('moveto' => $mod->id, 'sesskey' => sesskey()));
+                        $this->content->items[] = html_writer::link($movingurl, '', array('title' => $strmovefull,
+                            'class' => 'movehere'));
                         $this->content->icons[] = '';
                     }
-                    $content = $mod->get_formatted_content(array('overflowdiv' => true, 'noclean' => true));
-                    $instancename = $mod->get_formatted_name();
 
-                    $linkcss = $mod->visible ? '' : ' class="dimmed" ';
+                    $badges = '';
+                    if (!$mod->visible) {
+                        $badges = html_writer::tag(
+                            'span',
+                            get_string('hiddenfromstudents'),
+                            ['class' => 'badge badge-pill badge-warning mt-2']
+                        );
+                    }
 
-                    if (!($url = $mod->url)) {
-                        $this->content->items[] = $content . $editbuttons;
+                    if ($mod->is_stealth()) {
+                        $badges = html_writer::tag(
+                            'span',
+                            get_string('hiddenoncoursepage'),
+                            ['class' => 'badge badge-pill badge-warning mt-2']
+                        );
+                    }
+
+                    if (!$mod->url) {
+                        $activitybasis = html_writer::div(
+                            $mod->get_formatted_content(['overflowdiv' => true, 'noclean' => true]) .
+                            $editbuttons,
+                            'activity-basis d-flex align-items-center');
+                        $content = html_writer::div(
+                            $moveaction .
+                            $activitybasis .
+                            $badges,
+                            'contentwithoutlink activity-item activity'
+                        );
+                        $this->content->items[] = $content;
                         $this->content->icons[] = '';
                     } else {
-                        //Accessibility: incidental image - should be empty Alt text
-                        $icon = '<img src="' . $mod->get_icon_url() . '" class="icon" alt="" />&nbsp;';
-                        $this->content->items[] = '<a title="' . $mod->modfullname . '" ' . $linkcss . ' ' . $mod->extra .
-                            ' href="' . $url . '">' . $icon . $instancename . '</a>' . $editbuttons;
+                        $cmname = new $cmnameclass($format, $mod->get_section_info(), $mod, $isediting);
+                        $activitybasis = html_writer::div(
+                            $courserenderer->render($cmname) .
+                            $editbuttons,
+                            'activity-basis d-flex align-items-center');
+                        $content = html_writer::div(
+                            $moveaction .
+                            $activitybasis .
+                            $badges,
+                            'activity-item activity'
+                        );
+                        $this->content->items[] = $content;
                     }
                 }
             }
         }
 
         if ($ismoving) {
-            $this->content->items[] = '<a title="'.$strmovefull.'" href="'.$CFG->wwwroot.'/course/mod.php?movetosection='.$section->id.'&amp;sesskey='.sesskey().'">'.
-                                      '<img style="height:16px; width:80px; border:0px" src="'.$OUTPUT->pix_url('movehere') . '" alt="'.$strmovehere.'" /></a>';
+            $movingurl = new moodle_url('/course/mod.php', array('movetosection' => $section->id, 'sesskey' => sesskey()));
+            $this->content->items[] = html_writer::link($movingurl, '', array('title' => $strmovefull, 'class' => 'movehere'));
             $this->content->icons[] = '';
         }
 

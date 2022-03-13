@@ -4,12 +4,11 @@ Feature: Set end of lesson reached as a completion condition for a lesson
   As a teacher
   I need to set end of lesson reached to mark the lesson activity as completed
 
-  @javascript
   Scenario: Set end reached as a condition
     Given the following "users" exist:
       | username | firstname | lastname | email |
-      | student1 | Student | 1 | student1@asd.com |
-      | teacher1 | Teacher | 1 | teacher1@asd.com |
+      | student1 | Student | 1 | student1@example.com |
+      | teacher1 | Teacher | 1 | teacher1@example.com |
     And the following "courses" exist:
       | fullname | shortname | category |
       | Course 1 | C1 | 0 |
@@ -17,22 +16,26 @@ Feature: Set end of lesson reached as a completion condition for a lesson
       | user | course | role |
       | teacher1 | C1 | editingteacher |
       | student1 | C1 | student |
-    And I log in as "admin"
-    And I set the following administration settings values:
-      | Enable completion tracking | 1 |
-    And I log out
+    Given the following "activity" exists:
+      | activity      | lesson                  |
+      | course        | C1                      |
+      | idnumber      | 0001                    |
+      | name          | Test lesson             |
+      | intro         | Test lesson description |
+      | section       | 1                       |
     And I log in as "teacher1"
-    And I follow "Course 1"
-    And I turn editing mode on
-    And I click on "Edit settings" "link" in the "Administration" "block"
+    And I am on "Course 1" course homepage with editing mode on
+    And I navigate to "Settings" in current page administration
     And I set the following fields to these values:
       | Enable completion tracking | Yes |
     And I press "Save and display"
-    And I add a "Lesson" to section "1" and I fill the form with:
-      | Name | Test lesson |
-      | Description | Test lesson description |
-      | Completion tracking | Show activity as complete when conditions are met |
-      | completionendreached | 1 |
+    And I follow "Test lesson"
+    And I navigate to "Settings" in current page administration
+    And I set the following fields to these values:
+      | Completion tracking  | Show activity as complete when conditions are met |
+      | completionview       | 0                                                 |
+      | completionendreached | 1                                                 |
+    And I press "Save and return to course"
     And I follow "Test lesson"
     And I follow "Add a content page"
     And I set the following fields to these values:
@@ -41,7 +44,7 @@ Feature: Set end of lesson reached as a completion condition for a lesson
       | id_answer_editor_0 | Next page |
       | id_jumpto_0 | Next page |
     And I press "Save page"
-    And I set the field "qtype" to "Add a content page"
+    And I select "Add a content page" from the "qtype" singleselect
     And I set the following fields to these values:
       | Page title | Second page name |
       | Page contents | Second page contents |
@@ -52,22 +55,22 @@ Feature: Set end of lesson reached as a completion condition for a lesson
     And I press "Save page"
     And I log out
     When I log in as "student1"
-    And I follow "Course 1"
-    Then I hover "//li[contains(concat(' ', normalize-space(@class), ' '), ' modtype_lesson ')]/descendant::img[@alt='Not completed: Test lesson']" "xpath_element"
+    And I am on "Course 1" course homepage
+    Then the "Go through the activity to the end" completion condition of "Test lesson" is displayed as "todo"
     And I follow "Test lesson"
     And I press "Next page"
-    And I follow "Course 1"
-    And I hover "//li[contains(concat(' ', normalize-space(@class), ' '), ' modtype_lesson ')]/descendant::img[@alt='Not completed: Test lesson']" "xpath_element"
-    And I follow "Course 1"
+    And I am on "Course 1" course homepage
+    And the "Go through the activity to the end" completion condition of "Test lesson" is displayed as "todo"
+    And I am on "Course 1" course homepage
     And I follow "Test lesson"
     And I should see "You have seen more than one page of this lesson already."
     And I should see "Do you want to start at the last page you saw?"
-    And I follow "No"
+    And I click on "No" "link" in the "#page-content" "css_element"
     And I press "Next page"
     And I press "Next page"
-    And I follow "Course 1"
-    And I hover "//li[contains(concat(' ', normalize-space(@class), ' '), ' modtype_lesson ')]/descendant::img[@alt='Completed: Test lesson']" "xpath_element"
+    And I am on "Course 1" course homepage
+    And the "Go through the activity to the end" completion condition of "Test lesson" is displayed as "done"
     And I log out
     And I log in as "teacher1"
-    And I follow "Course 1"
+    And I am on "Course 1" course homepage
     And "Student 1" user has completed "Test lesson" activity

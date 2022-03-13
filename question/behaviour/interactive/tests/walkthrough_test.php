@@ -14,36 +14,33 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-/**
- * This file contains tests that walks a question through the interactive
- * behaviour.
- *
- * @package    qbehaviour
- * @subpackage interactive
- * @copyright  2009 The Open University
- * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- */
+namespace qbehaviour_interactive;
 
+use question_display_options;
+use question_hint;
+use question_hint_with_parts;
+use question_state;
 
 defined('MOODLE_INTERNAL') || die();
 
 global $CFG;
-require_once(dirname(__FILE__) . '/../../../engine/lib.php');
-require_once(dirname(__FILE__) . '/../../../engine/tests/helpers.php');
+require_once(__DIR__ . '/../../../engine/lib.php');
+require_once(__DIR__ . '/../../../engine/tests/helpers.php');
 
 
 /**
  * Unit tests for the interactive behaviour.
  *
+ * @package    qbehaviour_interactive
  * @copyright  2009 The Open University
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class qbehaviour_interactive_walkthrough_test extends qbehaviour_walkthrough_test_base {
+class walkthrough_test extends \qbehaviour_walkthrough_test_base {
 
     public function test_interactive_feedback_multichoice_right() {
 
         // Create a multichoice single question.
-        $mc = test_question_maker::make_a_multichoice_single_question();
+        $mc = \test_question_maker::make_a_multichoice_single_question();
         $mc->hints = array(
             new question_hint_with_parts(0, 'This is the first hint.', FORMAT_HTML, false, false),
             new question_hint_with_parts(0, 'This is the second hint.', FORMAT_HTML, true, true),
@@ -95,11 +92,10 @@ class qbehaviour_interactive_walkthrough_test extends qbehaviour_walkthrough_tes
                 $this->get_contains_mc_radio_expectation($wrongindex, false, true),
                 $this->get_contains_mc_radio_expectation(($wrongindex + 1) % 3, false, false),
                 $this->get_contains_mc_radio_expectation(($wrongindex + 1) % 3, false, false),
-                $this->get_contains_submit_button_expectation(false),
+                $this->get_does_not_contain_submit_button_expectation(),
                 $this->get_contains_try_again_button_expectation(true),
                 $this->get_does_not_contain_correctness_expectation(),
-                new question_pattern_expectation('/' .
-                        preg_quote(get_string('notcomplete', 'qbehaviour_interactive'), '/') . '/'),
+                new \question_pattern_expectation('/Tries remaining: 2/'),
                 $this->get_contains_hint_expectation('This is the first hint'));
 
         // Check that, if we review in this state, the try again button is disabled.
@@ -136,7 +132,7 @@ class qbehaviour_interactive_walkthrough_test extends qbehaviour_walkthrough_tes
                 $this->get_contains_mc_radio_expectation($rightindex, false, true),
                 $this->get_contains_mc_radio_expectation(($rightindex + 1) % 3, false, false),
                 $this->get_contains_mc_radio_expectation(($rightindex + 1) % 3, false, false),
-                $this->get_contains_submit_button_expectation(false),
+                $this->get_does_not_contain_submit_button_expectation(),
                 $this->get_contains_correct_expectation(),
                 $this->get_no_hint_visible_expectation());
 
@@ -165,7 +161,7 @@ class qbehaviour_interactive_walkthrough_test extends qbehaviour_walkthrough_tes
         $this->check_current_output(
                 $this->get_contains_mark_summary(0.5),
                 $this->get_contains_partcorrect_expectation(),
-                new question_pattern_expectation('/' . preg_quote('Not good enough!', '/') . '/'));
+                new \question_pattern_expectation('/' . preg_quote('Not good enough!', '/') . '/'));
 
         // Check regrading does not mess anything up.
         $this->quba->regrade_all_questions();
@@ -178,13 +174,14 @@ class qbehaviour_interactive_walkthrough_test extends qbehaviour_walkthrough_tes
                 $this->get_contains_partcorrect_expectation());
 
         $autogradedstep = $this->get_step($this->get_step_count() - 2);
-        $this->assertEquals($autogradedstep->get_fraction(), 0.6666667, '', 0.0000001);
+        $this->assertEqualsWithDelta($autogradedstep->get_fraction(), 0.6666667, 0.0000001);
     }
 
     public function test_interactive_finish_when_try_again_showing() {
 
         // Create a multichoice single question.
-        $mc = test_question_maker::make_a_multichoice_single_question();
+        $mc = \test_question_maker::make_a_multichoice_single_question();
+        $mc->showstandardinstruction = true;
         $mc->hints = array(
             new question_hint_with_parts(0, 'This is the first hint.', FORMAT_HTML, false, false),
         );
@@ -206,7 +203,7 @@ class qbehaviour_interactive_walkthrough_test extends qbehaviour_walkthrough_tes
                 $this->get_does_not_contain_feedback_expectation(),
                 $this->get_tries_remaining_expectation(2),
                 $this->get_no_hint_visible_expectation(),
-                new question_pattern_expectation('/' .
+                new \question_pattern_expectation('/' .
                         preg_quote(get_string('selectone', 'qtype_multichoice'), '/') . '/'));
 
         // Submit the wrong answer.
@@ -220,11 +217,10 @@ class qbehaviour_interactive_walkthrough_test extends qbehaviour_walkthrough_tes
                 $this->get_contains_mc_radio_expectation($wrongindex, false, true),
                 $this->get_contains_mc_radio_expectation(($wrongindex + 1) % 3, false, false),
                 $this->get_contains_mc_radio_expectation(($wrongindex + 1) % 3, false, false),
-                $this->get_contains_submit_button_expectation(false),
+                $this->get_does_not_contain_submit_button_expectation(),
                 $this->get_contains_try_again_button_expectation(true),
                 $this->get_does_not_contain_correctness_expectation(),
-                new question_pattern_expectation('/' .
-                        preg_quote(get_string('notcomplete', 'qbehaviour_interactive'), '/') . '/'),
+                new \question_pattern_expectation('/Tries remaining: 1/'),
                 $this->get_contains_hint_expectation('This is the first hint'));
 
         // Finish the attempt.
@@ -245,7 +241,7 @@ class qbehaviour_interactive_walkthrough_test extends qbehaviour_walkthrough_tes
     public function test_interactive_shortanswer_try_to_submit_blank() {
 
         // Create a short answer question.
-        $sa = test_question_maker::make_question('shortanswer');
+        $sa = \test_question_maker::make_question('shortanswer');
         $sa->hints = array(
             new question_hint(0, 'This is the first hint.', FORMAT_HTML),
             new question_hint(0, 'This is the second hint.', FORMAT_HTML),
@@ -285,11 +281,10 @@ class qbehaviour_interactive_walkthrough_test extends qbehaviour_walkthrough_tes
         $this->check_current_mark(null);
         $this->check_current_output(
                 $this->get_contains_marked_out_of_summary(),
-                $this->get_contains_submit_button_expectation(false),
+                $this->get_does_not_contain_submit_button_expectation(),
                 $this->get_does_not_contain_validation_error_expectation(),
                 $this->get_contains_try_again_button_expectation(true),
-                new question_pattern_expectation('/' .
-                        preg_quote(get_string('notcomplete', 'qbehaviour_interactive'), '/') . '/'),
+                new \question_pattern_expectation('/Tries remaining: 2/'),
                 $this->get_contains_hint_expectation('This is the first hint'));
         $this->assertEquals('newt',
                 $this->quba->get_response_summary($this->slot));
@@ -330,7 +325,7 @@ class qbehaviour_interactive_walkthrough_test extends qbehaviour_walkthrough_tes
         $this->check_current_mark(0.6666667);
         $this->check_current_output(
                 $this->get_contains_mark_summary(0.6666667),
-                $this->get_contains_submit_button_expectation(false),
+                $this->get_does_not_contain_submit_button_expectation(),
                 $this->get_contains_correct_expectation(),
                 $this->get_does_not_contain_validation_error_expectation(),
                 $this->get_no_hint_visible_expectation());
@@ -341,7 +336,8 @@ class qbehaviour_interactive_walkthrough_test extends qbehaviour_walkthrough_tes
     public function test_interactive_feedback_multichoice_multiple_reset() {
 
         // Create a multichoice multiple question.
-        $mc = test_question_maker::make_a_multichoice_multi_question();
+        $mc = \test_question_maker::make_a_multichoice_multi_question();
+        $mc->showstandardinstruction = true;
         $mc->hints = array(
             new question_hint_with_parts(0, 'This is the first hint.', FORMAT_HTML, true, true),
             new question_hint_with_parts(0, 'This is the second hint.', FORMAT_HTML, true, true),
@@ -368,7 +364,7 @@ class qbehaviour_interactive_walkthrough_test extends qbehaviour_walkthrough_tes
                 $this->get_does_not_contain_num_parts_correct(),
                 $this->get_tries_remaining_expectation(3),
                 $this->get_no_hint_visible_expectation(),
-                new question_pattern_expectation('/' .
+                new \question_pattern_expectation('/' .
                         preg_quote(get_string('selectmulti', 'qtype_multichoice'), '/') . '/'));
 
         // Submit an answer with one right, and one wrong.
@@ -383,11 +379,10 @@ class qbehaviour_interactive_walkthrough_test extends qbehaviour_walkthrough_tes
                 $this->get_contains_mc_checkbox_expectation($right[1], false, false),
                 $this->get_contains_mc_checkbox_expectation($wrong[0], false, true),
                 $this->get_contains_mc_checkbox_expectation($wrong[1], false, false),
-                $this->get_contains_submit_button_expectation(false),
+                $this->get_does_not_contain_submit_button_expectation(),
                 $this->get_contains_try_again_button_expectation(true),
                 $this->get_does_not_contain_correctness_expectation(),
-                new question_pattern_expectation('/' .
-                        preg_quote(get_string('notcomplete', 'qbehaviour_interactive'), '/') . '/'),
+                new \question_pattern_expectation('/Tries remaining: 2/'),
                 $this->get_contains_hint_expectation('This is the first hint'),
                 $this->get_contains_num_parts_correct(1),
                 $this->get_contains_standard_incorrect_combined_feedback_expectation(),
@@ -421,7 +416,7 @@ class qbehaviour_interactive_walkthrough_test extends qbehaviour_walkthrough_tes
 
     public function test_interactive_regrade_changing_num_tries_leaving_open() {
         // Create a multichoice multiple question.
-        $q = test_question_maker::make_question('shortanswer');
+        $q = \test_question_maker::make_question('shortanswer');
         $q->hints = array(
             new question_hint_with_parts(0, 'This is the first hint.', FORMAT_HTML, true, true),
             new question_hint_with_parts(0, 'This is the second hint.', FORMAT_HTML, true, true),
@@ -454,7 +449,7 @@ class qbehaviour_interactive_walkthrough_test extends qbehaviour_walkthrough_tes
 
     public function test_interactive_regrade_changing_num_tries_finished() {
         // Create a multichoice multiple question.
-        $q = test_question_maker::make_question('shortanswer');
+        $q = \test_question_maker::make_question('shortanswer');
         $q->hints = array(
             new question_hint_with_parts(0, 'This is the first hint.', FORMAT_HTML, true, true),
             new question_hint_with_parts(0, 'This is the second hint.', FORMAT_HTML, true, true),
@@ -486,5 +481,53 @@ class qbehaviour_interactive_walkthrough_test extends qbehaviour_walkthrough_tes
         // you get attempting a question like this without regrading being involved,
         // and I am currently interested in testing regrading here.
         $this->check_current_mark(1);
+    }
+
+    public function test_review_of_interactive_questions_before_finished() {
+        // Create a multichoice multiple question.
+        $q = \test_question_maker::make_question('shortanswer');
+        $q->hints = array(
+                new question_hint_with_parts(0, 'This is the first hint.', FORMAT_HTML, true, true),
+                new question_hint_with_parts(0, 'This is the second hint.', FORMAT_HTML, true, true),
+        );
+        $this->start_attempt_at_question($q, 'interactive', 3);
+
+        // Check the initial state.
+        $this->check_current_state(question_state::$todo);
+        $this->check_current_mark(null);
+        $this->check_current_output(
+                $this->get_contains_submit_button_expectation(true),
+                $this->get_does_not_contain_feedback_expectation(),
+                $this->get_tries_remaining_expectation(3),
+                $this->get_does_not_contain_try_again_button_expectation());
+
+        // Now check what the teacher sees when they review the question.
+        $this->displayoptions->readonly = true;
+        $this->check_current_output(
+                $this->get_contains_submit_button_expectation(false),
+                $this->get_does_not_contain_feedback_expectation(),
+                $this->get_tries_remaining_expectation(3),
+                $this->get_does_not_contain_try_again_button_expectation());
+        $this->displayoptions->readonly = false;
+
+        // Submit a wrong answer.
+        $this->process_submission(array('answer' => 'cat', '-submit' => 1));
+
+        // Check the Try again button now shows up correctly.
+        $this->check_current_state(question_state::$todo);
+        $this->check_current_mark(null);
+        $this->check_current_output(
+                $this->get_does_not_contain_submit_button_expectation(),
+                $this->get_contains_hint_expectation('This is the first hint.'),
+                $this->get_tries_remaining_expectation(2),
+                $this->get_contains_try_again_button_expectation(true));
+
+        // And check that a disabled Try again button shows up when the question is reviewed.
+        $this->displayoptions->readonly = true;
+        $this->check_current_output(
+                $this->get_does_not_contain_submit_button_expectation(),
+                $this->get_contains_hint_expectation('This is the first hint.'),
+                $this->get_tries_remaining_expectation(2),
+                $this->get_contains_try_again_button_expectation(false));
     }
 }

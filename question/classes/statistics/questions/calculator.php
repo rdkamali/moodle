@@ -68,12 +68,12 @@ class calculator {
      *
      * @param object[] questions to analyze, keyed by slot, also analyses sub questions for random questions.
      *                              we expect some extra fields - slot, maxmark and number on the full question data objects.
-     * @param \core\progress\base|null $progress the element to send progress messages to, default is {@link \core\progress\null}.
+     * @param \core\progress\base|null $progress the element to send progress messages to, default is {@link \core\progress\none}.
      */
     public function __construct($questions, $progress = null) {
 
         if ($progress === null) {
-            $progress = new \core\progress\null();
+            $progress = new \core\progress\none();
         }
         $this->progress = $progress;
         $this->stats = new $this->statscollectionclassname();
@@ -106,7 +106,7 @@ class calculator {
                 $israndomquestion = ($step->questionid != $this->stats->for_slot($step->slot)->questionid);
                 $breakdownvariants = !$israndomquestion && $this->stats->for_slot($step->slot)->break_down_by_variant();
                 // If this is a variant we have not seen before create a place to store stats calculations for this variant.
-                if ($breakdownvariants && is_null($this->stats->for_slot($step->slot , $step->variant))) {
+                if ($breakdownvariants && !$this->stats->has_slot($step->slot, $step->variant)) {
                     $question = $this->stats->for_slot($step->slot)->question;
                     $this->stats->initialise_for_slot($step->slot, $question, $step->variant);
                     $this->stats->for_slot($step->slot, $step->variant)->randomguessscore =
@@ -118,14 +118,14 @@ class calculator {
 
                 // If this is a random question do the calculations for sub question stats.
                 if ($israndomquestion) {
-                    if (is_null($this->stats->for_subq($step->questionid))) {
+                    if (!$this->stats->has_subq($step->questionid)) {
                         $this->stats->initialise_for_subq($step);
                     } else if ($this->stats->for_subq($step->questionid)->maxmark != $step->maxmark) {
                         $this->stats->for_subq($step->questionid)->differentweights = true;
                     }
 
                     // If this is a variant of this subq we have not seen before create a place to store stats calculations for it.
-                    if (is_null($this->stats->for_subq($step->questionid, $step->variant))) {
+                    if (!$this->stats->has_subq($step->questionid, $step->variant)) {
                         $this->stats->initialise_for_subq($step, $step->variant);
                     }
 
@@ -181,16 +181,15 @@ class calculator {
 
             // Finish computing the averages, and put the sub-question data into the
             // corresponding questions.
-
-            // This cannot be a foreach loop because we need to have both
-            // $question and $nextquestion available, but apart from that it is
-            // foreach ($this->questions as $qid => $question).
             $slots = $this->stats->get_all_slots();
-            $this->progress->start_progress('', count($slots), 1);
-            while (list(, $slot) = each($slots)) {
+            $totalnumberofslots = count($slots);
+            $maxindex = $totalnumberofslots - 1;
+            $this->progress->start_progress('', $totalnumberofslots, 1);
+            foreach ($slots as $index => $slot) {
                 $this->stats->for_slot($slot)->sort_variants();
                 $this->progress->increment_progress();
-                $nextslot = current($slots);
+                $nextslotindex = $index + 1;
+                $nextslot = ($nextslotindex > $maxindex) ? false : $slots[$nextslotindex];
 
                 $this->initial_question_walker($this->stats->for_slot($slot));
 
@@ -347,17 +346,21 @@ class calculator {
      * @param calculated $stats question stats to update.
      */
     protected function initial_question_walker($stats) {
-        $stats->markaverage = $stats->totalmarks / $stats->s;
+        if ($stats->s != 0) {
+            $stats->markaverage = $stats->totalmarks / $stats->s;
+            $stats->othermarkaverage = $stats->totalothermarks / $stats->s;
+            $stats->summarksaverage = $stats->totalsummarks / $stats->s;
+        } else {
+            $stats->markaverage = 0;
+            $stats->othermarkaverage = 0;
+            $stats->summarksaverage = 0;
+        }
 
         if ($stats->maxmark != 0) {
             $stats->facility = $stats->markaverage / $stats->maxmark;
         } else {
             $stats->facility = null;
         }
-
-        $stats->othermarkaverage = $stats->totalothermarks / $stats->s;
-
-        $stats->summarksaverage = $stats->totalsummarks / $stats->s;
 
         sort($stats->markarray, SORT_NUMERIC);
         sort($stats->othermarksarray, SORT_NUMERIC);

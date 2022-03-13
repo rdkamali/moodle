@@ -91,9 +91,13 @@ class db_record_lock_factory implements lock_factory {
 
     /**
      * Multiple locks for the same resource can be held by a single process.
+     *
+     * @deprecated since Moodle 3.10.
      * @return boolean - False - not process specific.
      */
     public function supports_recursion() {
+        debugging('The function supports_recursion() is deprecated, please do not use it anymore.',
+            DEBUG_DEVELOPER);
         return false;
     }
 
@@ -103,40 +107,8 @@ class db_record_lock_factory implements lock_factory {
      * to duplicates in a clustered environment (especially on VMs due to poor time precision).
      */
     protected function generate_unique_token() {
-        $uuid = '';
-
-        if (function_exists("uuid_create")) {
-            $context = null;
-            uuid_create($context);
-
-            uuid_make($context, UUID_MAKE_V4);
-            uuid_export($context, UUID_FMT_STR, $uuid);
-        } else {
-            // Fallback uuid generation based on:
-            // "http://www.php.net/manual/en/function.uniqid.php#94959".
-            $uuid = sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
-
-                // 32 bits for "time_low".
-                mt_rand(0, 0xffff), mt_rand(0, 0xffff),
-
-                // 16 bits for "time_mid".
-                mt_rand(0, 0xffff),
-
-                // 16 bits for "time_hi_and_version",
-                // four most significant bits holds version number 4.
-                mt_rand(0, 0x0fff) | 0x4000,
-
-                // 16 bits, 8 bits for "clk_seq_hi_res",
-                // 8 bits for "clk_seq_low",
-                // two most significant bits holds zero and one for variant DCE1.1.
-                mt_rand(0, 0x3fff) | 0x8000,
-
-                // 48 bits for "node".
-                mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff));
-        }
-        return trim($uuid);
+        return \core\uuid::generate();
     }
-
 
     /**
      * Create and get a lock
@@ -152,15 +124,17 @@ class db_record_lock_factory implements lock_factory {
         $giveuptime = $now + $timeout;
         $expires = $now + $maxlifetime;
 
-        if (!$this->db->record_exists('lock_db', array('resourcekey' => $resource))) {
+        $resourcekey = $this->type . '_' . $resource;
+
+        if (!$this->db->record_exists('lock_db', array('resourcekey' => $resourcekey))) {
             $record = new \stdClass();
-            $record->resourcekey = $resource;
+            $record->resourcekey = $resourcekey;
             $result = $this->db->insert_record('lock_db', $record);
         }
 
         $params = array('expires' => $expires,
                         'token' => $token,
-                        'resourcekey' => $resource,
+                        'resourcekey' => $resourcekey,
                         'now' => $now);
         $sql = 'UPDATE {lock_db}
                    SET
@@ -175,10 +149,10 @@ class db_record_lock_factory implements lock_factory {
             $params['now'] = $now;
             $this->db->execute($sql, $params);
 
-            $countparams = array('owner' => $token, 'resourcekey' => $resource);
+            $countparams = array('owner' => $token, 'resourcekey' => $resourcekey);
             $result = $this->db->count_records('lock_db', $countparams);
             $locked = $result === 1;
-            if (!$locked) {
+            if (!$locked && $timeout > 0) {
                 usleep(rand(10000, 250000)); // Sleep between 10 and 250 milliseconds.
             }
             // Try until the giveup time.
@@ -217,11 +191,16 @@ class db_record_lock_factory implements lock_factory {
 
     /**
      * Extend a lock that was previously obtained with @lock.
+     *
+     * @deprecated since Moodle 3.10.
      * @param lock $lock - a lock obtained from this factory.
      * @param int $maxlifetime - the new lifetime for the lock (in seconds).
      * @return boolean - true if the lock was extended.
      */
     public function extend_lock(lock $lock, $maxlifetime = 86400) {
+        debugging('The function extend_lock() is deprecated, please do not use it anymore.',
+            DEBUG_DEVELOPER);
+
         $now = time();
         $expires = $now + $maxlifetime;
         $params = array('expires' => $expires,
@@ -248,7 +227,7 @@ class db_record_lock_factory implements lock_factory {
         // Called from the shutdown handler. Must release all open locks.
         foreach ($this->openlocks as $key => $unused) {
             $lock = new lock($key, $this);
-            $this->release_lock($lock);
+            $lock->release();
         }
     }
 }

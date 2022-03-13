@@ -57,6 +57,7 @@ $context = context_module::instance($cm->id);
 require_login($course, true, $cm);
 
 require_capability('mod/feedback:edititems', $context);
+$actionbar = new \mod_feedback\output\edit_action_bar($cm->id, $url);
 
 $mform = new feedback_import_form();
 $newformdata = array('id'=>$id,
@@ -94,16 +95,22 @@ $strfeedback  = get_string("modulename", "feedback");
 
 $PAGE->set_heading($course->fullname);
 $PAGE->set_title($feedback->name);
+$PAGE->activityheader->set_attrs([
+    "hidecompletion" => true,
+    "description" => ''
+]);
 echo $OUTPUT->header();
-echo $OUTPUT->heading(format_string($feedback->name));
-/// print the tabs
-require('tabs.php');
+/** @var \mod_feedback\output\renderer $renderer */
+$renderer = $PAGE->get_renderer('mod_feedback');
+echo $renderer->main_action_bar($actionbar);
 
 /// Print the main part of the page
 ///////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////
-echo $OUTPUT->heading(get_string('import_questions', 'feedback'), 3);
+if (!$PAGE->has_secondary_navigation()) {
+    echo $OUTPUT->heading(get_string('import_questions', 'feedback'), 3);
+}
 
 if (isset($importerror->msg) AND is_array($importerror->msg)) {
     echo $OUTPUT->box_start('generalbox errorboxcontent boxaligncenter');
@@ -208,6 +215,10 @@ function feedback_import_loaded_data(&$data, $feedbackid) {
         $newitem->typ = $typ;
         $newitem->name = trim($item['#']['ITEMTEXT'][0]['#']);
         $newitem->label = trim($item['#']['ITEMLABEL'][0]['#']);
+        if ($typ === 'captcha' || $typ === 'label') {
+            $newitem->label = '';
+            $newitem->name = '';
+        }
         $newitem->options = trim($item['#']['OPTIONS'][0]['#']);
         $newitem->presentation = trim($item['#']['PRESENTATION'][0]['#']);
         //check old types of radio, check, and so on

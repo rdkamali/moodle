@@ -77,7 +77,9 @@ define('COMPLETION_CRITERIA_TYPE_ROLE',         7);
 define('COMPLETION_CRITERIA_TYPE_COURSE',       8);
 
 /**
- * Criteria type constant to class name mapping
+ * Criteria type constant to class name mapping.
+ *
+ * This global variable would be improved if it was implemented as a cache.
  */
 global $COMPLETION_CRITERIA_TYPES;
 $COMPLETION_CRITERIA_TYPES = array(
@@ -168,7 +170,7 @@ abstract class completion_criteria extends data_object {
         global $CFG, $COMPLETION_CRITERIA_TYPES;
 
         if (!isset($params['criteriatype']) || !isset($COMPLETION_CRITERIA_TYPES[$params['criteriatype']])) {
-            error('invalidcriteriatype', 'completion');
+            print_error('invalidcriteriatype', 'completion');
         }
 
         $class = 'completion_criteria_'.$COMPLETION_CRITERIA_TYPES[$params['criteriatype']];
@@ -231,6 +233,20 @@ abstract class completion_criteria extends data_object {
      * @return array
      */
     abstract public function get_details($completion);
+
+    /**
+     * Return pix_icon for display in reports.
+     *
+     * @param string $alt The alt text to use for the icon
+     * @param array $attributes html attributes
+     * @return pix_icon
+     */
+    public function get_icon($alt, array $attributes = null) {
+        global $COMPLETION_CRITERIA_TYPES;
+
+        $criteriatype = $COMPLETION_CRITERIA_TYPES[$this->criteriatype];
+        return new pix_icon('i/'.$criteriatype, $alt, 'moodle', $attributes);
+    }
 
     /**
      * Return criteria status text for display in reports

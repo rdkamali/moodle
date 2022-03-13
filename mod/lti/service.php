@@ -26,67 +26,70 @@
 define('NO_DEBUG_DISPLAY', true);
 define('NO_MOODLE_COOKIES', true);
 
-require_once(dirname(__FILE__) . "/../../config.php");
+require_once(__DIR__ . "/../../config.php");
 require_once($CFG->dirroot.'/mod/lti/locallib.php');
 require_once($CFG->dirroot.'/mod/lti/servicelib.php');
 
 // TODO: Switch to core oauthlib once implemented - MDL-30149.
+use mod_lti\service_exception_handler;
 use moodle\mod\lti as lti;
+use ltiservice_basicoutcomes\local\service\basicoutcomes;
 
 $rawbody = file_get_contents("php://input");
 
-if (lti_should_log_request($rawbody)) {
+$logrequests  = lti_should_log_request($rawbody);
+$errorhandler = new service_exception_handler($logrequests);
+
+// Register our own error handler so we can always send valid XML response.
+set_exception_handler(array($errorhandler, 'handle'));
+
+if ($logrequests) {
     lti_log_request($rawbody);
 }
 
-foreach (lti\OAuthUtil::get_headers() as $name => $value) {
-    if ($name === 'Authorization') {
-        // TODO: Switch to core oauthlib once implemented - MDL-30149.
-        $oauthparams = lti\OAuthUtil::split_header($value);
+$ok = true;
+$type = null;
+$toolproxy = false;
 
-        $consumerkey = $oauthparams['oauth_consumer_key'];
-        break;
+$consumerkey = lti\get_oauth_key_from_headers(null, array(basicoutcomes::SCOPE_BASIC_OUTCOMES));
+if ($consumerkey === false) {
+    throw new Exception('Missing or invalid consumer key or access token.');
+} else if (is_string($consumerkey)) {
+    $toolproxy = lti_get_tool_proxy_from_guid($consumerkey);
+    if ($toolproxy !== false) {
+        $secrets = array($toolproxy->secret);
+    } else if (!empty($tool)) {
+        $secrets = array($typeconfig['password']);
+    } else {
+        $secrets = lti_get_shared_secrets_by_key($consumerkey);
+    }
+    $sharedsecret = lti_verify_message($consumerkey, lti_get_shared_secrets_by_key($consumerkey), $rawbody);
+    if ($sharedsecret === false) {
+        throw new Exception('Message signature not valid');
     }
 }
 
-if (empty($consumerkey)) {
-    throw new Exception('Consumer key is missing.');
-}
-
-$sharedsecret = lti_verify_message($consumerkey, lti_get_shared_secrets_by_key($consumerkey), $rawbody);
-
-if ($sharedsecret === false) {
-    throw new Exception('Message signature not valid');
-}
-
 // TODO MDL-46023 Replace this code with a call to the new library.
-$origentity = libxml_disable_entity_loader(true);
+$origentity = lti_libxml_disable_entity_loader(true);
 $xml = simplexml_load_string($rawbody);
 if (!$xml) {
-    libxml_disable_entity_loader($origentity);
+    lti_libxml_disable_entity_loader($origentity);
     throw new Exception('Invalid XML content');
 }
-libxml_disable_entity_loader($origentity);
+lti_libxml_disable_entity_loader($origentity);
 
 $body = $xml->imsx_POXBody;
 foreach ($body->children() as $child) {
     $messagetype = $child->getName();
 }
 
+// We know more about the message, update error handler to send better errors.
+$errorhandler->set_message_id(lti_parse_message_id($xml));
+$errorhandler->set_message_type($messagetype);
+
 switch ($messagetype) {
     case 'replaceResultRequest':
-        try {
-            $parsed = lti_parse_grade_replace_message($xml);
-        } catch (Exception $e) {
-            $responsexml = lti_get_response_xml(
-                'failure',
-                $e->getMessage(),
-                uniqid(),
-                'replaceResultResponse');
-
-            echo $responsexml->asXML();
-            break;
-        }
+        $parsed = lti_parse_grade_replace_message($xml);
 
         $ltiinstance = $DB->get_record('lti', array('id' => $parsed->instanceid));
 
@@ -99,8 +102,12 @@ switch ($messagetype) {
 
         $gradestatus = lti_update_grade($ltiinstance, $parsed->userid, $parsed->launchid, $parsed->gradeval);
 
+        if (!$gradestatus) {
+            throw new Exception('Grade replace response');
+        }
+
         $responsexml = lti_get_response_xml(
-                $gradestatus ? 'success' : 'failure',
+                'success',
                 'Grade replace response',
                 $parsed->messageid,
                 'replaceResultResponse'
@@ -157,8 +164,12 @@ switch ($messagetype) {
 
         $gradestatus = lti_delete_grade($ltiinstance, $parsed->userid);
 
+        if (!$gradestatus) {
+            throw new Exception('Grade delete request');
+        }
+
         $responsexml = lti_get_response_xml(
-                $gradestatus ? 'success' : 'failure',
+                'success',
                 'Grade delete request',
                 $parsed->messageid,
                 'deleteResultResponse'

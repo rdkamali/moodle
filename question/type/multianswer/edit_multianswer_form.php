@@ -44,11 +44,16 @@ class qtype_multianswer_edit_form extends question_edit_form {
     // from the questiontext in database.
     public $savedquestion;
     public $savedquestiondisplay;
-    public $used_in_quiz = false;
-    public $qtype_change = false;
-    public $negative_diff = 0;
-    public $nb_of_quiz = 0;
-    public $nb_of_attempts = 0;
+    /** @var bool this question is used in quiz */
+    public $usedinquiz = false;
+    /** @var bool the qtype has been changed */
+    public $qtypechange = false;
+    /** @var integer number of questions that have been deleted   */
+    public $negativediff = 0;
+    /** @var integer number of quiz that used this question   */
+    public $nbofquiz = 0;
+    /** @var integer number of attempts that used this question   */
+    public $nbofattempts = 0;
     public $confirm = 0;
     public $reload = false;
     /** @var qtype_numerical_answer_processor used when validating numerical answers. */
@@ -56,23 +61,18 @@ class qtype_multianswer_edit_form extends question_edit_form {
 
 
     public function __construct($submiturl, $question, $category, $contexts, $formeditable = true) {
-        global $SESSION, $CFG, $DB;
         $this->regenerate = true;
         $this->reload = optional_param('reload', false, PARAM_BOOL);
 
-        $this->used_in_quiz = false;
+        $this->usedinquiz = false;
 
         if (isset($question->id) && $question->id != 0) {
             // TODO MDL-43779 should not have quiz-specific code here.
             $this->savedquestiondisplay = fullclone($question);
-            $this->nb_of_quiz = $DB->count_records('quiz_slots', array('questionid' => $question->id));
-            $this->used_in_quiz = $this->nb_of_quiz > 0;
-            $this->nb_of_attempts = $DB->count_records_sql("
-                    SELECT count(1)
-                      FROM {quiz_slots} slot
-                      JOIN {quiz_attempts} quiza ON quiza.quiz = slot.quizid
-                     WHERE slot.questionid = ?
-                       AND quiza.preview = 0", array($question->id));
+            $questiondata = question_bank::load_question($question->id);
+            $this->nbofquiz = \qbank_usage\helper::get_question_entry_usage_count($questiondata);
+            $this->usedinquiz = $this->nbofquiz > 0;
+            $this->nbofattempts = \qbank_usage\helper::get_question_attempts_count_in_quiz((int)$question->id);
         }
 
         parent::__construct($submiturl, $question, $category, $contexts, $formeditable);
@@ -150,15 +150,15 @@ class qtype_multianswer_edit_form extends question_edit_form {
                 $storemess = '';
                 if (isset($this->savedquestiondisplay->options->questions[$sub]->qtype) &&
                         $this->savedquestiondisplay->options->questions[$sub]->qtype !=
-                                $this->questiondisplay->options->questions[$sub]->qtype) {
-                    $this->qtype_change = true;
+                                $this->questiondisplay->options->questions[$sub]->qtype &&
+                        $this->savedquestiondisplay->options->questions[$sub]->qtype != 'subquestion_replacement') {
+                    $this->qtypechange = true;
                     $storemess = ' ' . html_writer::tag('span', get_string(
                             'storedqtype', 'qtype_multianswer', question_bank::get_qtype_name(
                                     $this->savedquestiondisplay->options->questions[$sub]->qtype)),
                             array('class' => 'error'));
                 }
-
-                $mform->addElement('header', 'subhdr'.$sub, get_string('questionno', 'question',
+                            $mform->addElement('header', 'subhdr'.$sub, get_string('questionno', 'question',
                        '{#'.$sub.'}').'&nbsp;'.question_bank::get_qtype_name(
                         $this->questiondisplay->options->questions[$sub]->qtype).$storemess);
 
@@ -183,6 +183,8 @@ class qtype_multianswer_edit_form extends question_edit_form {
                 if ($this->questiondisplay->options->questions[$sub]->qtype == 'multichoice') {
                     $mform->addElement('static', 'sub_'.$sub.'_layout',
                             get_string('layout', 'qtype_multianswer'));
+                    $mform->addElement('static', 'sub_'.$sub.'_shuffleanswers',
+                            get_string('shuffleanswers', 'qtype_multichoice'));
                 }
 
                 foreach ($this->questiondisplay->options->questions[$sub]->answer as $key => $ans) {
@@ -196,32 +198,32 @@ class qtype_multianswer_edit_form extends question_edit_form {
                     }
 
                     $mform->addElement('static', 'sub_'.$sub.'_fraction['.$key.']',
-                            get_string('grade'));
+                            get_string('gradenoun'));
 
                     $mform->addElement('static', 'sub_'.$sub.'_feedback['.$key.']',
                             get_string('feedback', 'question'));
                 }
             }
 
-            $this->negative_diff = $countsavedsubquestions - $countsubquestions;
-            if (($this->negative_diff > 0) ||$this->qtype_change ||
-                    ($this->used_in_quiz && $this->negative_diff != 0)) {
+            $this->negativediff = $countsavedsubquestions - $countsubquestions;
+            if (($this->negativediff > 0) ||$this->qtypechange ||
+                    ($this->usedinquiz && $this->negativediff != 0)) {
                 $mform->addElement('header', 'additemhdr',
                         get_string('warningquestionmodified', 'qtype_multianswer'));
             }
-            if ($this->negative_diff > 0) {
+            if ($this->negativediff > 0) {
                 $mform->addElement('static', 'alert1', "<strong>".
                         get_string('questiondeleted', 'qtype_multianswer')."</strong>",
-                        get_string('questionsless', 'qtype_multianswer', $this->negative_diff));
+                        get_string('questionsless', 'qtype_multianswer', $this->negativediff));
             }
-            if ($this->qtype_change) {
+            if ($this->qtypechange) {
                 $mform->addElement('static', 'alert1', "<strong>".
                         get_string('questiontypechanged', 'qtype_multianswer')."</strong>",
                         get_string('questiontypechangedcomment', 'qtype_multianswer'));
             }
         }
-        if ($this->used_in_quiz) {
-            if ($this->negative_diff < 0) {
+        if ($this->usedinquiz) {
+            if ($this->negativediff < 0) {
                 $diff = $countsubquestions - $countsavedsubquestions;
                 $mform->addElement('static', 'alert1', "<strong>".
                         get_string('questionsadded', 'qtype_multianswer')."</strong>",
@@ -229,15 +231,15 @@ class qtype_multianswer_edit_form extends question_edit_form {
                         "</strong>");
             }
             $a = new stdClass();
-            $a->nb_of_quiz = $this->nb_of_quiz;
-            $a->nb_of_attempts = $this->nb_of_attempts;
+            $a->nb_of_quiz = $this->nbofquiz;
+            $a->nb_of_attempts = $this->nbofattempts;
             $mform->addElement('header', 'additemhdr2',
                     get_string('questionusedinquiz', 'qtype_multianswer', $a));
             $mform->addElement('static', 'alertas',
                     get_string('youshouldnot', 'qtype_multianswer'));
         }
-        if (($this->negative_diff > 0 || $this->used_in_quiz &&
-                ($this->negative_diff > 0 || $this->negative_diff < 0 || $this->qtype_change)) &&
+        if (($this->negativediff > 0 || $this->usedinquiz &&
+                ($this->negativediff > 0 || $this->negativediff < 0 || $this->qtypechange)) &&
                         $this->reload) {
             $mform->addElement('header', 'additemhdr',
                     get_string('questionsaveasedited', 'qtype_multianswer'));
@@ -255,7 +257,7 @@ class qtype_multianswer_edit_form extends question_edit_form {
 
     public function set_data($question) {
         global $DB;
-        $default_values = array();
+        $defaultvalues = array();
         if (isset($question->id) and $question->id and $question->qtype &&
                 $question->questiontext) {
 
@@ -275,6 +277,8 @@ class qtype_multianswer_edit_form extends question_edit_form {
                             case 'numerical':
                                 $parsableanswerdef .= 'NUMERICAL:';
                                 break;
+                            case 'subquestion_replacement':
+                                continue 2;
                             default:
                                 print_error('unknownquestiontype', 'question', '',
                                         $wrapped->qtype);
@@ -282,7 +286,7 @@ class qtype_multianswer_edit_form extends question_edit_form {
                         $separator = '';
                         foreach ($wrapped->options->answers as $subanswer) {
                             $parsableanswerdef .= $separator
-                                . '%' . round(100*$subanswer->fraction) . '%';
+                                . '%' . round(100 * $subanswer->fraction) . '%';
                             if (is_array($subanswer->answer)) {
                                 $parsableanswerdef .= $subanswer->answer['text'];
                             } else {
@@ -329,39 +333,60 @@ class qtype_multianswer_edit_form extends question_edit_form {
                         if ($subquestion->qtype == 'shortanswer') {
                             switch ($subquestion->usecase) {
                                 case '1':
-                                    $default_values[$prefix.'usecase'] =
+                                    $defaultvalues[$prefix.'usecase'] =
                                             get_string('caseyes', 'qtype_shortanswer');
                                     break;
                                 case '0':
                                 default :
-                                    $default_values[$prefix.'usecase'] =
+                                    $defaultvalues[$prefix.'usecase'] =
                                             get_string('caseno', 'qtype_shortanswer');
                             }
                         }
 
                         if ($subquestion->qtype == 'multichoice') {
-                            $default_values[$prefix.'layout'] = $subquestion->layout;
-                            switch ($subquestion->layout) {
-                                case '0':
-                                    $default_values[$prefix.'layout'] =
+                            $defaultvalues[$prefix.'layout'] = $subquestion->layout;
+                            if ($subquestion->single == 1) {
+                                switch ($subquestion->layout) {
+                                    case '0':
+                                        $defaultvalues[$prefix.'layout'] =
                                             get_string('layoutselectinline', 'qtype_multianswer');
-                                    break;
-                                case '1':
-                                    $default_values[$prefix.'layout'] =
+                                        break;
+                                    case '1':
+                                        $defaultvalues[$prefix.'layout'] =
                                             get_string('layoutvertical', 'qtype_multianswer');
-                                    break;
-                                case '2':
-                                    $default_values[$prefix.'layout'] =
+                                        break;
+                                    case '2':
+                                        $defaultvalues[$prefix.'layout'] =
                                             get_string('layouthorizontal', 'qtype_multianswer');
-                                    break;
-                                default:
-                                    $default_values[$prefix.'layout'] =
+                                        break;
+                                    default:
+                                        $defaultvalues[$prefix.'layout'] =
                                             get_string('layoutundefined', 'qtype_multianswer');
+                                }
+                            } else {
+                                switch ($subquestion->layout) {
+                                    case '1':
+                                        $defaultvalues[$prefix.'layout'] =
+                                            get_string('layoutmultiple_vertical', 'qtype_multianswer');
+                                        break;
+                                    case '2':
+                                        $defaultvalues[$prefix.'layout'] =
+                                            get_string('layoutmultiple_horizontal', 'qtype_multianswer');
+                                        break;
+                                    default:
+                                        $defaultvalues[$prefix.'layout'] =
+                                            get_string('layoutundefined', 'qtype_multianswer');
+                                }
+                            }
+                            if ($subquestion->shuffleanswers ) {
+                                $defaultvalues[$prefix.'shuffleanswers'] = get_string('yes', 'moodle');
+                            } else {
+                                $defaultvalues[$prefix.'shuffleanswers'] = get_string('no', 'moodle');
                             }
                         }
                         foreach ($subquestion->answer as $key => $answer) {
                             if ($subquestion->qtype == 'numerical' && $key == 0) {
-                                $default_values[$prefix.'tolerance['.$key.']'] =
+                                $defaultvalues[$prefix.'tolerance['.$key.']'] =
                                         $subquestion->tolerance[0];
                             }
                             if (is_array($answer)) {
@@ -371,7 +396,7 @@ class qtype_multianswer_edit_form extends question_edit_form {
                             if ($trimmedanswer !== '') {
                                 $answercount++;
                                 if ($subquestion->qtype == 'numerical' &&
-                                        !($this->is_valid_number($trimmedanswer) || $trimmedanswer == '*')) {
+                                        !(qtype_numerical::is_valid_number($trimmedanswer) || $trimmedanswer == '*')) {
                                     $this->_form->setElementError($prefix.'answer['.$key.']',
                                             get_string('answermustbenumberorstar',
                                                     'qtype_numerical'));
@@ -382,9 +407,14 @@ class qtype_multianswer_edit_form extends question_edit_form {
                                 if ($subquestion->fraction[$key] > $maxfraction) {
                                     $maxfraction = $subquestion->fraction[$key];
                                 }
+                                // For 'multiresponse' we are OK if there is at least one fraction > 0.
+                                if ($subquestion->qtype == 'multichoice' && $subquestion->single == 0 &&
+                                    $subquestion->fraction[$key] > 0) {
+                                    $maxgrade = true;
+                                }
                             }
 
-                            $default_values[$prefix.'answer['.$key.']'] =
+                            $defaultvalues[$prefix.'answer['.$key.']'] =
                                     htmlspecialchars($answer);
                         }
                         if ($answercount == 0) {
@@ -402,11 +432,11 @@ class qtype_multianswer_edit_form extends question_edit_form {
                         }
                         foreach ($subquestion->feedback as $key => $answer) {
 
-                            $default_values[$prefix.'feedback['.$key.']'] =
+                            $defaultvalues[$prefix.'feedback['.$key.']'] =
                                     htmlspecialchars ($answer['text']);
                         }
                         foreach ($subquestion->fraction as $key => $answer) {
-                            $default_values[$prefix.'fraction['.$key.']'] = $answer;
+                            $defaultvalues[$prefix.'fraction['.$key.']'] = $answer;
                         }
 
                         $sub++;
@@ -414,97 +444,28 @@ class qtype_multianswer_edit_form extends question_edit_form {
                 }
             }
         }
-        $default_values['alertas']= "<strong>".get_string('questioninquiz', 'qtype_multianswer').
+        $defaultvalues['alertas'] = "<strong>".get_string('questioninquiz', 'qtype_multianswer').
                 "</strong>";
 
-        if ($default_values != "") {
-            $question = (object)((array)$question + $default_values);
+        if ($defaultvalues != "") {
+            $question = (object)((array)$question + $defaultvalues);
         }
         $question = $this->data_preprocessing_hints($question, true, true);
         parent::set_data($question);
     }
-
-    /**
-     * Validate that a string is a nubmer formatted correctly for the current locale.
-     * @param string $x a string
-     * @return bool whether $x is a number that the numerical question type can interpret.
-     */
-    protected function is_valid_number($x) {
-        if (is_null($this->ap)) {
-            $this->ap = new qtype_numerical_answer_processor(array());
-        }
-
-        list($value, $unit) = $this->ap->apply_units($x);
-
-        return !is_null($value) && !$unit;
-    }
-
 
     public function validation($data, $files) {
         $errors = parent::validation($data, $files);
 
         $questiondisplay = qtype_multianswer_extract_question($data['questiontext']);
 
-        if (isset($questiondisplay->options->questions)) {
-            $subquestions = fullclone($questiondisplay->options->questions);
-            if (count($subquestions)) {
-                $sub = 1;
-                foreach ($subquestions as $subquestion) {
-                    $prefix = 'sub_'.$sub.'_';
-                    $answercount = 0;
-                    $maxgrade = false;
-                    $maxfraction = -1;
-                    if (isset($this->savedquestiondisplay->options->questions[$sub]->qtype) &&
-                            $this->savedquestiondisplay->options->questions[$sub]->qtype !=
-                                    $questiondisplay->options->questions[$sub]->qtype) {
-                        $storemess = " STORED QTYPE ".question_bank::get_qtype_name(
-                                $this->savedquestiondisplay->options->questions[$sub]->qtype);
-                    }
-                    foreach ($subquestion->answer as $key => $answer) {
-                        if (is_array($answer)) {
-                            $answer = $answer['text'];
-                        }
-                        $trimmedanswer = trim($answer);
-                        if ($trimmedanswer !== '') {
-                            $answercount++;
-                            if ($subquestion->qtype == 'numerical' &&
-                                    !($this->is_valid_number($trimmedanswer) || $trimmedanswer == '*')) {
-                                $errors[$prefix.'answer['.$key.']'] =
-                                        get_string('answermustbenumberorstar', 'qtype_numerical');
-                            }
-                            if ($subquestion->fraction[$key] == 1) {
-                                $maxgrade = true;
-                            }
-                            if ($subquestion->fraction[$key] > $maxfraction) {
-                                $maxfraction = $subquestion->fraction[$key];
-                            }
-                        }
-                    }
-                    if ($answercount == 0) {
-                        if ($subquestion->qtype == 'multichoice') {
-                            $errors[$prefix.'answer[0]'] =
-                                    get_string('notenoughanswers', 'qtype_multichoice', 2);
-                        } else {
-                            $errors[$prefix.'answer[0]'] =
-                                    get_string('notenoughanswers', 'question', 1);
-                        }
-                    }
-                    if ($maxgrade == false) {
-                        $errors[$prefix.'fraction[0]'] =
-                                get_string('fractionsnomax', 'question');
-                    }
-                    $sub++;
-                }
-            } else {
-                $errors['questiontext'] = get_string('questionsmissing', 'qtype_multianswer');
-            }
-        }
+        $errors = array_merge($errors, qtype_multianswer_validate_question($questiondisplay));
 
-        if (($this->negative_diff > 0 || $this->used_in_quiz &&
-                ($this->negative_diff > 0 || $this->negative_diff < 0 ||
-                        $this->qtype_change)) && !$this->confirm) {
+        if (($this->negativediff > 0 || $this->usedinquiz &&
+                ($this->negativediff > 0 || $this->negativediff < 0 ||
+                        $this->qtypechange)) && !$this->confirm) {
             $errors['confirm'] =
-                    get_string('confirmsave', 'qtype_multianswer', $this->negative_diff);
+                    get_string('confirmsave', 'qtype_multianswer', $this->negativediff);
         }
 
         return $errors;

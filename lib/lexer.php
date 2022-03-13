@@ -5,7 +5,7 @@
  * http://sourceforge.net/projects/lamplib
  * This project is administered by Markus Baker, Harry Fuecks and Matt
  * Mitchell, and the project  code is in the public domain.
- * 
+ *
  * Thanks, guys!
  *
  * @package   moodlecore
@@ -23,7 +23,7 @@
     define("LEXER_EXIT", 4);
     /** LEXER_SPECIAL = 5 */
     define("LEXER_SPECIAL", 5);
-    
+
     /**
      * Compounded regular expression. Any of
      * the contained patterns could match and
@@ -37,20 +37,30 @@
         var $_labels;
         var $_regex;
         var $_case;
-        
+
         /**
          *    Constructor. Starts with no patterns.
          *    @param bool $case    True for case sensitive, false
          *                    for insensitive.
          *    @access public
          */
-        function ParallelRegex($case) {
+        public function __construct($case) {
             $this->_case = $case;
             $this->_patterns = array();
             $this->_labels = array();
             $this->_regex = null;
         }
-        
+
+        /**
+         * Old syntax of class constructor. Deprecated in PHP7.
+         *
+         * @deprecated since Moodle 3.1
+         */
+        public function ParallelRegex($case) {
+            debugging('Use of class name as constructor is deprecated', DEBUG_DEVELOPER);
+            self::__construct($case);
+        }
+
         /**
          *    Adds a pattern with an optional label.
          *    @param string $pattern      Perl style regex, but ( and )
@@ -65,7 +75,7 @@
             $this->_labels[$count] = $label;
             $this->_regex = null;
         }
-        
+
         /**
          *    Attempts to match all patterns at once against
          *    a string.
@@ -91,7 +101,7 @@
             }
             return true;
         }
-        
+
         /**
          *    Compounds the patterns into a single
          *    regular expression separated with the
@@ -111,7 +121,7 @@
             }
             return $this->_regex;
         }
-        
+
         /**
          *    Accessor for perl regex mode flags to use.
          *    @return string       Flags as string.
@@ -121,7 +131,7 @@
             return ($this->_case ? "msS" : "msSi");
         }
     }
-    
+
     /**
      * States for a stack machine.
      *
@@ -131,16 +141,26 @@
      */
     class StateStack {
         var $_stack;
-        
+
         /**
          *    Constructor. Starts in named state.
          *    @param string $start        Starting state name.
          *    @access public
          */
-        function StateStack($start) {
+        public function __construct($start) {
             $this->_stack = array($start);
         }
-        
+
+        /**
+         * Old syntax of class constructor. Deprecated in PHP7.
+         *
+         * @deprecated since Moodle 3.1
+         */
+        public function StateStack($start) {
+            debugging('Use of class name as constructor is deprecated', DEBUG_DEVELOPER);
+            self::__construct($start);
+        }
+
         /**
          *    Accessor for current state.
          *    @return string State as string.
@@ -149,7 +169,7 @@
         function getCurrent() {
             return $this->_stack[count($this->_stack) - 1];
         }
-        
+
         /**
          *    Adds a state to the stack and sets it
          *    to be the current state.
@@ -159,7 +179,7 @@
         function enter($state) {
             array_push($this->_stack, $state);
         }
-        
+
         /**
          *    Leaves the current state and reverts
          *    to the previous one.
@@ -175,7 +195,7 @@
             return true;
         }
     }
-    
+
     /**
      * Accepts text and breaks it into tokens.
      * Some optimisation to make the sure the
@@ -193,7 +213,7 @@
         var $_mode;
         var $_mode_handlers;
         var $_case;
-        
+
         /**
          *    Sets up the lexer in case insensitive matching
          *    by default.
@@ -203,14 +223,24 @@
          *    @param bool $case       True for case sensitive.
          *    @access public
          */
-        function Lexer(&$parser, $start = "accept", $case = false) {
+        public function __construct(&$parser, $start = "accept", $case = false) {
             $this->_case = $case;
             $this->_regexes = array();
             $this->_parser = &$parser;
             $this->_mode = new StateStack($start);
             $this->_mode_handlers = array();
         }
-        
+
+        /**
+         * Old syntax of class constructor. Deprecated in PHP7.
+         *
+         * @deprecated since Moodle 3.1
+         */
+        public function Lexer(&$parser, $start = "accept", $case = false) {
+            debugging('Use of class name as constructor is deprecated', DEBUG_DEVELOPER);
+            self::__construct($parser, $start, $case);
+        }
+
         /**
          *    Adds a token search pattern for a particular
          *    parsing mode. The pattern does not change the
@@ -228,7 +258,7 @@
             }
             $this->_regexes[$mode]->addPattern($pattern);
         }
-        
+
         /**
          *    Adds a pattern that will enter a new parsing
          *    mode. Useful for entering parenthesis, strings,
@@ -248,7 +278,7 @@
             }
             $this->_regexes[$mode]->addPattern($pattern, $new_mode);
         }
-        
+
         /**
          *    Adds a pattern that will exit the current mode
          *    and re-enter the previous one.
@@ -263,7 +293,7 @@
             }
             $this->_regexes[$mode]->addPattern($pattern, "__exit");
         }
-        
+
         /**
          *    Adds a pattern that has a special mode.
          *    Acts as an entry and exit pattern in one go.
@@ -281,7 +311,7 @@
             }
             $this->_regexes[$mode]->addPattern($pattern, "_$special");
         }
-        
+
         /**
          *    Adds a mapping from a mode to another handler.
          *    @param string $mode        Mode to be remapped.
@@ -291,7 +321,7 @@
         function mapHandler($mode, $handler) {
             $this->_mode_handlers[$mode] = $handler;
         }
-        
+
         /**
          *    Splits the page text into tokens. Will fail
          *    if the handlers report an error or if no
@@ -322,7 +352,7 @@
             }
             return $this->_invokeParser($raw, LEXER_UNMATCHED);
         }
-        
+
         /**
          *    Sends the matched token and any leading unmatched
          *    text to the parser changing the lexer to a new
@@ -360,7 +390,7 @@
             }
             return $this->_invokeParser($matched, LEXER_MATCHED);
         }
-        
+
         /**
          *    Calls the parser method named after the current
          *    mode. Empty content will be ignored.
@@ -379,7 +409,7 @@
             }
             return $this->_parser->$handler($content, $is_match);
         }
-        
+
         /**
          *    Tries to match a chunk of text and if successful
          *    removes the recognised chunk and any leading

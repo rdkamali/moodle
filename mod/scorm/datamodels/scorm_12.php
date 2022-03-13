@@ -43,7 +43,7 @@ if ($scoes = $DB->get_records('scorm_scoes', array('scorm' => $scorm->id), 'sort
 }
 
 // If SCORM 1.2 standard mode is disabled allow higher datamodel limits.
-if (intval(get_config("scorm", "scorm12standard"))) {
+if (intval(get_config("scorm", "scormstandard"))) {
     $cmistring256 = '^[\\u0000-\\uFFFF]{0,255}$';
     $cmistring4096 = '^[\\u0000-\\uFFFF]{0,4096}$';
 } else {
@@ -51,9 +51,12 @@ if (intval(get_config("scorm", "scorm12standard"))) {
     $cmistring4096 = $cmistring256;
 }
 
+$scorm->autocommit = ($scorm->autocommit === "1") ? true : false;
+$scorm->masteryoverride = ($scorm->masteryoverride === "1") ? true : false;
 $PAGE->requires->js_init_call('M.scorm_api.init', array($def, $cmiobj, $cmiint, $cmistring256, $cmistring4096,
                                                         scorm_debugging($scorm), $scorm->auto, $scorm->id, $CFG->wwwroot,
-                                                        sesskey(), $scoid, $attempt, $mode, $id, $currentorg, $scorm->autocommit));
+                                                        sesskey(), $scoid, $attempt, $mode, $id, $currentorg, $scorm->autocommit,
+                                                        $scorm->masteryoverride, $scorm->hidetoc));
 
 // Pull in the debugging utilities.
 if (scorm_debugging($scorm)) {

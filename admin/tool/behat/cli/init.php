@@ -47,11 +47,19 @@ list($options, $unrecognized) = cli_get_params(
         'help'     => false,
         'fromrun'  => 1,
         'torun'    => 0,
+        'optimize-runs' => '',
+        'add-core-features-to-theme' => false,
+        'axe'      => false,
+        'disable-composer' => false,
+        'composer-upgrade' => true,
+        'composer-self-update' => true,
     ),
     array(
         'j' => 'parallel',
         'm' => 'maxruns',
         'h' => 'help',
+        'o' => 'optimize-runs',
+        'a' => 'add-core-features-to-theme',
     )
 );
 
@@ -59,13 +67,37 @@ list($options, $unrecognized) = cli_get_params(
 $help = "
 Behat utilities to initialise behat tests
 
-Options:
--j, --parallel Number of parallel behat run to initialise
--m, --maxruns  Max parallel processes to be executed at one time.
---fromrun      Execute run starting from (Used for parallel runs on different vms)
---torun        Execute run till (Used for parallel runs on different vms)
+Usage:
+  php init.php      [--parallel=value [--maxruns=value] [--fromrun=value --torun=value]]
+                    [--axe] [-o | --optimize-runs] [-a | --add-core-features-to-theme]
+                    [--no-composer-self-update] [--no-composer-upgrade]
+                    [--disable-composer]
+                    [--help]
 
--h, --help     Print out this help
+Options:
+-j, --parallel      Number of parallel behat run to initialise
+-m, --maxruns       Max parallel processes to be executed at one time
+--fromrun           Execute run starting from (Used for parallel runs on different vms)
+--torun             Execute run till (Used for parallel runs on different vms)
+--axe               Include axe accessibility tests
+
+-o, --optimize-runs
+                    Split features with specified tags in all parallel runs.
+
+-a, --add-core-features-to-theme
+                    Add all core features to specified theme's
+
+--no-composer-self-update
+                    Prevent upgrade of the composer utility using its self-update command
+
+--no-composer-upgrade
+                    Prevent update development dependencies using composer
+
+--disable-composer
+                    A shortcut to disable composer self-update and dependency update
+                    Note: Installation of composer and/or dependencies will still happen as required
+
+-h, --help          Print out this help
 
 Example from Moodle root directory:
 \$ php admin/tool/behat/cli/init.php --parallel=2
@@ -80,14 +112,26 @@ if (!empty($options['help'])) {
 
 // Check which util file to call.
 $utilfile = 'util_single_run.php';
-$paralleloption = "";
+$commandoptions = "";
 // If parallel run then use utilparallel.
-if ($options['parallel']) {
+if ($options['parallel'] && $options['parallel'] > 1) {
     $utilfile = 'util.php';
-    $paralleloption = "";
+    // Sanitize all input options, so they can be passed to util.
     foreach ($options as $option => $value) {
         if ($value) {
-            $paralleloption .= " --$option=\"$value\"";
+            $commandoptions .= " --$option=\"$value\"";
+        }
+    }
+} else {
+    // Only sanitize options for single run.
+    $cmdoptionsforsinglerun = [
+        'add-core-features-to-theme',
+        'axe',
+    ];
+
+    foreach ($cmdoptionsforsinglerun as $option) {
+        if (!empty($options[$option])) {
+            $commandoptions .= " --$option='$options[$option]'";
         }
     }
 }
@@ -96,24 +140,19 @@ if ($options['parallel']) {
 $cwd = getcwd();
 $output = null;
 
-$installcomposer = true;
-// If behat dependencies not downloaded then do it first, else symfony/process can't be used.
-if ($options['parallel'] && !file_exists(__DIR__ . "/../../../../vendor/autoload.php")) {
-    $installcomposer = false;
-    testing_update_composer_dependencies();
+if ($options['disable-composer']) {
+    // Disable self-update and upgrade easily.
+    // Note: Installation will still occur regardless of this setting.
+    $options['composer-self-update'] = false;
+    $options['composer-upgrade'] = false;
 }
 
+// Install and update composer and dependencies as required.
+testing_update_composer_dependencies($options['composer-self-update'], $options['composer-upgrade']);
+
+// Check whether the behat test environment needs to be updated.
 chdir(__DIR__);
-exec("php $utilfile --diag $paralleloption", $output, $code);
-
-// Check if composer needs to be updated.
-if ($installcomposer &&
-        ($code == BEHAT_EXITCODE_INSTALL || $code == BEHAT_EXITCODE_REINSTALL || $code == BEHAT_EXITCODE_COMPOSER)) {
-    testing_update_composer_dependencies();
-    // Check again for behat test site and see if it's install or re-install.
-    chdir(__DIR__);
-    exec("php $utilfile --diag $paralleloption", $output, $code);
-}
+exec("php $utilfile --diag $commandoptions", $output, $code);
 
 if ($code == 0) {
     echo "Behat test environment already installed\n";
@@ -121,7 +160,7 @@ if ($code == 0) {
 } else if ($code == BEHAT_EXITCODE_INSTALL) {
     // Behat and dependencies are installed and we need to install the test site.
     chdir(__DIR__);
-    passthru("php $utilfile --install $paralleloption", $code);
+    passthru("php $utilfile --install $commandoptions", $code);
     if ($code != 0) {
         chdir($cwd);
         exit($code);
@@ -130,14 +169,14 @@ if ($code == 0) {
 } else if ($code == BEHAT_EXITCODE_REINSTALL) {
     // Test site data is outdated.
     chdir(__DIR__);
-    passthru("php $utilfile --drop $paralleloption", $code);
+    passthru("php $utilfile --drop $commandoptions", $code);
     if ($code != 0) {
         chdir($cwd);
         exit($code);
     }
 
     chdir(__DIR__);
-    passthru("php $utilfile --install $paralleloption", $code);
+    passthru("php $utilfile --install $commandoptions", $code);
     if ($code != 0) {
         chdir($cwd);
         exit($code);
@@ -152,7 +191,7 @@ if ($code == 0) {
 
 // Enable editing mode according to config.php vars.
 chdir(__DIR__);
-passthru("php $utilfile --enable $paralleloption", $code);
+passthru("php $utilfile --enable $commandoptions", $code);
 if ($code != 0) {
     echo "Error enabling site" . PHP_EOL;
     chdir($cwd);

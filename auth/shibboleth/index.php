@@ -10,7 +10,7 @@
 
     // Support for WAYFless URLs.
     $target = optional_param('target', '', PARAM_LOCALURL);
-    if (!empty($target)) {
+    if (!empty($target) && empty($SESSION->wantsurl)) {
         $SESSION->wantsurl = $target;
     }
 
@@ -28,12 +28,13 @@
 
     }
 
-    $pluginconfig   = get_config('auth/shibboleth');
+    $pluginconfig   = get_config('auth_shibboleth');
     $shibbolethauth = get_auth_plugin('shibboleth');
 
     // Check whether Shibboleth is configured properly
+    $readmeurl = (new moodle_url('/auth/shibboleth/README.txt'))->out();
     if (empty($pluginconfig->user_attribute)) {
-        print_error('shib_not_set_up_error', 'auth_shibboleth');
+        print_error('shib_not_set_up_error', 'auth_shibboleth', '', $readmeurl);
      }
 
 /// If we can find the Shibboleth attribute, save it in session and return to main login page
@@ -49,12 +50,13 @@
         $frm->password = generate_password(8);
 
     /// Check if the user has actually submitted login data to us
+        $reason = null;
 
         if ($shibbolethauth->user_login($frm->username, $frm->password)
-                && $user = authenticate_user_login($frm->username, $frm->password)) {
+                && $user = authenticate_user_login($frm->username, $frm->password, false, $reason, false)) {
             complete_user_login($user);
 
-            if (user_not_fully_set_up($USER)) {
+            if (user_not_fully_set_up($USER, true)) {
                 $urltogo = $CFG->wwwroot.'/user/edit.php?id='.$USER->id.'&amp;course='.SITEID;
                 // We don't delete $SESSION->wantsurl yet, so we get there later
 
@@ -68,11 +70,16 @@
             }
 
             /// Go to my-moodle page instead of homepage if defaulthomepage enabled
-            if (!has_capability('moodle/site:config',context_system::instance()) and !empty($CFG->defaulthomepage) && $CFG->defaulthomepage == HOMEPAGE_MY and !isguestuser()) {
-                if ($urltogo == $CFG->wwwroot or $urltogo == $CFG->wwwroot.'/' or $urltogo == $CFG->wwwroot.'/index.php') {
+        if (!has_capability('moodle/site:config',
+                context_system::instance()) and !empty($CFG->defaulthomepage) and !isguestuser()) {
+            if ($urltogo == $CFG->wwwroot or $urltogo == $CFG->wwwroot.'/' or $urltogo == $CFG->wwwroot.'/index.php') {
+                if ($CFG->defaulthomepage == HOMEPAGE_MY) {
                     $urltogo = $CFG->wwwroot.'/my/';
+                } else if ($CFG->defaulthomepage == HOMEPAGE_MYCOURSES) {
+                    $urltogo = $CFG->wwwroot.'/my/courses.php';
                 }
             }
+        }
 
             redirect($urltogo);
 
@@ -90,7 +97,7 @@
     elseif (!empty($_SERVER['HTTP_SHIB_APPLICATION_ID']) || !empty($_SERVER['Shib-Application-ID'])) {
         print_error('shib_no_attributes_error', 'auth_shibboleth' , '', '\''.$pluginconfig->user_attribute.'\', \''.$pluginconfig->field_map_firstname.'\', \''.$pluginconfig->field_map_lastname.'\' and \''.$pluginconfig->field_map_email.'\'');
     } else {
-        print_error('shib_not_set_up_error', 'auth_shibboleth');
+        print_error('shib_not_set_up_error', 'auth_shibboleth', '', $readmeurl);
     }
 
 

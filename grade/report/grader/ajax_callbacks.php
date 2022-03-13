@@ -37,7 +37,7 @@ $newvalue = optional_param('newvalue', false, PARAM_TEXT);
 
 /// basic access checks
 if (!$course = $DB->get_record('course', array('id' => $courseid))) {
-    print_error('nocourseid');
+    print_error('invalidcourseid');
 }
 $context = context_course::instance($course->id);
 require_login($course);
@@ -91,7 +91,8 @@ switch ($action) {
                 }
 
                 if ($errorstr) {
-                    $user = $DB->get_record('user', array('id' => $userid), 'id, firstname, lastname');
+                    $userfieldsapi = \core_user\fields::for_name();
+                    $user = $DB->get_record('user', array('id' => $userid), 'id' . $userfieldsapi->get_sql()->selects);
                     $gradestr = new stdClass();
                     $gradestr->username = fullname($user);
                     $gradestr->itemname = $grade_item->get_name();

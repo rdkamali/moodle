@@ -24,7 +24,7 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-require(dirname(dirname(dirname(dirname(__FILE__)))).'/config.php');
+require(__DIR__.'/../../../config.php');
 require_once($CFG->libdir.'/adminlib.php');
 require_once($CFG->dirroot.'/mnet/service/enrol/locallib.php');
 
@@ -32,6 +32,7 @@ admin_externalpage_setup('mnetenrol');
 $service = mnetservice_enrol::get_instance();
 
 echo $OUTPUT->header();
+echo $OUTPUT->render(mnet_get_deprecation_notice());
 echo $OUTPUT->heading_with_help(get_string('clientname', 'mnetservice_enrol'), 'clientname', 'mnetservice_enrol');
 
 if (!$service->is_available()) {

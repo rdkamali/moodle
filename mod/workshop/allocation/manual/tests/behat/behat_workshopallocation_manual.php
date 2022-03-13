@@ -28,8 +28,7 @@
 require_once(__DIR__ . '/../../../../../../lib/behat/behat_base.php');
 require_once(__DIR__ . '/../../../../../../lib/behat/behat_field_manager.php');
 
-use Behat\Behat\Context\Step\Given as Given,
-    Behat\Gherkin\Node\TableNode as TableNode,
+use Behat\Gherkin\Node\TableNode as TableNode,
     Behat\Mink\Exception\ElementTextException as ElementTextException;
 
 /**
@@ -51,7 +50,7 @@ class behat_workshopallocation_manual extends behat_base {
      * @param string $participantname
      */
     public function i_add_a_reviewer_for_workshop_participant($reviewername, $participantname) {
-        $participantnameliteral = $this->getSession()->getSelectorsHandler()->xpathLiteral($participantname);
+        $participantnameliteral = behat_context_helper::escape($participantname);
         $xpathtd = "//table[contains(concat(' ', normalize-space(@class), ' '), ' allocations ')]/".
                 "tbody/tr[./td[contains(concat(' ', normalize-space(@class), ' '), ' peer ')]".
                 "[contains(.,$participantnameliteral)]]/".
@@ -64,20 +63,19 @@ class behat_workshopallocation_manual extends behat_base {
             $selectnode = $this->find('xpath', $xpathselect);
         }
 
-        $selectformfield = behat_field_manager::get_form_field($selectnode, $this->getSession());
-        $selectformfield->set_value($reviewername);
+        $this->execute('behat_forms::set_field_node_value', [
+            $selectnode,
+            $reviewername,
+        ]);
 
         if (!$this->running_javascript()) {
             // Without Javascript we need to press the "Go" button.
-            $go = $this->getSession()->getSelectorsHandler()->xpathLiteral(get_string('go'));
+            $go = behat_context_helper::escape(get_string('go'));
             $this->find('xpath', $xpathtd."/descendant::input[@value=$go]")->click();
-        } else {
-            // With Javascript we just wait for the page to reload.
-            $this->getSession()->wait(self::EXTENDED_TIMEOUT, self::PAGE_READY_JS);
         }
+
         // Check the success string to appear.
-        $allocatedtext = $this->getSession()->getSelectorsHandler()->xpathLiteral(
-            get_string('allocationadded', 'workshopallocation_manual'));
+        $allocatedtext = behat_context_helper::escape(get_string('allocationadded', 'workshopallocation_manual'));
         $this->find('xpath', "//*[contains(.,$allocatedtext)]");
     }
 
@@ -89,9 +87,9 @@ class behat_workshopallocation_manual extends behat_base {
      * @param TableNode $table should have one column with title 'Reviewer' and another with title 'Participant' (or 'Reviewee')
      */
     public function i_allocate_submissions_in_workshop_as($workshopname, TableNode $table) {
-
-        $this->find_link($workshopname)->click();
-        $this->find_link(get_string('allocate', 'workshop'))->click();
+        $this->execute("behat_navigation::go_to_breadcrumb_location", $workshopname);
+        $this->execute('behat_navigation::i_navigate_to_in_current_page_administration',
+            get_string('submissionsallocation', 'workshop'));
         $rows = $table->getRows();
         $reviewer = $participant = null;
         for ($i = 0; $i < count($rows[0]); $i++) {
@@ -109,8 +107,15 @@ class behat_workshopallocation_manual extends behat_base {
         if ($participant === null) {
             throw new ElementTextException('Neither "Participant" nor "Reviewee" column could be located', $this->getSession());
         }
+
         for ($i = 1; $i < count($rows); $i++) {
-            $this->i_add_a_reviewer_for_workshop_participant($rows[$i][$reviewer], $rows[$i][$participant]);
+            $this->execute(
+                'behat_workshopallocation_manual::i_add_a_reviewer_for_workshop_participant',
+                [
+                    $rows[$i][$reviewer],
+                    $rows[$i][$participant],
+                ]
+            );
         }
     }
 }

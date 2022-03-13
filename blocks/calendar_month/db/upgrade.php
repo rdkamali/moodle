@@ -43,38 +43,53 @@
  * @param object $block
  */
 function xmldb_block_calendar_month_upgrade($oldversion, $block) {
-    global $DB;
+    global $CFG, $DB;
 
-    if ($oldversion < 2014062600) {
-        // Add this block the default blocks on /my.
-        $blockname = 'calendar_month';
+    // Automatically generated Moodle v3.6.0 release upgrade line.
+    // Put any upgrade step following this.
 
-        // Do not try to add the block if we cannot find the default my_pages entry.
-        // Private => 1 refers to MY_PAGE_PRIVATE.
-        if ($systempage = $DB->get_record('my_pages', array('userid' => null, 'private' => 1))) {
-            $page = new moodle_page();
-            $page->set_context(context_system::instance());
+    // Automatically generated Moodle v3.7.0 release upgrade line.
+    // Put any upgrade step following this.
 
-            // Check to see if this block is already on the default /my page.
-            $criteria = array(
-                'blockname' => $blockname,
-                'parentcontextid' => $page->context->id,
-                'pagetypepattern' => 'my-index',
-                'subpagepattern' => $systempage->id,
-            );
+    // Automatically generated Moodle v3.8.0 release upgrade line.
+    // Put any upgrade step following this.
 
-            if (!$DB->record_exists('block_instances', $criteria)) {
-                // Add the block to the default /my.
-                $page->blocks->add_region(BLOCK_POS_RIGHT);
-                $page->blocks->add_block($blockname, BLOCK_POS_RIGHT, 0, false, 'my-index', $systempage->id);
+    // Automatically generated Moodle v3.9.0 release upgrade line.
+    // Put any upgrade step following this.
+
+    if ($oldversion < 2022030200) {
+        $context = context_system::instance();
+
+        // Begin looking for any and all customised /my pages.
+        $pageselect = 'name = :name and private = :private';
+        $pageparams['name'] = '__default';
+        $pageparams['private'] = 1;
+        $pages = $DB->get_recordset_select('my_pages', $pageselect, $pageparams);
+        foreach ($pages as $subpage) {
+            $blockinstance = $DB->get_record('block_instances', ['blockname' => 'calendar_month',
+                'pagetypepattern' => 'my-index', 'subpagepattern' => $subpage->id]);
+
+            if (!$blockinstance) {
+                // Insert the calendar month into the default index page.
+                $blockinstance = new stdClass;
+                $blockinstance->blockname = 'calendar_month';
+                $blockinstance->parentcontextid = $context->id;
+                $blockinstance->showinsubcontexts = false;
+                $blockinstance->pagetypepattern = 'my-index';
+                $blockinstance->subpagepattern = $subpage->id;
+                $blockinstance->defaultregion = 'content';
+                $blockinstance->defaultweight = 0;
+                $blockinstance->timecreated = time();
+                $blockinstance->timemodified = time();
+                $DB->insert_record('block_instances', $blockinstance);
+            } else if ($blockinstance->defaultregion !== 'content') {
+                $blockinstance->defaultregion = 'content';
+                $DB->update_record('block_instances', $blockinstance);
             }
         }
-
-        upgrade_block_savepoint(true, 2014062600, $blockname);
+        $pages->close();
+        upgrade_block_savepoint(true, 2022030200, 'calendar_month', false);
     }
-
-    // Moodle v2.8.0 release upgrade line.
-    // Put any upgrade step following this.
 
     return true;
 }

@@ -2,9 +2,9 @@
 /**
  * Helper class for sorting arrays on arbitrary criteria for usort/uasort.
  *
- * Copyright 2003-2014 Horde LLC (http://www.horde.org/)
+ * Copyright 2003-2017 Horde LLC (http://www.horde.org/)
  *
- * See the enclosed file COPYING for license information (LGPL). If you
+ * See the enclosed file LICENSE for license information (LGPL). If you
  * did not receive this file, see http://www.horde.org/licenses/lgpl21.
  *
  * @author   Marko Djukic <marko@oblo.com>

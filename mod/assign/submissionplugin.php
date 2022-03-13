@@ -117,6 +117,15 @@ abstract class assign_submission_plugin extends assign_plugin {
     }
 
     /**
+     * Remove any saved data from this submission.
+     *
+     * @param stdClass $submission - assign_submission data
+     * @return void
+     */
+    public function remove(stdClass $submission) {
+    }
+
+    /**
      * Carry out any extra processing required when a student is given a new attempt
      * (i.e. when the submission is "reopened"
      * @param stdClass $oldsubmission The previous attempt
@@ -125,4 +134,24 @@ abstract class assign_submission_plugin extends assign_plugin {
     public function add_attempt(stdClass $oldsubmission, stdClass $newsubmission) {
     }
 
+    /**
+     * Determine if a submission is empty
+     *
+     * This is distinct from is_empty in that it is intended to be used to
+     * determine if a submission made before saving is empty.
+     *
+     * @param stdClass $data The submission data
+     * @return bool
+     */
+    public function submission_is_empty(stdClass $data) {
+        return false;
+    }
+
+    /**
+     * Determine if the plugin allows image file conversion
+     * @return bool
+     */
+    public function allow_image_conversion() {
+        return false;
+    }
 }

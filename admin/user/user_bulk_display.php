@@ -24,7 +24,8 @@ echo $OUTPUT->header();
 
 $countries = get_string_manager()->get_list_of_countries(true);
 
-$namefields = get_all_user_name_fields(true);
+$userfieldsapi = \core_user\fields::for_name();
+$namefields = $userfieldsapi->get_sql('', false, '', '', false)->selects;
 foreach ($users as $key => $id) {
     $user = $DB->get_record('user', array('id'=>$id), 'id, ' . $namefields . ', username, email, country, lastaccess, city');
     $user->fullname = fullname($user, true);
@@ -57,7 +58,12 @@ foreach ($columns as $column) {
         $columndir = 'asc';
     } else {
         $columndir = $dir == 'asc' ? 'desc' : 'asc';
-        $columnicon = ' <img src="'.$OUTPUT->pix_url('t/'.($dir == 'asc' ? 'down' : 'up' )).'f" alt="" />';
+        $icon = 't/down';
+        $iconstr = $columndir;
+        if ($dir != 'asc') {
+            $icon = 't/up';
+        }
+        $columnicon = ' ' . $OUTPUT->pix_icon($icon, get_string($iconstr));
     }
     $table->head[] = '<a href="user_bulk_display.php?sort='.$column.'&amp;dir='.$columndir.'">'.$strtitle.'</a>'.$columnicon;
     $table->align[] = 'left';
@@ -67,7 +73,7 @@ foreach($users as $user) {
     $table->data[] = array (
         '<a href="'.$CFG->wwwroot.'/user/view.php?id='.$user->id.'&amp;course='.SITEID.'">'.$user->fullname.'</a>',
 //        $user->username,
-        $user->email,
+        s($user->email),
         $user->city,
         $user->country,
         $user->lastaccess ? format_time(time() - $user->lastaccess) : $strnever

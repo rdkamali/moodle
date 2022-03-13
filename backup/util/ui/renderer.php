@@ -22,6 +22,13 @@
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+defined('MOODLE_INTERNAL') || die;
+
+global $CFG;
+require_once($CFG->dirroot . '/backup/util/includes/backup_includes.php');
+require_once($CFG->dirroot . '/backup/util/includes/restore_includes.php');
+require_once($CFG->dirroot . '/backup/moodle2/backup_plan_builder.class.php');
+
 /**
  * The primary renderer for the backup.
  *
@@ -35,6 +42,13 @@
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class core_backup_renderer extends plugin_renderer_base {
+
+    /**
+     * Same site notification display.
+     *
+     * @var string
+     */
+    private $samesitenotification = '';
 
     /**
      * Renderers a progress bar for the backup or restore given the items that make it up.
@@ -64,14 +78,29 @@ class core_backup_renderer extends plugin_renderer_base {
      * @return string HTML content that shows the log
      */
     public function log_display($loghtml) {
-        global $OUTPUT;
         $out = html_writer::start_div('backup_log');
-        $out .= $OUTPUT->heading(get_string('backuplog', 'backup'));
+        $out .= $this->output->heading(get_string('backuplog', 'backup'));
         $out .= html_writer::start_div('backup_log_contents');
         $out .= $loghtml;
         $out .= html_writer::end_div();
         $out .= html_writer::end_div();
         return $out;
+    }
+
+    /**
+     * Set the same site backup notification.
+     *
+     */
+    public function set_samesite_notification() {
+        $this->samesitenotification = $this->output->notification(get_string('samesitenotification', 'backup'), 'info');
+    }
+
+    /**
+     * Get the same site backup notification.
+     *
+     */
+    public function get_samesite_notification() {
+        return $this->samesitenotification;
     }
 
     /**
@@ -97,8 +126,9 @@ class core_backup_renderer extends plugin_renderer_base {
 
         $html  = html_writer::start_tag('div', array('class' => 'backup-restore'));
 
-        $html .= html_writer::start_tag('div', array('class' => 'backup-section'));
-        $html .= $this->output->heading(get_string('backupdetails', 'backup'), 2, array('class' => 'header'));
+        $html .= html_writer::start_tag('div', ['class' => 'backup-section',
+            'role' => 'table', 'aria-labelledby' => 'backupdetailsheader']);
+        $html .= $this->output->heading(get_string('backupdetails', 'backup'), 2, 'header', 'backupdetailsheader');
         $html .= $this->backup_detail_pair(get_string('backuptype', 'backup'), get_string('backuptype'.$details->type, 'backup'));
         $html .= $this->backup_detail_pair(get_string('backupformat', 'backup'), get_string('backupformat'.$details->format, 'backup'));
         $html .= $this->backup_detail_pair(get_string('backupmode', 'backup'), get_string('backupmode'.$details->mode, 'backup'));
@@ -124,8 +154,9 @@ class core_backup_renderer extends plugin_renderer_base {
 
         $html .= html_writer::end_tag('div');
 
-        $html .= html_writer::start_tag('div', array('class' => 'backup-section settings-section'));
-        $html .= $this->output->heading(get_string('backupsettings', 'backup'), 2, array('class' => 'header'));
+        $html .= html_writer::start_tag('div', ['class' => 'backup-section settings-section',
+            'role' => 'table', 'aria-labelledby' => 'backupsettingsheader']);
+        $html .= $this->output->heading(get_string('backupsettings', 'backup'), 2, 'header', 'backupsettingsheader');
         foreach ($details->root_settings as $label => $value) {
             if ($label == 'filename' or $label == 'user_files') {
                 continue;
@@ -135,8 +166,9 @@ class core_backup_renderer extends plugin_renderer_base {
         $html .= html_writer::end_tag('div');
 
         if ($details->type === 'course') {
-            $html .= html_writer::start_tag('div', array('class' => 'backup-section'));
-            $html .= $this->output->heading(get_string('backupcoursedetails', 'backup'), 2, array('class' => 'header'));
+            $html .= html_writer::start_tag('div', ['class' => 'backup-section',
+                    'role' => 'table', 'aria-labelledby' => 'backupcoursedetailsheader']);
+            $html .= $this->output->heading(get_string('backupcoursedetails', 'backup'), 2, 'header', 'backupcoursedetailsheader');
             $html .= $this->backup_detail_pair(get_string('coursetitle', 'backup'), $details->course->title);
             $html .= $this->backup_detail_pair(get_string('courseid', 'backup'), $details->course->courseid);
 
@@ -171,7 +203,7 @@ class core_backup_renderer extends plugin_renderer_base {
                         $table->data = array();
                     }
                     $name = get_string('pluginname', $activity->modulename);
-                    $icon = new pix_icon('icon', $name, $activity->modulename, array('class' => 'iconlarge icon-pre'));
+                    $icon = new image_icon('icon', '', $activity->modulename, ['class' => 'iconlarge icon-pre']);
                     $table->data[] = array(
                         $this->output->render($icon).$name,
                         $activity->title,
@@ -187,7 +219,7 @@ class core_backup_renderer extends plugin_renderer_base {
             $html .= html_writer::end_tag('div');
         }
 
-        $html .= $this->output->single_button($nextstageurl, get_string('continue'), 'post');
+        $html .= $this->continue_button($nextstageurl, 'post');
         $html .= html_writer::end_tag('div');
 
         return $html;
@@ -213,7 +245,7 @@ class core_backup_renderer extends plugin_renderer_base {
             get_string('backuptype', 'backup'),
             get_string('backuptype'.$details['type'], 'backup'));
         $html .= html_writer::end_tag('div');
-        $html .= $this->output->single_button($nextstageurl, get_string('continue'), 'post');
+        $html .= $this->continue_button($nextstageurl, 'post');
         $html .= html_writer::end_tag('div');
 
         return $html;
@@ -230,7 +262,7 @@ class core_backup_renderer extends plugin_renderer_base {
         $html  = html_writer::start_div('unknownformat');
         $html .= $this->output->heading(get_string('errorinvalidformat', 'backup'), 2);
         $html .= $this->output->notification(get_string('errorinvalidformatinfo', 'backup'), 'notifyproblem');
-        $html .= $this->output->single_button($nextstageurl, get_string('continue'), 'post');
+        $html .= $this->continue_button($nextstageurl, 'post');
         $html .= html_writer::end_div();
 
         return $html;
@@ -248,7 +280,7 @@ class core_backup_renderer extends plugin_renderer_base {
      */
     public function course_selector(moodle_url $nextstageurl, $wholecourse = true, restore_category_search $categories = null,
                                     restore_course_search $courses = null, $currentcourse = null) {
-        global $CFG, $PAGE;
+        global $CFG;
         require_once($CFG->dirroot.'/course/lib.php');
 
         // These variables are used to check if the form using this function was submitted.
@@ -290,7 +322,8 @@ class core_backup_renderer extends plugin_renderer_base {
             } else {
                 $html .= $selectacategoryhtml;
             }
-            $html .= $this->backup_detail_pair('', html_writer::empty_tag('input', array('type' => 'submit', 'value' => get_string('continue'))));
+            $attrs = array('type' => 'submit', 'value' => get_string('continue'), 'class' => 'btn btn-primary');
+            $html .= $this->backup_detail_pair('', html_writer::empty_tag('input', $attrs));
             $html .= html_writer::end_tag('div');
             $html .= html_writer::end_tag('form');
         }
@@ -306,7 +339,8 @@ class core_backup_renderer extends plugin_renderer_base {
                 backup::TARGET_CURRENT_ADDING, array('checked' => 'checked'));
             $html .= $this->backup_detail_input(get_string('restoretocurrentcoursedeleting', 'backup'), 'radio', 'target',
                 backup::TARGET_CURRENT_DELETING);
-            $html .= $this->backup_detail_pair('', html_writer::empty_tag('input', array('type' => 'submit', 'value' => get_string('continue'))));
+            $attrs = array('type' => 'submit', 'value' => get_string('continue'), 'class' => 'btn btn-primary');
+            $html .= $this->backup_detail_pair('', html_writer::empty_tag('input', $attrs));
             $html .= html_writer::end_tag('div');
             $html .= html_writer::end_tag('form');
         }
@@ -340,7 +374,8 @@ class core_backup_renderer extends plugin_renderer_base {
             } else {
                 $html .= $selectacoursehtml;
             }
-            $html .= $this->backup_detail_pair('', html_writer::empty_tag('input', array('type' => 'submit', 'value' => get_string('continue'))));
+            $attrs = array('type' => 'submit', 'value' => get_string('continue'), 'class' => 'btn btn-primary');
+            $html .= $this->backup_detail_pair('', html_writer::empty_tag('input', $attrs));
             $html .= html_writer::end_tag('div');
             $html .= html_writer::end_tag('form');
         }
@@ -371,7 +406,10 @@ class core_backup_renderer extends plugin_renderer_base {
         $html .= html_writer::start_tag('div', array('class' => 'ics-existing-course backup-section'));
         $html .= $this->output->heading(get_string('importdatafrom'), 2, array('class' => 'header'));
         $html .= $this->backup_detail_pair(get_string('selectacourse', 'backup'), $this->render($courses));
-        $html .= $this->backup_detail_pair('', html_writer::empty_tag('input', array('type' => 'submit', 'value' => get_string('continue'))));
+        $attrs = array('type' => 'submit', 'value' => get_string('continue'), 'class' => 'btn btn-primary');
+        $html .= html_writer::start_tag('div', array('class' => 'mt-3'));
+        $html .= $this->backup_detail_pair('', html_writer::empty_tag('input', $attrs));
+        $html .= html_writer::end_tag('div');
         $html .= html_writer::end_tag('div');
         $html .= html_writer::end_tag('form');
         $html .= html_writer::end_tag('div');
@@ -389,11 +427,23 @@ class core_backup_renderer extends plugin_renderer_base {
     protected function backup_detail_pair($label, $value) {
         static $count = 0;
         $count ++;
-        $html  = html_writer::start_tag('div', array('class' => 'detail-pair'));
-        $html .= html_writer::tag('label', $label, array('class' => 'detail-pair-label', 'for' => 'detail-pair-value-'.$count));
-        $html .= html_writer::tag('div', $value, array('class' => 'detail-pair-value', 'name' => 'detail-pair-value-'.$count));
+        $html  = html_writer::start_tag('div', ['class' => 'detail-pair', 'role' => 'row']);
+        $html .= html_writer::tag('div', $label, ['class' => 'detail-pair-label mb-2', 'role' => 'cell']);
+        $html .= html_writer::tag('div', $value, ['class' => 'detail-pair-value pl-2', 'role' => 'cell']);
         $html .= html_writer::end_tag('div');
         return $html;
+    }
+
+    /**
+     * Creates a unique id string by appending an incremental number to the prefix.
+     *
+     * @param string $prefix To be used as the left part of the id string.
+     * @return string
+     */
+    protected function make_unique_id(string $prefix): string {
+        static $count = 0;
+
+        return $prefix . '-' . $count++;
     }
 
     /**
@@ -413,9 +463,11 @@ class core_backup_renderer extends plugin_renderer_base {
         } else {
             $description = '';
         }
+        $id = $this->make_unique_id('detail-pair-value');
         return $this->backup_detail_pair(
-            $label,
-            html_writer::empty_tag('input', $attributes + array('name' => $name, 'type' => $type, 'value' => $value)) . $description
+            html_writer::label($label, $id),
+            html_writer::empty_tag('input', $attributes + ['id' => $id, 'name' => $name, 'type' => $type, 'value' => $value]) .
+                $description
         );
     }
 
@@ -470,9 +522,11 @@ class core_backup_renderer extends plugin_renderer_base {
     public function substage_buttons($haserrors) {
         $output  = html_writer::start_tag('div', array('continuebutton'));
         if (!$haserrors) {
-            $output .= html_writer::empty_tag('input', array('type' => 'submit', 'value' => get_string('continue')));
+            $attrs = array('type' => 'submit', 'value' => get_string('continue'), 'class' => 'btn btn-primary');
+            $output .= html_writer::empty_tag('input', $attrs);
         }
-        $output .= html_writer::empty_tag('input', array('type' => 'submit', 'name' => 'cancel', 'value' => get_string('cancel')));
+        $attrs = array('type' => 'submit', 'name' => 'cancel', 'value' => get_string('cancel'), 'class' => 'btn btn-secondary');
+        $output .= html_writer::empty_tag('input', $attrs);
         $output .= html_writer::end_tag('div');
         return $output;
     }
@@ -513,7 +567,7 @@ class core_backup_renderer extends plugin_renderer_base {
             $method = 'get';
         }
         $url->param('sesskey', sesskey());
-        $button = new single_button($url, get_string('continue'), $method);
+        $button = new single_button($url, get_string('continue'), $method, true);
         $button->class = 'continuebutton';
         return $this->render($button);
     }
@@ -528,6 +582,36 @@ class core_backup_renderer extends plugin_renderer_base {
     }
 
     /**
+     * Generate the status indicator markup for display in the
+     * backup restore file area UI.
+     *
+     * @param int $statuscode The status code of the backup.
+     * @param string $backupid The backup record id.
+     * @return string|boolean $status The status indicator for the operation.
+     */
+    public function get_status_display($statuscode, $backupid, $restoreid=null, $operation='backup') {
+        if ($statuscode == backup::STATUS_AWAITING
+            || $statuscode == backup::STATUS_EXECUTING
+            || $statuscode == backup::STATUS_REQUIRE_CONV) {  // In progress.
+            $progresssetup = array(
+                'backupid' => $backupid,
+                'restoreid' => $restoreid,
+                'operation' => $operation,
+                'width' => '100'
+            );
+            $status = $this->render_from_template('core/async_backup_progress', $progresssetup);
+        } else if ($statuscode == backup::STATUS_FINISHED_ERR) { // Error.
+            $icon = $this->output->render(new \pix_icon('i/delete', get_string('failed', 'backup')));
+            $status = \html_writer::span($icon, 'action-icon');
+        } else if ($statuscode == backup::STATUS_FINISHED_OK) { // Complete.
+            $icon = $this->output->render(new \pix_icon('i/checked', get_string('successful', 'backup')));
+            $status = \html_writer::span($icon, 'action-icon');
+        }
+
+        return $status;
+    }
+
+    /**
      * Displays a backup files viewer
      *
      * @global stdClass $USER
@@ -538,12 +622,35 @@ class core_backup_renderer extends plugin_renderer_base {
         global $CFG;
         $files = $viewer->files;
 
+        $async = async_helper::is_async_enabled();
+
+        $tablehead = array(
+                get_string('filename', 'backup'),
+                get_string('time'),
+                get_string('size'),
+                get_string('download'),
+                get_string('restore'));
+        if ($async) {
+            $tablehead[] = get_string('status', 'backup');
+        }
+
         $table = new html_table();
         $table->attributes['class'] = 'backup-files-table generaltable';
-        $table->head = array(get_string('filename', 'backup'), get_string('time'), get_string('size'), get_string('download'), get_string('restore'));
+        $table->head = $tablehead;
         $table->width = '100%';
         $table->data = array();
 
+        // First add in progress asynchronous backups.
+        // Only if asynchronous backups are enabled.
+        // Also only render async status in correct area. Courese OR activity (not both).
+        if ($async
+                && (($viewer->filearea == 'course' && $viewer->currentcontext->contextlevel == CONTEXT_COURSE)
+                || ($viewer->filearea == 'activity' && $viewer->currentcontext->contextlevel == CONTEXT_MODULE))
+                ) {
+                    $table->data = \async_helper::get_async_backups($this, $viewer->currentcontext->instanceid);
+        }
+
+        // Add completed backups.
         foreach ($files as $file) {
             if ($file->is_directory()) {
                 continue;
@@ -567,27 +674,56 @@ class core_backup_renderer extends plugin_renderer_base {
             $params['contextid'] = $viewer->currentcontext->id;
             $params['itemid'] = $file->get_itemid();
             $restoreurl = new moodle_url('/backup/restorefile.php', $params);
-            $table->data[] = array(
+            $restorelink = html_writer::link($restoreurl, get_string('restore'));
+            $downloadlink = html_writer::link($fileurl, get_string('download'));
+
+            // Conditional display of the restore and download links, initially only for the 'automated' filearea.
+            if ($params['filearea'] == 'automated') {
+                if (!has_capability('moodle/restore:viewautomatedfilearea', $viewer->currentcontext)) {
+                    $restorelink = '';
+                }
+                if (!can_download_from_backup_filearea($params['filearea'], $viewer->currentcontext)) {
+                    $downloadlink = '';
+                }
+            }
+            $tabledata = array(
                 $file->get_filename(),
-                userdate($file->get_timemodified()),
-                display_size($file->get_filesize()),
-                html_writer::link($fileurl, get_string('download')),
-                html_writer::link($restoreurl, get_string('restore')),
-                );
+                userdate ($file->get_timemodified()),
+                display_size ($file->get_filesize()),
+                $downloadlink,
+                $restorelink
+            );
+            if ($async) {
+                $tabledata[] = $this->get_status_display(backup::STATUS_FINISHED_OK, null);
+            }
+
+            $table->data[] = $tabledata;
         }
 
         $html = html_writer::table($table);
-        $html .= $this->output->single_button(
-            new moodle_url('/backup/backupfilesedit.php', array(
-                'currentcontext' => $viewer->currentcontext->id,
-                'contextid' => $viewer->filecontext->id,
-                'filearea' => $viewer->filearea,
-                'component' => $viewer->component,
-                'returnurl' => $this->page->url->out())
-            ),
-            get_string('managefiles', 'backup'),
-            'post'
-        );
+
+        // For automated backups, the ability to manage backup files is controlled by the ability to download them.
+        // All files must be from the same file area in a backup_files_viewer.
+        $canmanagebackups = true;
+        if ($viewer->filearea == 'automated') {
+            if (!can_download_from_backup_filearea($viewer->filearea, $viewer->currentcontext)) {
+                $canmanagebackups = false;
+            }
+        }
+
+        if ($canmanagebackups) {
+            $html .= $this->output->single_button(
+                new moodle_url('/backup/backupfilesedit.php', array(
+                        'currentcontext' => $viewer->currentcontext->id,
+                        'contextid' => $viewer->filecontext->id,
+                        'filearea' => $viewer->filearea,
+                        'component' => $viewer->component,
+                        'returnurl' => $this->page->url->out())
+                ),
+                get_string('managefiles', 'backup'),
+                'post'
+            );
+        }
 
         return $html;
     }
@@ -599,10 +735,8 @@ class core_backup_renderer extends plugin_renderer_base {
      * @return string
      */
     public function render_restore_course_search(restore_course_search $component) {
-        $url = $component->get_url();
-
-        $output = html_writer::start_tag('div', array('class' => 'restore-course-search'));
-        $output .= html_writer::start_tag('div', array('class' => 'rcs-results'));
+        $output = html_writer::start_tag('div', array('class' => 'restore-course-search mb-1'));
+        $output .= html_writer::start_tag('div', array('class' => 'rcs-results table-sm w-75'));
 
         $table = new html_table();
         $table->head = array('', get_string('shortnamecourse'), get_string('fullnamecourse'));
@@ -614,11 +748,18 @@ class core_backup_renderer extends plugin_renderer_base {
                 if (!$course->visible) {
                     $row->attributes['class'] .= ' dimmed';
                 }
-                $row->cells = array(
-                    html_writer::empty_tag('input', array('type' => 'radio', 'name' => 'targetid', 'value' => $course->id)),
-                    format_string($course->shortname, true, array('context' => context_course::instance($course->id))),
-                    format_string($course->fullname, true, array('context' => context_course::instance($course->id)))
-                );
+                $id = $this->make_unique_id('restore-course');
+                $row->cells = [
+                    html_writer::empty_tag('input', ['type' => 'radio', 'name' => 'targetid', 'value' => $course->id,
+                        'id' => $id]),
+                    html_writer::label(
+                        format_string($course->shortname, true, ['context' => context_course::instance($course->id)]),
+                        $id,
+                        true,
+                        ['class' => 'd-block']
+                    ),
+                    format_string($course->fullname, true, ['context' => context_course::instance($course->id)])
+                ];
                 $table->data[] = $row;
             }
             if ($component->has_more_results()) {
@@ -640,10 +781,14 @@ class core_backup_renderer extends plugin_renderer_base {
         $output .= html_writer::table($table);
         $output .= html_writer::end_tag('div');
 
-        $output .= html_writer::start_tag('div', array('class' => 'rcs-search'));
-        $output .= html_writer::empty_tag('input', array('type' => 'text', 'name' => restore_course_search::$VAR_SEARCH, 'value' => $component->get_search()));
-        $output .= html_writer::empty_tag('input', array('type' => 'submit', 'name' => 'searchcourses', 'value' => get_string('search')));
-        $output .= html_writer::end_tag('div');
+        $data = [
+            'inform' => true,
+            'extraclasses' => 'rcs-search mb-3 w-25',
+            'inputname' => restore_course_search::$VAR_SEARCH,
+            'searchstring' => get_string('searchcourses'),
+            'query' => $component->get_search(),
+        ];
+        $output .= $this->output->render_from_template('core/search_input', $data);
 
         $output .= html_writer::end_tag('div');
         return $output;
@@ -656,15 +801,27 @@ class core_backup_renderer extends plugin_renderer_base {
      * @return string
      */
     public function render_import_course_search(import_course_search $component) {
-        $url = $component->get_url();
-
         $output = html_writer::start_tag('div', array('class' => 'import-course-search'));
         if ($component->get_count() === 0) {
             $output .= $this->output->notification(get_string('nomatchingcourses', 'backup'));
 
-            $output .= html_writer::start_tag('div', array('class' => 'ics-search'));
-            $output .= html_writer::empty_tag('input', array('type' => 'text', 'name' => restore_course_search::$VAR_SEARCH, 'value' => $component->get_search()));
-            $output .= html_writer::empty_tag('input', array('type' => 'submit', 'name' => 'searchcourses', 'value' => get_string('search')));
+            $output .= html_writer::start_tag('div', array('class' => 'ics-search form-inline'));
+            $attrs = array(
+                'type' => 'text',
+                'name' => restore_course_search::$VAR_SEARCH,
+                'value' => $component->get_search(),
+                'aria-label' => get_string('searchcourses'),
+                'placeholder' => get_string('searchcourses'),
+                'class' => 'form-control'
+            );
+            $output .= html_writer::empty_tag('input', $attrs);
+            $attrs = array(
+                'type' => 'submit',
+                'name' => 'searchcourses',
+                'value' => get_string('search'),
+                'class' => 'btn btn-secondary ml-1'
+            );
+            $output .= html_writer::empty_tag('input', $attrs);
             $output .= html_writer::end_tag('div');
 
             $output .= html_writer::end_tag('div');
@@ -690,11 +847,18 @@ class core_backup_renderer extends plugin_renderer_base {
             if (!$course->visible) {
                 $row->attributes['class'] .= ' dimmed';
             }
-            $row->cells = array(
-                html_writer::empty_tag('input', array('type' => 'radio', 'name' => 'importid', 'value' => $course->id)),
-                format_string($course->shortname, true, array('context' => context_course::instance($course->id))),
-                format_string($course->fullname, true, array('context' => context_course::instance($course->id)))
-            );
+            $id = $this->make_unique_id('import-course');
+            $row->cells = [
+                html_writer::empty_tag('input', ['type' => 'radio', 'name' => 'importid', 'value' => $course->id,
+                    'id' => $id]),
+                html_writer::label(
+                    format_string($course->shortname, true, ['context' => context_course::instance($course->id)]),
+                    $id,
+                    true,
+                    ['class' => 'd-block']
+                ),
+                format_string($course->fullname, true, ['context' => context_course::instance($course->id)])
+            ];
             $table->data[] = $row;
         }
         if ($component->has_more_results()) {
@@ -708,9 +872,22 @@ class core_backup_renderer extends plugin_renderer_base {
         $output .= html_writer::table($table);
         $output .= html_writer::end_tag('div');
 
-        $output .= html_writer::start_tag('div', array('class' => 'ics-search'));
-        $output .= html_writer::empty_tag('input', array('type' => 'text', 'name' => restore_course_search::$VAR_SEARCH, 'value' => $component->get_search()));
-        $output .= html_writer::empty_tag('input', array('type' => 'submit', 'name' => 'searchcourses', 'value' => get_string('search')));
+        $output .= html_writer::start_tag('div', array('class' => 'ics-search form-inline'));
+        $attrs = array(
+            'type' => 'text',
+            'name' => restore_course_search::$VAR_SEARCH,
+            'value' => $component->get_search(),
+            'aria-label' => get_string('searchcourses'),
+            'placeholder' => get_string('searchcourses'),
+            'class' => 'form-control');
+        $output .= html_writer::empty_tag('input', $attrs);
+        $attrs = array(
+            'type' => 'submit',
+            'name' => 'searchcourses',
+            'value' => get_string('search'),
+            'class' => 'btn btn-secondary ml-1'
+        );
+        $output .= html_writer::empty_tag('input', $attrs);
         $output .= html_writer::end_tag('div');
 
         $output .= html_writer::end_tag('div');
@@ -724,10 +901,8 @@ class core_backup_renderer extends plugin_renderer_base {
      * @return string
      */
     public function render_restore_category_search(restore_category_search $component) {
-        $url = $component->get_url();
-
-        $output = html_writer::start_tag('div', array('class' => 'restore-course-search'));
-        $output .= html_writer::start_tag('div', array('class' => 'rcs-results'));
+        $output = html_writer::start_tag('div', array('class' => 'restore-course-search mb-1'));
+        $output .= html_writer::start_tag('div', array('class' => 'rcs-results table-sm w-75'));
 
         $table = new html_table();
         $table->head = array('', get_string('name'), get_string('description'));
@@ -740,11 +915,20 @@ class core_backup_renderer extends plugin_renderer_base {
                 if (!$category->visible) {
                     $row->attributes['class'] .= ' dimmed';
                 }
-                $row->cells = array(
-                    html_writer::empty_tag('input', array('type' => 'radio', 'name' => 'targetid', 'value' => $category->id)),
-                    format_string($category->name, true, array('context' => context_coursecat::instance($category->id))),
-                    format_text($category->description, $category->descriptionformat, array('overflowdiv' => true))
-                );
+                $context = context_coursecat::instance($category->id);
+                $id = $this->make_unique_id('restore-category');
+                $row->cells = [
+                    html_writer::empty_tag('input', ['type' => 'radio', 'name' => 'targetid', 'value' => $category->id,
+                        'id' => $id]),
+                    html_writer::label(
+                        format_string($category->name, true, ['context' => context_coursecat::instance($category->id)]),
+                        $id,
+                        true,
+                        ['class' => 'd-block']
+                    ),
+                    format_text(file_rewrite_pluginfile_urls($category->description, 'pluginfile.php', $context->id,
+                        'coursecat', 'description', null), $category->descriptionformat, ['overflowdiv' => true])
+                ];
                 $table->data[] = $row;
             }
             if ($component->has_more_results()) {
@@ -766,13 +950,97 @@ class core_backup_renderer extends plugin_renderer_base {
         $output .= html_writer::table($table);
         $output .= html_writer::end_tag('div');
 
-        $output .= html_writer::start_tag('div', array('class' => 'rcs-search'));
-        $output .= html_writer::empty_tag('input', array('type' => 'text', 'name' => restore_category_search::$VAR_SEARCH, 'value' => $component->get_search()));
-        $output .= html_writer::empty_tag('input', array('type' => 'submit', 'name' => 'searchcourses', 'value' => get_string('search')));
-        $output .= html_writer::end_tag('div');
+        $data = [
+            'inform' => true,
+            'extraclasses' => 'rcs-search mb-3 w-25',
+            'inputname' => restore_category_search::$VAR_SEARCH,
+            'searchstring' => get_string('searchcoursecategories'),
+            'query' => $component->get_search(),
+        ];
+        $output .= $this->output->render_from_template('core/search_input', $data);
 
         $output .= html_writer::end_tag('div');
         return $output;
+    }
+
+    /**
+     * Get markup to render table for all of a users async
+     * in progress restores.
+     *
+     * @param int $userid The Moodle user id.
+     * @param \context $context The Moodle context for these restores.
+     * @return string $html The table HTML.
+     */
+    public function restore_progress_viewer ($userid, $context) {
+        $tablehead = array(get_string('course'), get_string('time'), get_string('status', 'backup'));
+
+        $table = new html_table();
+        $table->attributes['class'] = 'backup-files-table generaltable';
+        $table->head = $tablehead;
+        $tabledata = array();
+
+        // Get all in progress async restores for this user.
+        $restores = \async_helper::get_async_restores($userid);
+
+        // For each backup get, new item name, time restore created and progress.
+        foreach ($restores as $restore) {
+
+            $restorename = \async_helper::get_restore_name($context);
+            $timecreated = $restore->timecreated;
+            $status = $this->get_status_display($restore->status, $restore->backupid, $restore->backupid, null, 'restore');
+
+            $tablerow = array($restorename, userdate($timecreated), $status);
+            $tabledata[] = $tablerow;
+        }
+
+        $table->data = $tabledata;
+        $html = html_writer::table($table);
+
+        return $html;
+    }
+
+    /**
+     * Get markup to render table for all of a users course copies.
+     *
+     * @param int $userid The Moodle user id.
+     * @param int $courseid The id of the course to get the backups for.
+     * @return string $html The table HTML.
+     */
+    public function copy_progress_viewer(int $userid, int $courseid): string {
+        $tablehead = array(
+            get_string('copysource', 'backup'),
+            get_string('copydest', 'backup'),
+            get_string('time'),
+            get_string('copyop', 'backup'),
+            get_string('status', 'backup')
+        );
+
+        $table = new html_table();
+        $table->attributes['class'] = 'backup-files-table generaltable';
+        $table->head = $tablehead;
+
+        $tabledata = array();
+
+        // Get all in progress course copies for this user.
+        $copies = \core_backup\copy\copy::get_copies($userid, $courseid);
+
+        foreach ($copies as $copy) {
+            $sourceurl = new \moodle_url('/course/view.php', array('id' => $copy->sourceid));
+
+            $tablerow = array(
+                html_writer::link($sourceurl, $copy->source),
+                $copy->destination,
+                userdate($copy->time),
+                get_string($copy->operation),
+                $this->get_status_display($copy->status, $copy->backupid, $copy->restoreid, $copy->operation)
+            );
+            $tabledata[] = $tablerow;
+        }
+
+        $table->data = $tabledata;
+        $html = html_writer::table($table);
+
+        return $html;
     }
 }
 

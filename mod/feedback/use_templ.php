@@ -24,115 +24,59 @@
 
 require_once("../../config.php");
 require_once("lib.php");
-require_once('use_templ_form.php');
 
 $id = required_param('id', PARAM_INT);
 $templateid = optional_param('templateid', false, PARAM_INT);
-$deleteolditems = optional_param('deleteolditems', 0, PARAM_INT);
+$mode = optional_param('mode', '', PARAM_ALPHA);
 
 if (!$templateid) {
     redirect('edit.php?id='.$id);
 }
 
 $url = new moodle_url('/mod/feedback/use_templ.php', array('id'=>$id, 'templateid'=>$templateid));
-if ($deleteolditems !== 0) {
-    $url->param('deleteolditems', $deleteolditems);
-}
 $PAGE->set_url($url);
 
-if (! $cm = get_coursemodule_from_id('feedback', $id)) {
-    print_error('invalidcoursemodule');
-}
-
-if (! $course = $DB->get_record("course", array("id"=>$cm->course))) {
-    print_error('coursemisconf');
-}
-
-if (! $feedback = $DB->get_record("feedback", array("id"=>$cm->instance))) {
-    print_error('invalidcoursemodule');
-}
-
+list($course, $cm) = get_course_and_cm_from_cmid($id, 'feedback');
 $context = context_module::instance($cm->id);
 
 require_login($course, true, $cm);
 
+$feedback = $PAGE->activityrecord;
+$feedbackstructure = new mod_feedback_structure($feedback, $cm, 0, $templateid);
+
 require_capability('mod/feedback:edititems', $context);
-
-$mform = new mod_feedback_use_templ_form();
-$newformdata = array('id'=>$id,
-                    'templateid'=>$templateid,
-                    'confirmadd'=>'1',
-                    'deleteolditems'=>'1',
-                    'do_show'=>'edit');
-$mform->set_data($newformdata);
-$formdata = $mform->get_data();
-
-if ($mform->is_cancelled()) {
-    redirect('edit.php?id='.$id.'&do_show=templates');
-}
-
-if (isset($formdata->confirmadd) AND $formdata->confirmadd == 1) {
-    feedback_items_from_template($feedback, $templateid, $deleteolditems);
-    redirect('edit.php?id=' . $id);
-}
 
 /// Print the page header
 $strfeedbacks = get_string("modulenameplural", "feedback");
 $strfeedback  = get_string("modulename", "feedback");
 
-$PAGE->navbar->add($strfeedbacks, new moodle_url('/mod/feedback/index.php', array('id'=>$course->id)));
-$PAGE->navbar->add(format_string($feedback->name));
+$params = ['id' => $id];
+$params += ($mode ? ['mode' => $mode] : []);
+$activeurl = new moodle_url('/mod/feedback/manage_templates.php', $params);
+$PAGE->set_url($activeurl);
+
+if ($mode == 'manage') {
+    navigation_node::override_active_url($activeurl);
+} else {
+    navigation_node::override_active_url(new moodle_url('/mod/feedback/view.php', $params));
+}
+
 $PAGE->set_heading($course->fullname);
 $PAGE->set_title($feedback->name);
+$PAGE->activityheader->set_attrs([
+    "hidecompletion" => true,
+    "description" => ''
+]);
+$actionbar = new \mod_feedback\output\edit_template_action_bar($cm->id, $templateid, $mode);
+/** @var \mod_feedback\output\renderer $renderer */
+$renderer = $PAGE->get_renderer('mod_feedback');
+
 echo $OUTPUT->header();
+echo $renderer->main_action_bar($actionbar);
 
-/// Print the main part of the page
-///////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////
-echo $OUTPUT->heading(format_string($feedback->name));
-
-echo $OUTPUT->box_start('generalbox boxaligncenter boxwidthnormal');
-echo $OUTPUT->heading(get_string('confirmusetemplate', 'feedback'), 3);
-
-$mform->display();
-
-echo $OUTPUT->box_end();
-
-$templateitems = $DB->get_records('feedback_item', array('template'=>$templateid), 'position');
-if (is_array($templateitems)) {
-    $templateitems = array_values($templateitems);
-}
-
-if (is_array($templateitems)) {
-    $itemnr = 0;
-    $align = right_to_left() ? 'right' : 'left';
-    echo $OUTPUT->box_start('feedback_items');
-    foreach ($templateitems as $templateitem) {
-        echo $OUTPUT->box_start('feedback_item_box_'.$align);
-        if ($templateitem->hasvalue == 1 AND $feedback->autonumbering) {
-            $itemnr++;
-            echo $OUTPUT->box_start('feedback_item_number_'.$align);
-            echo $itemnr;
-            echo $OUTPUT->box_end();
-        }
-        echo $OUTPUT->box_start('box generalbox boxalign_'.$align);
-        if ($templateitem->typ != 'pagebreak') {
-            // echo '<div class="feedback_item_'.$align.'">';
-            feedback_print_item_preview($templateitem);
-        } else {
-            echo $OUTPUT->box_start('feedback_pagebreak');
-            echo get_string('pagebreak', 'feedback').'<hr class="feedback_pagebreak" />';
-            echo $OUTPUT->box_end();
-        }
-        echo $OUTPUT->box_end();
-        echo $OUTPUT->box_end();
-    }
-    echo $OUTPUT->box_end();
-} else {
-    echo $OUTPUT->box(get_string('no_items_available_at_this_template', 'feedback'),
-                    'generalbox boxaligncenter boxwidthwide');
-}
+$form = new mod_feedback_complete_form(mod_feedback_complete_form::MODE_VIEW_TEMPLATE,
+        $feedbackstructure, 'feedback_preview_form', ['templateid' => $templateid]);
+$form->display();
 
 echo $OUTPUT->footer();
 

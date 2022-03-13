@@ -120,31 +120,28 @@ function SCORMapi1_3(def, cmiobj, cmiint, cmicommentsuser, cmicommentslms, scorm
     }
 
     var correct_responses = {
-        'true-false':{'pre':'', 'max':1, 'delimiter':'', 'unique':false, 'duplicate':false,
+        'true-false':{'max':1, 'delimiter':'', 'unique':false, 'duplicate':false,
                       'format':'^true$|^false$',
                       'limit':1},
-        'choice':{'pre':'', 'max':36, 'delimiter':'[,]', 'unique':true, 'duplicate':false,
+        'choice':{'max':36, 'delimiter':'[,]', 'unique':true, 'duplicate':false,
                   'format':CMIShortIdentifier},
-//        'fill-in':{'pre':'^(((\{case_matters=(true|false)\})(\{order_matters=(true|false)\})?)|((\{order_matters=(true|false)\})(\{case_matters=(true|false)\})?))(.*?)$',
-        'fill-in':{'pre':'',
-                   'max':10, 'delimiter':'[,]', 'unique':false, 'duplicate':false,
+        'fill-in':{'max':10, 'delimiter':'[,]', 'unique':false, 'duplicate':false,
                    'format':CMILangString250cr},
-        'long-fill-in':{'pre':'^(\{case_matters=(true|false)\})?', 'max':1, 'delimiter':'', 'unique':false, 'duplicate':true,
+        'long-fill-in':{'max':1, 'delimiter':'', 'unique':false, 'duplicate':true,
                         'format':CMILangString4000},
-        'matching':{'pre':'', 'max':36, 'delimiter':'[,]', 'delimiter2':'[.]', 'unique':false, 'duplicate':false,
+        'matching':{'max':36, 'delimiter':'[,]', 'delimiter2':'[.]', 'unique':false, 'duplicate':false,
                     'format':CMIShortIdentifier, 'format2':CMIShortIdentifier},
-        'performance':{'pre':'^(\{order_matters=(true|false)\})?',
-                       'max':250, 'delimiter':'[,]', 'delimiter2':'[.]', 'unique':false, 'duplicate':false,
+        'performance':{'max':250, 'delimiter':'[,]', 'delimiter2':'[.]', 'unique':false, 'duplicate':false,
                        'format':'^$|' + CMIShortIdentifier, 'format2':CMIDecimal + '|^$|' + CMIShortIdentifier},
-        'sequencing':{'pre':'', 'max':36, 'delimiter':'[,]', 'unique':false, 'duplicate':false,
+        'sequencing':{'max':36, 'delimiter':'[,]', 'unique':false, 'duplicate':false,
                       'format':CMIShortIdentifier},
-        'likert':{'pre':'', 'max':1, 'delimiter':'', 'unique':false, 'duplicate':false,
+        'likert':{'max':1, 'delimiter':'', 'unique':false, 'duplicate':false,
                   'format':CMIShortIdentifier,
                   'limit':1},
-        'numeric':{'pre':'', 'max':2, 'delimiter':'[:]', 'unique':false, 'duplicate':false,
+        'numeric':{'max':2, 'delimiter':'[:]', 'unique':false, 'duplicate':false,
                    'format':CMIDecimal,
                    'limit':1},
-        'other':{'pre':'', 'max':1, 'delimiter':'', 'unique':false, 'duplicate':false,
+        'other':{'max':1, 'delimiter':'', 'unique':false, 'duplicate':false,
                  'format':CMIString4000,
                  'limit':1}
     }
@@ -185,7 +182,7 @@ function SCORMapi1_3(def, cmiobj, cmiint, cmicommentsuser, cmicommentslms, scorm
             'cmi.interactions.n.result':{'pattern':CMIIndex, 'format':CMIResult, 'mod':'rw'},
             'cmi.interactions.n.latency':{'pattern':CMIIndex, 'format':CMITimespan, 'mod':'rw'},
             'cmi.interactions.n.description':{'pattern':CMIIndex, 'format':CMILangString250, 'mod':'rw'},
-            'cmi.launch_data':{'defaultvalue':def[scoid]['cmi.exit'], 'mod':'r'},
+            'cmi.launch_data':{'defaultvalue':def[scoid]['cmi.launch_data'], 'mod':'r'},
             'cmi.learner_id':{'defaultvalue':def[scoid]['cmi.learner_id'], 'mod':'r'},
             'cmi.learner_name':{'defaultvalue':def[scoid]['cmi.learner_name'], 'mod':'r'},
             'cmi.learner_preference._children':{'defaultvalue':student_preference_children, 'mod':'r'},
@@ -252,7 +249,7 @@ function SCORMapi1_3(def, cmiobj, cmiint, cmicommentsuser, cmicommentslms, scorm
 
         for (element in datamodel[scoid]) {
             if (element.match(/\.n\./) == null) {
-                if ((typeof eval('datamodel["' + scoid + '"]["' + element + '"].defaultvalue')) != 'undefined') {
+                if (typeof datamodel[scoid][element].defaultvalue != 'undefined') {
                     eval(element + ' = datamodel["' + scoid + '"]["' + element + '"].defaultvalue;');
                 } else {
                     eval(element + ' = "";');
@@ -380,8 +377,8 @@ function SCORMapi1_3(def, cmiobj, cmiint, cmicommentsuser, cmicommentslms, scorm
             if (element != "") {
                 var expression = new RegExp(CMIIndex,'g');
                 var elementmodel = String(element).replace(expression,'.n.');
-                if ((typeof eval('datamodel["' + scoid + '"]["' + elementmodel + '"]')) != "undefined") {
-                    if (eval('datamodel["' + scoid + '"]["' + elementmodel + '"].mod') != 'w') {
+                if (typeof datamodel[scoid][elementmodel] != "undefined") {
+                    if (datamodel[scoid][elementmodel].mod != 'w') {
 
                         element = String(element).replace(/\.(\d+)\./, ".N$1.");
                         element = element.replace(/\.(\d+)\./, ".N$1.");
@@ -417,7 +414,7 @@ function SCORMapi1_3(def, cmiobj, cmiint, cmicommentsuser, cmicommentslms, scorm
                     var parentmodel = '';
                     if (elementmodel.substr(elementmodel.length - childrenstr.length,elementmodel.length) == childrenstr) {
                         parentmodel = elementmodel.substr(0,elementmodel.length - childrenstr.length);
-                        if ((typeof eval('datamodel["' + scoid + '"]["' + parentmodel + '"]')) != "undefined") {
+                        if (datamodel[scoid][parentmodel] != "undefined") {
                             errorCode = "301";
                             diagnostic = "Data Model Element Does Not Have Children";
                         } else {
@@ -425,7 +422,7 @@ function SCORMapi1_3(def, cmiobj, cmiint, cmicommentsuser, cmicommentslms, scorm
                         }
                     } else if (elementmodel.substr(elementmodel.length - countstr.length,elementmodel.length) == countstr) {
                         parentmodel = elementmodel.substr(0,elementmodel.length - countstr.length);
-                        if ((typeof eval('datamodel["' + scoid + '"]["' + parentmodel + '"]')) != "undefined") {
+                        if (typeof datamodel[scoid][parentmodel] != "undefined") {
                             errorCode = "301";
                             diagnostic = "Data Model Element Cannot Have Count";
                         } else {
@@ -473,10 +470,10 @@ function SCORMapi1_3(def, cmiobj, cmiint, cmicommentsuser, cmicommentslms, scorm
             if (element != "") {
                 var expression = new RegExp(CMIIndex,'g');
                 var elementmodel = String(element).replace(expression,'.n.');
-                if ((typeof eval('datamodel["' + scoid + '"]["' + elementmodel + '"]')) != "undefined") {
-                    if (eval('datamodel["' + scoid + '"]["' + elementmodel + '"].mod') != 'r') {
-                        if (eval('datamodel["' + scoid + '"]["' + elementmodel + '"].format') != 'CMIFeedback') {
-                            expression = new RegExp(eval('datamodel["' + scoid + '"]["' + elementmodel + '"].format'));
+                if (typeof datamodel[scoid][elementmodel] != "undefined") {
+                    if (datamodel[scoid][elementmodel].mod != 'r') {
+                        if (datamodel[scoid][elementmodel].format != 'CMIFeedback') {
+                            expression = new RegExp(datamodel[scoid][elementmodel].format);
                         } else {
                             // cmi.interactions.n.type depending format accept everything at this stage
                             expression = new RegExp(CMIFeedback);
@@ -749,8 +746,8 @@ function SCORMapi1_3(def, cmiobj, cmiint, cmicommentsuser, cmicommentslms, scorm
                                     SCORMapi1_3.timeout = Y.later(60000, API_1484_11, 'Commit', [""], false);
                                 }
 
-                                if ((typeof eval('datamodel["' + scoid + '"]["' + elementmodel + '"].range')) != "undefined") {
-                                    range = eval('datamodel["' + scoid + '"]["' + elementmodel + '"].range');
+                                if (typeof datamodel[scoid][elementmodel].range != "undefined") {
+                                    range = datamodel[scoid][elementmodel].range;
                                     ranges = range.split('#');
                                     value = value * 1.0;
                                     if (value >= ranges[0]) {
@@ -860,14 +857,6 @@ function SCORMapi1_3(def, cmiobj, cmiint, cmicommentsuser, cmicommentslms, scorm
                 result = CRremovePrefixes(nodes[i]);
                 errorCode = result.errorCode;
                 nodes[i] = result.node;
-            }
-
-            // check for prefix on each node
-            if (correct_responses[interactiontype].pre != '') {
-                matches = nodes[i].match(correct_responses[interactiontype].pre);
-                if (matches != null) {
-                    nodes[i] = nodes[i].substr(matches[1].length);
-                }
             }
 
             if (correct_responses[interactiontype].delimiter2 != undefined) {
@@ -1180,11 +1169,12 @@ function SCORMapi1_3(def, cmiobj, cmiint, cmicommentsuser, cmicommentslms, scorm
                 var element = parent + '.' + property;
                 var expression = new RegExp(CMIIndexStore,'g');
                 var elementmodel = String(element).replace(expression,'.n.');
-                if ((typeof eval('datamodel["' + scoid + '"]["' + elementmodel + '"]')) != "undefined") {
-                    if (eval('datamodel["' + scoid + '"]["' + elementmodel + '"].mod') != 'r') {
+                if (typeof datamodel[scoid][elementmodel] != "undefined") {
+                    if (datamodel[scoid][elementmodel].mod != 'r') {
                         var elementstring = '&' + underscore(element) + '=' + encodeURIComponent(data[property]);
-                        if ((typeof eval('datamodel["' + scoid + '"]["' + elementmodel + '"].defaultvalue')) != "undefined") {
-                            if (eval('datamodel["' + scoid + '"]["' + elementmodel + '"].defaultvalue') != data[property] || eval('typeof(datamodel["' + scoid + '"]["' + elementmodel + '"].defaultvalue)') != typeof(data[property])) {
+                        if (typeof datamodel[scoid][elementmodel].defaultvalue != "undefined") {
+                            if (datamodel[scoid][elementmodel].defaultvalue != data[property] ||
+                                typeof datamodel[scoid][elementmodel].defaultvalue != typeof data[property]) {
                                 datastring += elementstring;
                             }
                         } else {
@@ -1226,7 +1216,11 @@ function SCORMapi1_3(def, cmiobj, cmiint, cmicommentsuser, cmicommentslms, scorm
         datastring += navrequest;
 
         var myRequest = NewHttpReq();
-        result = DoRequest(myRequest, datamodelurl, datamodelurlparams + datastring);
+        var result = DoRequest(myRequest, datamodelurl, datamodelurlparams + datastring);
+
+        if (result === false) {
+            return false;
+        }
 
         var results = String(result).split('\n');
         if ((results.length > 2) && (navrequest != '')) {

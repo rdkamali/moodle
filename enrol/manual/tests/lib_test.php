@@ -22,6 +22,9 @@
  * @copyright  2012 Petr Skoda {@link http://skodak.org}
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+namespace enrol_manual;
+
+use course_enrolment_manager;
 
 defined('MOODLE_INTERNAL') || die();
 
@@ -34,7 +37,7 @@ defined('MOODLE_INTERNAL') || die();
  * @copyright  2012 Petr Skoda {@link http://skodak.org}
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class enrol_manual_lib_testcase extends advanced_testcase {
+class lib_test extends \advanced_testcase {
     /**
      * Test enrol migration function used when uninstalling enrol plugins.
      */
@@ -60,10 +63,10 @@ class enrol_manual_lib_testcase extends advanced_testcase {
         $course4 = $this->getDataGenerator()->create_course();
         $course5 = $this->getDataGenerator()->create_course();
 
-        $context1 = context_course::instance($course1->id);
-        $context2 = context_course::instance($course2->id);
-        $context3 = context_course::instance($course3->id);
-        $context4 = context_course::instance($course4->id);
+        $context1 = \context_course::instance($course1->id);
+        $context2 = \context_course::instance($course2->id);
+        $context3 = \context_course::instance($course3->id);
+        $context4 = \context_course::instance($course4->id);
 
         $user1 = $this->getDataGenerator()->create_user();
         $user2 = $this->getDataGenerator()->create_user();
@@ -210,7 +213,7 @@ class enrol_manual_lib_testcase extends advanced_testcase {
         /** @var $manualplugin enrol_manual_plugin */
         $manualplugin = enrol_get_plugin('manual');
 
-        $trace = new null_progress_trace();
+        $trace = new \null_progress_trace();
 
         $now = time();
 
@@ -231,9 +234,9 @@ class enrol_manual_lib_testcase extends advanced_testcase {
         $course1 = $this->getDataGenerator()->create_course();
         $course2 = $this->getDataGenerator()->create_course();
         $course3 = $this->getDataGenerator()->create_course();
-        $context1 = context_course::instance($course1->id);
-        $context2 = context_course::instance($course2->id);
-        $context3 = context_course::instance($course3->id);
+        $context1 = \context_course::instance($course1->id);
+        $context2 = \context_course::instance($course2->id);
+        $context3 = \context_course::instance($course3->id);
 
         $this->assertEquals(3, $DB->count_records('enrol', array('enrol'=>'manual')));
         $instance1 = $DB->get_record('enrol', array('courseid'=>$course1->id, 'enrol'=>'manual'), '*', MUST_EXIST);
@@ -335,7 +338,7 @@ class enrol_manual_lib_testcase extends advanced_testcase {
         $this->resetAfterTest();
         $this->preventResetByRollback(); // Messaging does not like transactions...
 
-        $trace = new null_progress_trace();
+        $trace = new \null_progress_trace();
 
         /** @var $manualplugin enrol_manual_plugin */
         $manualplugin = enrol_get_plugin('manual');
@@ -431,49 +434,49 @@ class enrol_manual_lib_testcase extends advanced_testcase {
         // First individual notifications from course1.
         $this->assertEquals($user3->id, $messages[0]->useridto);
         $this->assertEquals($user8->id, $messages[0]->useridfrom);
-        $this->assertContains('xcourse1', $messages[0]->fullmessagehtml);
+        $this->assertStringContainsString('xcourse1', $messages[0]->fullmessagehtml);
 
         $this->assertEquals($user4->id, $messages[1]->useridto);
         $this->assertEquals($user8->id, $messages[1]->useridfrom);
-        $this->assertContains('xcourse1', $messages[1]->fullmessagehtml);
+        $this->assertStringContainsString('xcourse1', $messages[1]->fullmessagehtml);
 
         // Then summary for course1.
         $this->assertEquals($user8->id, $messages[2]->useridto);
         $this->assertEquals($admin->id, $messages[2]->useridfrom);
-        $this->assertContains('xcourse1', $messages[2]->fullmessagehtml);
-        $this->assertNotContains('xuser1', $messages[2]->fullmessagehtml);
-        $this->assertNotContains('xuser2', $messages[2]->fullmessagehtml);
-        $this->assertContains('xuser3', $messages[2]->fullmessagehtml);
-        $this->assertContains('xuser4', $messages[2]->fullmessagehtml);
-        $this->assertContains('xuser5', $messages[2]->fullmessagehtml);
-        $this->assertNotContains('xuser6', $messages[2]->fullmessagehtml);
+        $this->assertStringContainsString('xcourse1', $messages[2]->fullmessagehtml);
+        $this->assertStringNotContainsString('xuser1', $messages[2]->fullmessagehtml);
+        $this->assertStringNotContainsString('xuser2', $messages[2]->fullmessagehtml);
+        $this->assertStringContainsString('xuser3', $messages[2]->fullmessagehtml);
+        $this->assertStringContainsString('xuser4', $messages[2]->fullmessagehtml);
+        $this->assertStringContainsString('xuser5', $messages[2]->fullmessagehtml);
+        $this->assertStringNotContainsString('xuser6', $messages[2]->fullmessagehtml);
 
         // First individual notifications from course2.
         $this->assertEquals($user3->id, $messages[3]->useridto);
         $this->assertEquals($admin->id, $messages[3]->useridfrom);
-        $this->assertContains('xcourse2', $messages[3]->fullmessagehtml);
+        $this->assertStringContainsString('xcourse2', $messages[3]->fullmessagehtml);
 
         // Then summary for course2.
         $this->assertEquals($admin->id, $messages[4]->useridto);
         $this->assertEquals($admin->id, $messages[4]->useridfrom);
-        $this->assertContains('xcourse2', $messages[4]->fullmessagehtml);
-        $this->assertNotContains('xuser1', $messages[4]->fullmessagehtml);
-        $this->assertNotContains('xuser2', $messages[4]->fullmessagehtml);
-        $this->assertContains('xuser3', $messages[4]->fullmessagehtml);
-        $this->assertNotContains('xuser4', $messages[4]->fullmessagehtml);
-        $this->assertNotContains('xuser5', $messages[4]->fullmessagehtml);
-        $this->assertNotContains('xuser6', $messages[4]->fullmessagehtml);
+        $this->assertStringContainsString('xcourse2', $messages[4]->fullmessagehtml);
+        $this->assertStringNotContainsString('xuser1', $messages[4]->fullmessagehtml);
+        $this->assertStringNotContainsString('xuser2', $messages[4]->fullmessagehtml);
+        $this->assertStringContainsString('xuser3', $messages[4]->fullmessagehtml);
+        $this->assertStringNotContainsString('xuser4', $messages[4]->fullmessagehtml);
+        $this->assertStringNotContainsString('xuser5', $messages[4]->fullmessagehtml);
+        $this->assertStringNotContainsString('xuser6', $messages[4]->fullmessagehtml);
 
         // Only summary in course3.
         $this->assertEquals($user1->id, $messages[5]->useridto);
         $this->assertEquals($admin->id, $messages[5]->useridfrom);
-        $this->assertContains('xcourse3', $messages[5]->fullmessagehtml);
-        $this->assertNotContains('xuser1', $messages[5]->fullmessagehtml);
-        $this->assertNotContains('xuser2', $messages[5]->fullmessagehtml);
-        $this->assertContains('xuser3', $messages[5]->fullmessagehtml);
-        $this->assertNotContains('xuser4', $messages[5]->fullmessagehtml);
-        $this->assertNotContains('xuser5', $messages[5]->fullmessagehtml);
-        $this->assertNotContains('xuser6', $messages[5]->fullmessagehtml);
+        $this->assertStringContainsString('xcourse3', $messages[5]->fullmessagehtml);
+        $this->assertStringNotContainsString('xuser1', $messages[5]->fullmessagehtml);
+        $this->assertStringNotContainsString('xuser2', $messages[5]->fullmessagehtml);
+        $this->assertStringContainsString('xuser3', $messages[5]->fullmessagehtml);
+        $this->assertStringNotContainsString('xuser4', $messages[5]->fullmessagehtml);
+        $this->assertStringNotContainsString('xuser5', $messages[5]->fullmessagehtml);
+        $this->assertStringNotContainsString('xuser6', $messages[5]->fullmessagehtml);
 
 
         // Make sure that notifications are not repeated.
@@ -492,5 +495,52 @@ class enrol_manual_lib_testcase extends advanced_testcase {
         $manualplugin->set_config('expirynotifyhour', '0');
         $manualplugin->send_expiry_notifications($trace);
         $this->assertEquals(6, $sink->count());
+    }
+
+    /**
+     * Test for getting user enrolment actions.
+     */
+    public function test_get_user_enrolment_actions() {
+        global $CFG, $PAGE;
+        $this->resetAfterTest();
+
+        // Set page URL to prevent debugging messages.
+        $PAGE->set_url('/enrol/editinstance.php');
+
+        $pluginname = 'manual';
+
+        // Only enable the manual enrol plugin.
+        $CFG->enrol_plugins_enabled = $pluginname;
+
+        $generator = $this->getDataGenerator();
+
+        // Get the enrol plugin.
+        $plugin = enrol_get_plugin($pluginname);
+
+        // Create a course.
+        $course = $generator->create_course();
+        // Enable this enrol plugin for the course.
+        $plugin->add_instance($course);
+
+        // Create a teacher.
+        $teacher = $generator->create_user();
+        // Enrol the teacher to the course.
+        $generator->enrol_user($teacher->id, $course->id, 'editingteacher', $pluginname);
+        // Create a student.
+        $student = $generator->create_user();
+        // Enrol the student to the course.
+        $generator->enrol_user($student->id, $course->id, 'student', $pluginname);
+
+        // Login as the teacher.
+        $this->setUser($teacher);
+        require_once($CFG->dirroot . '/enrol/locallib.php');
+        $manager = new course_enrolment_manager($PAGE, $course);
+        $userenrolments = $manager->get_user_enrolments($student->id);
+        $this->assertCount(1, $userenrolments);
+
+        $ue = reset($userenrolments);
+        $actions = $plugin->get_user_enrolment_actions($manager, $ue);
+        // Manual enrol has 2 enrol actions -- edit and unenrol.
+        $this->assertCount(2, $actions);
     }
 }

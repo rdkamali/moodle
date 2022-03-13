@@ -65,18 +65,47 @@ class format extends base {
         return $enabled;
     }
 
+    public static function enable_plugin(string $pluginname, int $enabled): bool {
+        $haschanged = false;
+
+        $plugin = 'format_' . $pluginname;
+        $oldvalue = get_config($plugin, 'disabled');
+        $disabled = !$enabled;
+        // Only set value if there is no config setting or if the value is different from the previous one.
+        if ($oldvalue == false && $disabled) {
+            if (get_config('moodlecourse', 'format') === $pluginname) {
+                // The default course format can't be disabled.
+                throw new \moodle_exception('cannotdisableformat', 'error');
+            }
+            set_config('disabled', $disabled, $plugin);
+            $haschanged = true;
+        } else if ($oldvalue != false && !$disabled) {
+            unset_config('disabled', $plugin);
+            $haschanged = true;
+        }
+
+        if ($haschanged) {
+            add_to_config_log('disabled', $oldvalue, $disabled, $plugin);
+            \core_plugin_manager::reset_caches();
+        }
+
+        return $haschanged;
+    }
+
     /**
      * Gathers and returns the information about all plugins of the given type
      *
      * @param string $type the name of the plugintype, eg. mod, auth or workshopform
      * @param string $typerootdir full path to the location of the plugin dir
      * @param string $typeclass the name of the actually called class
+     * @param core_plugin_manager $pluginman the plugin manager calling this method
      * @return array of plugintype classes, indexed by the plugin name
      */
-    public static function get_plugins($type, $typerootdir, $typeclass) {
+    public static function get_plugins($type, $typerootdir, $typeclass, $pluginman) {
         global $CFG;
-        $formats = parent::get_plugins($type, $typerootdir, $typeclass);
         require_once($CFG->dirroot.'/course/lib.php');
+
+        $formats = parent::get_plugins($type, $typerootdir, $typeclass, $pluginman);
         $order = get_sorted_course_formats();
         $sortedformats = array();
         foreach ($order as $formatname) {
@@ -137,7 +166,7 @@ class format extends base {
             return '';
         }
 
-        $defaultformat = $this->get_plugin_manager()->plugin_name('format_'.get_config('moodlecourse', 'format'));
+        $defaultformat = $this->pluginman->plugin_name('format_'.get_config('moodlecourse', 'format'));
         $message = get_string(
             'formatuninstallwithcourses', 'core_admin',
             (object)array('count' => $coursecount, 'format' => $this->displayname,

@@ -2,16 +2,14 @@
 
     // Allows the admin to configure mnet stuff
 
-    require_once(dirname(dirname(dirname(__FILE__))) . '/config.php');
+    require(__DIR__.'/../../config.php');
     require_once($CFG->libdir.'/adminlib.php');
     include_once($CFG->dirroot.'/mnet/lib.php');
 
-    require_login();
     admin_externalpage_setup('net');
 
     $context = context_system::instance();
 
-    require_capability('moodle/site:config', $context, $USER->id, true, "nopermissions");
 
     $site = get_site();
     $mnet = get_mnet_environment();
@@ -83,6 +81,7 @@
     $hosts = $DB->get_records_select('mnet_host', "id <> ? AND deleted = 0", array($CFG->mnet_localhost_id), 'wwwroot ASC');
 
     echo $OUTPUT->header();
+    echo $OUTPUT->render(mnet_get_deprecation_notice());
 ?>
 <form method="post" action="index.php">
     <table align="center" width="635" class="generaltable" border="0" cellpadding="5" cellspacing="0">

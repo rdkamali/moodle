@@ -61,48 +61,50 @@ function resource_redirect_if_migrated($oldid, $cmid) {
  * @return does not return
  */
 function resource_display_embed($resource, $cm, $course, $file) {
-    global $CFG, $PAGE, $OUTPUT;
+    global $PAGE, $OUTPUT;
 
     $clicktoopen = resource_get_clicktoopen($file, $resource->revision);
 
     $context = context_module::instance($cm->id);
-    $path = '/'.$context->id.'/mod_resource/content/'.$resource->revision.$file->get_filepath().$file->get_filename();
-    $fullurl = file_encode_url($CFG->wwwroot.'/pluginfile.php', $path, false);
-    $moodleurl = new moodle_url('/pluginfile.php' . $path);
+    $moodleurl = moodle_url::make_pluginfile_url($context->id, 'mod_resource', 'content', $resource->revision,
+            $file->get_filepath(), $file->get_filename());
 
     $mimetype = $file->get_mimetype();
     $title    = $resource->name;
 
     $extension = resourcelib_get_extension($file->get_filename());
 
-    $mediarenderer = $PAGE->get_renderer('core', 'media');
+    $mediamanager = core_media_manager::instance($PAGE);
     $embedoptions = array(
-        core_media::OPTION_TRUSTED => true,
-        core_media::OPTION_BLOCK => true,
+        core_media_manager::OPTION_TRUSTED => true,
+        core_media_manager::OPTION_BLOCK => true,
     );
 
     if (file_mimetype_in_typegroup($mimetype, 'web_image')) {  // It's an image
-        $code = resourcelib_embed_image($fullurl, $title);
+        $code = resourcelib_embed_image($moodleurl->out(), $title);
 
     } else if ($mimetype === 'application/pdf') {
         // PDF document
-        $code = resourcelib_embed_pdf($fullurl, $title, $clicktoopen);
+        $code = resourcelib_embed_pdf($moodleurl->out(), $title, $clicktoopen);
 
-    } else if ($mediarenderer->can_embed_url($moodleurl, $embedoptions)) {
+    } else if ($mediamanager->can_embed_url($moodleurl, $embedoptions)) {
         // Media (audio/video) file.
-        $code = $mediarenderer->embed_url($moodleurl, $title, 0, 0, $embedoptions);
+        $code = $mediamanager->embed_url($moodleurl, $title, 0, 0, $embedoptions);
 
     } else {
+        // We need a way to discover if we are loading remote docs inside an iframe.
+        $moodleurl->param('embed', 1);
+
         // anything else - just try object tag enlarged as much as possible
-        $code = resourcelib_embed_general($fullurl, $title, $clicktoopen, $mimetype);
+        $code = resourcelib_embed_general($moodleurl, $title, $clicktoopen, $mimetype);
     }
 
+    // Let the module handle the display.
+    $PAGE->activityheader->set_description(resource_get_intro($resource, $cm));
+
     resource_print_header($resource, $cm, $course);
-    resource_print_heading($resource, $cm, $course);
 
-    echo $code;
-
-    resource_print_intro($resource, $cm, $course);
+    echo format_text($code, FORMAT_HTML, ['noclean' => true]);
 
     echo $OUTPUT->footer();
     die;
@@ -123,9 +125,8 @@ function resource_display_frame($resource, $cm, $course, $file) {
 
     if ($frame === 'top') {
         $PAGE->set_pagelayout('frametop');
+        $PAGE->activityheader->set_description(resource_get_intro($resource, $cm, true));
         resource_print_header($resource, $cm, $course);
-        resource_print_heading($resource, $cm, $course);
-        resource_print_intro($resource, $cm, $course);
         echo $OUTPUT->footer();
         die;
 
@@ -137,7 +138,7 @@ function resource_display_frame($resource, $cm, $course, $file) {
         $navurl = "$CFG->wwwroot/mod/resource/view.php?id=$cm->id&amp;frameset=top";
         $title = strip_tags(format_string($course->shortname.': '.$resource->name));
         $framesize = $config->framesize;
-        $contentframetitle = format_string($resource->name);
+        $contentframetitle = s(format_string($resource->name));
         $modulename = s(get_string('modulename','resource'));
         $dir = get_string('thisdirection', 'langconfig');
 
@@ -200,11 +201,12 @@ function resource_get_clicktodownload($file, $revision) {
  * @return does not return
  */
 function resource_print_workaround($resource, $cm, $course, $file) {
-    global $CFG, $OUTPUT;
+    global $CFG, $OUTPUT, $PAGE;
+
+    // Let the module handle the display.
+    $PAGE->activityheader->set_description(resource_get_intro($resource, $cm, true));
 
     resource_print_header($resource, $cm, $course);
-    resource_print_heading($resource, $cm, $course, true);
-    resource_print_intro($resource, $cm, $course, true);
 
     $resource->mainfile = $file->get_filename();
     echo '<div class="resourceworkaround">';
@@ -212,7 +214,7 @@ function resource_print_workaround($resource, $cm, $course, $file) {
         case RESOURCELIB_DISPLAY_POPUP:
             $path = '/'.$file->get_contextid().'/mod_resource/content/'.$resource->revision.$file->get_filepath().$file->get_filename();
             $fullurl = file_encode_url($CFG->wwwroot.'/pluginfile.php', $path, false);
-            $options = empty($resource->displayoptions) ? array() : unserialize($resource->displayoptions);
+            $options = empty($resource->displayoptions) ? [] : (array) unserialize_array($resource->displayoptions);
             $width  = empty($options['popupwidth'])  ? 620 : $options['popupwidth'];
             $height = empty($options['popupheight']) ? 450 : $options['popupheight'];
             $wh = "width=$width,height=$height,toolbar=no,location=no,menubar=no,copyhistory=no,status=no,directories=no,scrollbars=yes,resizable=yes";
@@ -253,21 +255,69 @@ function resource_print_header($resource, $cm, $course) {
     $PAGE->set_title($course->shortname.': '.$resource->name);
     $PAGE->set_heading($course->fullname);
     $PAGE->set_activity_record($resource);
-    $PAGE->set_button(update_module_button($cm->id, '', get_string('modulename', 'resource')));
     echo $OUTPUT->header();
 }
 
 /**
- * Print resource heading.
- * @param object $resource
- * @param object $cm
- * @param object $course
- * @param bool $notused This variable is no longer used
- * @return void
+ * Gets details of the file to cache in course cache to be displayed using {@link resource_get_optional_details()}
+ *
+ * @param object $resource Resource table row (only property 'displayoptions' is used here)
+ * @param object $cm Course-module table row
+ * @return string Size and type or empty string if show options are not enabled
  */
-function resource_print_heading($resource, $cm, $course, $notused = false) {
-    global $OUTPUT;
-    echo $OUTPUT->heading(format_string($resource->name), 2);
+function resource_get_file_details($resource, $cm) {
+    $options = empty($resource->displayoptions) ? [] : (array) unserialize_array($resource->displayoptions);
+    $filedetails = array();
+    if (!empty($options['showsize']) || !empty($options['showtype']) || !empty($options['showdate'])) {
+        $context = context_module::instance($cm->id);
+        $fs = get_file_storage();
+        $files = $fs->get_area_files($context->id, 'mod_resource', 'content', 0, 'sortorder DESC, id ASC', false);
+        // For a typical file resource, the sortorder is 1 for the main file
+        // and 0 for all other files. This sort approach is used just in case
+        // there are situations where the file has a different sort order.
+        $mainfile = $files ? reset($files) : null;
+        if (!empty($options['showsize'])) {
+            $filedetails['size'] = 0;
+            foreach ($files as $file) {
+                // This will also synchronize the file size for external files if needed.
+                $filedetails['size'] += $file->get_filesize();
+                if ($file->get_repository_id()) {
+                    // If file is a reference the 'size' attribute can not be cached.
+                    $filedetails['isref'] = true;
+                }
+            }
+        }
+        if (!empty($options['showtype'])) {
+            if ($mainfile) {
+                $filedetails['type'] = get_mimetype_description($mainfile);
+                $filedetails['mimetype'] = $mainfile->get_mimetype();
+                // Only show type if it is not unknown.
+                if ($filedetails['type'] === get_mimetype_description('document/unknown')) {
+                    $filedetails['type'] = '';
+                }
+            } else {
+                $filedetails['type'] = '';
+            }
+        }
+        if (!empty($options['showdate'])) {
+            if ($mainfile) {
+                // Modified date may be up to several minutes later than uploaded date just because
+                // teacher did not submit the form promptly. Give teacher up to 5 minutes to do it.
+                if ($mainfile->get_timemodified() > $mainfile->get_timecreated() + 5 * MINSECS) {
+                    $filedetails['modifieddate'] = $mainfile->get_timemodified();
+                } else {
+                    $filedetails['uploadeddate'] = $mainfile->get_timecreated();
+                }
+                if ($mainfile->get_repository_id()) {
+                    // If main file is a reference the 'date' attribute can not be cached.
+                    $filedetails['isref'] = true;
+                }
+            } else {
+                $filedetails['uploadeddate'] = '';
+            }
+        }
+    }
+    return $filedetails;
 }
 
 /**
@@ -276,7 +326,7 @@ function resource_print_heading($resource, $cm, $course, $notused = false) {
  * Result may include the file size and type if those settings are chosen,
  * or blank if none.
  *
- * @param object $resource Resource table row
+ * @param object $resource Resource table row (only property 'displayoptions' is used here)
  * @param object $cm Course-module table row
  * @return string Size and type or empty string if show options are not enabled
  */
@@ -285,43 +335,50 @@ function resource_get_optional_details($resource, $cm) {
 
     $details = '';
 
-    $options = empty($resource->displayoptions) ? array() : unserialize($resource->displayoptions);
-    if (!empty($options['showsize']) || !empty($options['showtype'])) {
-        $context = context_module::instance($cm->id);
+    $options = empty($resource->displayoptions) ? [] : (array) unserialize_array($resource->displayoptions);
+    if (!empty($options['showsize']) || !empty($options['showtype']) || !empty($options['showdate'])) {
+        if (!array_key_exists('filedetails', $options)) {
+            $filedetails = resource_get_file_details($resource, $cm);
+        } else {
+            $filedetails = $options['filedetails'];
+        }
         $size = '';
         $type = '';
-        $fs = get_file_storage();
-        $files = $fs->get_area_files($context->id, 'mod_resource', 'content', 0, 'sortorder DESC, id ASC', false);
-        if (!empty($options['showsize']) && count($files)) {
-            $sizebytes = 0;
-            foreach ($files as $file) {
-                // this will also synchronize the file size for external files if needed
-                $sizebytes += $file->get_filesize();
-            }
-            if ($sizebytes) {
-                $size = display_size($sizebytes);
+        $date = '';
+        $langstring = '';
+        $infodisplayed = 0;
+        if (!empty($options['showsize'])) {
+            if (!empty($filedetails['size'])) {
+                $size = display_size($filedetails['size']);
+                $langstring .= 'size';
+                $infodisplayed += 1;
             }
         }
-        if (!empty($options['showtype']) && count($files)) {
-            // For a typical file resource, the sortorder is 1 for the main file
-            // and 0 for all other files. This sort approach is used just in case
-            // there are situations where the file has a different sort order
-            $mainfile = reset($files);
-            $type = get_mimetype_description($mainfile);
-            // Only show type if it is not unknown
-            if ($type === get_mimetype_description('document/unknown')) {
-                $type = '';
+        if (!empty($options['showtype'])) {
+            if (!empty($filedetails['type'])) {
+                $type = $filedetails['type'];
+                $langstring .= 'type';
+                $infodisplayed += 1;
             }
+        }
+        if (!empty($options['showdate']) && (!empty($filedetails['modifieddate']) || !empty($filedetails['uploadeddate']))) {
+            if (!empty($filedetails['modifieddate'])) {
+                $date = get_string('modifieddate', 'mod_resource', userdate($filedetails['modifieddate'],
+                    get_string('strftimedatetimeshort', 'langconfig')));
+            } else if (!empty($filedetails['uploadeddate'])) {
+                $date = get_string('uploadeddate', 'mod_resource', userdate($filedetails['uploadeddate'],
+                    get_string('strftimedatetimeshort', 'langconfig')));
+            }
+            $langstring .= 'date';
+            $infodisplayed += 1;
         }
 
-        if ($size && $type) {
-            // Depending on language it may be necessary to show both options in
-            // different order, so use a lang string
-            $details = get_string('resourcedetails_sizetype', 'resource',
-                    (object)array('size'=>$size, 'type'=>$type));
+        if ($infodisplayed > 1) {
+            $details = get_string("resourcedetails_{$langstring}", 'resource',
+                    (object)array('size' => $size, 'type' => $type, 'date' => $date));
         } else {
-            // Either size or type is set, but not both, so just append
-            $details = $size . $type;
+            // Only one of size, type and date is set, so just append.
+            $details = $size . $type . $date;
         }
     }
 
@@ -329,17 +386,15 @@ function resource_get_optional_details($resource, $cm) {
 }
 
 /**
- * Print resource introduction.
+ * Get resource introduction.
+ *
  * @param object $resource
  * @param object $cm
- * @param object $course
  * @param bool $ignoresettings print even if not specified in modedit
- * @return void
+ * @return string
  */
-function resource_print_intro($resource, $cm, $course, $ignoresettings=false) {
-    global $OUTPUT;
-
-    $options = empty($resource->displayoptions) ? array() : unserialize($resource->displayoptions);
+function resource_get_intro(object $resource, object $cm, bool $ignoresettings = false): string {
+    $options = empty($resource->displayoptions) ? [] : (array) unserialize_array($resource->displayoptions);
 
     $extraintro = resource_get_optional_details($resource, $cm);
     if ($extraintro) {
@@ -347,17 +402,18 @@ function resource_print_intro($resource, $cm, $course, $ignoresettings=false) {
         $extraintro = html_writer::tag('p', $extraintro, array('class' => 'resourcedetails'));
     }
 
+    $content = "";
     if ($ignoresettings || !empty($options['printintro']) || $extraintro) {
         $gotintro = trim(strip_tags($resource->intro));
         if ($gotintro || $extraintro) {
-            echo $OUTPUT->box_start('mod_introbox', 'resourceintro');
             if ($gotintro) {
-                echo format_module_intro('resource', $resource, $cm->id);
+                $content = format_module_intro('resource', $resource, $cm->id);
             }
-            echo $extraintro;
-            echo $OUTPUT->box_end();
+            $content .= $extraintro;
         }
     }
+
+    return $content;
 }
 
 /**
@@ -368,12 +424,10 @@ function resource_print_intro($resource, $cm, $course, $ignoresettings=false) {
  * @return void, does not return
  */
 function resource_print_tobemigrated($resource, $cm, $course) {
-    global $DB, $OUTPUT;
-
+    global $DB, $OUTPUT, $PAGE;
+    $PAGE->activityheader->set_description(resource_get_intro($resource, $cm));
     $resource_old = $DB->get_record('resource_old', array('oldid'=>$resource->id));
     resource_print_header($resource, $cm, $course);
-    resource_print_heading($resource, $cm, $course);
-    resource_print_intro($resource, $cm, $course);
     echo $OUTPUT->notification(get_string('notmigrated', 'resource', $resource_old->type));
     echo $OUTPUT->footer();
     die;
@@ -387,12 +441,11 @@ function resource_print_tobemigrated($resource, $cm, $course) {
  * @return void, does not return
  */
 function resource_print_filenotfound($resource, $cm, $course) {
-    global $DB, $OUTPUT;
+    global $DB, $OUTPUT, $PAGE;
 
     $resource_old = $DB->get_record('resource_old', array('oldid'=>$resource->id));
+    $PAGE->activityheader->set_description(resource_get_intro($resource, $cm));
     resource_print_header($resource, $cm, $course);
-    resource_print_heading($resource, $cm, $course);
-    resource_print_intro($resource, $cm, $course);
     if ($resource_old) {
         echo $OUTPUT->notification(get_string('notmigrated', 'resource', $resource_old->type));
     } else {
@@ -457,7 +510,11 @@ function resource_set_mainfile($data) {
 
     $context = context_module::instance($cmid);
     if ($draftitemid) {
-        file_save_draft_area_files($draftitemid, $context->id, 'mod_resource', 'content', 0, array('subdirs'=>true));
+        $options = array('subdirs' => true, 'embed' => false);
+        if ($data->display == RESOURCELIB_DISPLAY_EMBED) {
+            $options['embed'] = true;
+        }
+        file_save_draft_area_files($draftitemid, $context->id, 'mod_resource', 'content', 0, $options);
     }
     $files = $fs->get_area_files($context->id, 'mod_resource', 'content', 0, 'sortorder', false);
     if (count($files) == 1) {

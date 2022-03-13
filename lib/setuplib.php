@@ -51,20 +51,6 @@ define('MEMORY_EXTRA', -3);
 /** Extremely large memory limit - not recommended for standard scripts */
 define('MEMORY_HUGE', -4);
 
-
-/**
- * Simple class. It is usually used instead of stdClass because it looks
- * more familiar to Java developers ;-) Do not use for type checking of
- * function parameters. Please use stdClass instead.
- *
- * @package    core
- * @subpackage lib
- * @copyright  2009 Petr Skoda  {@link http://skodak.org}
- * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- * @deprecated since 2.0
- */
-class object extends stdClass {};
-
 /**
  * Base Moodle Exception class
  *
@@ -112,6 +98,8 @@ class moodle_exception extends Exception {
      * @param string $debuginfo optional debugging information
      */
     function __construct($errorcode, $module='', $link='', $a=NULL, $debuginfo=null) {
+        global $CFG;
+
         if (empty($module) || $module == 'moodle' || $module == 'core') {
             $module = 'error';
         }
@@ -130,11 +118,21 @@ class moodle_exception extends Exception {
             $haserrorstring = false;
         }
 
-        if (defined('PHPUNIT_TEST') and PHPUNIT_TEST and $debuginfo) {
-            $message = "$message ($debuginfo)";
+        $isinphpunittest = (defined('PHPUNIT_TEST') && PHPUNIT_TEST);
+        $hasdebugdeveloper = (
+            isset($CFG->debugdisplay) &&
+            isset($CFG->debug) &&
+            $CFG->debugdisplay &&
+            $CFG->debug === DEBUG_DEVELOPER
+        );
+
+        if ($debuginfo) {
+            if ($isinphpunittest || $hasdebugdeveloper) {
+                $message = "$message ($debuginfo)";
+            }
         }
 
-        if (!$haserrorstring and defined('PHPUNIT_TEST') and PHPUNIT_TEST) {
+        if (!$haserrorstring and $isinphpunittest) {
             // Append the contents of $a to $debuginfo so helpful information isn't lost.
             // This emulates what {@link get_exception_info()} does. Unfortunately that
             // function is not used by phpunit.
@@ -161,6 +159,24 @@ class require_login_exception extends moodle_exception {
      */
     function __construct($debuginfo) {
         parent::__construct('requireloginerror', 'error', '', NULL, $debuginfo);
+    }
+}
+
+/**
+ * Session timeout exception.
+ *
+ * This exception is thrown from require_login()
+ *
+ * @package    core_access
+ * @copyright  2015 Andrew Nicols <andrew@nicols.co.uk>
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
+class require_login_session_timeout_exception extends require_login_exception {
+    /**
+     * Constructor
+     */
+    public function __construct() {
+        moodle_exception::__construct('sessionerroruser', 'error');
     }
 }
 
@@ -328,7 +344,7 @@ class file_serving_exception extends moodle_exception {
 }
 
 /**
- * Default exception handler, uncaught exceptions are equivalent to error() in 1.9 and earlier
+ * Default exception handler.
  *
  * @param Exception $ex
  * @return void -does not return. Terminates execution!
@@ -346,21 +362,40 @@ function default_exception_handler($ex) {
 
     $info = get_exception_info($ex);
 
-    if (debugging('', DEBUG_MINIMAL)) {
-        $logerrmsg = "Default exception handler: ".$info->message.' Debug: '.$info->debuginfo."\n".format_backtrace($info->backtrace, true);
-        error_log($logerrmsg);
-    }
+    // If we already tried to send the header remove it, the content length
+    // should be either empty or the length of the error page.
+    @header_remove('Content-Length');
 
     if (is_early_init($info->backtrace)) {
         echo bootstrap_renderer::early_error($info->message, $info->moreinfourl, $info->link, $info->backtrace, $info->debuginfo, $info->errorcode);
     } else {
+        if (debugging('', DEBUG_MINIMAL)) {
+            $logerrmsg = "Default exception handler: ".$info->message.' Debug: '.$info->debuginfo."\n".format_backtrace($info->backtrace, true);
+            error_log($logerrmsg);
+        }
+
         try {
             if ($DB) {
                 // If you enable db debugging and exception is thrown, the print footer prints a lot of rubbish
                 $DB->set_debug(0);
             }
-            echo $OUTPUT->fatal_error($info->message, $info->moreinfourl, $info->link, $info->backtrace, $info->debuginfo);
-        } catch (Exception $out_ex) {
+            if (AJAX_SCRIPT) {
+                // If we are in an AJAX script we don't want to use PREFERRED_RENDERER_TARGET.
+                // Because we know we will want to use ajax format.
+                $renderer = new core_renderer_ajax($PAGE, 'ajax');
+            } else {
+                $renderer = $OUTPUT;
+            }
+            echo $renderer->fatal_error($info->message, $info->moreinfourl, $info->link, $info->backtrace, $info->debuginfo,
+                $info->errorcode);
+        } catch (Exception $e) {
+            $out_ex = $e;
+        } catch (Throwable $e) {
+            // Engine errors in PHP7 throw exceptions of type Throwable (this "catch" will be ignored in PHP5).
+            $out_ex = $e;
+        }
+
+        if (isset($out_ex)) {
             // default exception handler MUST not throw any exceptions!!
             // the problem here is we do not know if page already started or not, we only know that somebody messed up in outputlib or theme
             // so we just print at least something instead of "Exception thrown without a stack frame in Unknown on line 0":-(
@@ -384,10 +419,9 @@ function default_exception_handler($ex) {
  * @param string $errstr
  * @param string $errfile
  * @param int $errline
- * @param array $errcontext
  * @return bool false means use default error handler
  */
-function default_error_handler($errno, $errstr, $errfile, $errline, $errcontext) {
+function default_error_handler($errno, $errstr, $errfile, $errline) {
     if ($errno == 4096) {
         //fatal catchable error
         throw new coding_exception('PHP catchable fatal error', $errstr);
@@ -428,7 +462,7 @@ function is_early_init($backtrace) {
     $dangerouscode = array(
         array('function' => 'header', 'type' => '->'),
         array('class' => 'bootstrap_renderer'),
-        array('file' => dirname(__FILE__).'/setup.php'),
+        array('file' => __DIR__.'/setup.php'),
     );
     foreach ($backtrace as $stackframe) {
         foreach ($dangerouscode as $pattern) {
@@ -516,7 +550,7 @@ function get_exception_info($ex) {
     // Remove some absolute paths from message and debugging info.
     $searches = array();
     $replaces = array();
-    $cfgnames = array('tempdir', 'cachedir', 'localcachedir', 'themedir', 'dataroot', 'dirroot');
+    $cfgnames = array('backuptempdir', 'tempdir', 'cachedir', 'localcachedir', 'themedir', 'dataroot', 'dirroot');
     foreach ($cfgnames as $cfgname) {
         if (property_exists($CFG, $cfgname)) {
             $searches[] = $CFG->$cfgname;
@@ -538,7 +572,12 @@ function get_exception_info($ex) {
     if (!empty($CFG->errordocroot)) {
         $errordoclink = $CFG->errordocroot . '/en/';
     } else {
-        $errordoclink = get_docs_url();
+        // Only if the function is available. May be not for early errors.
+        if (function_exists('current_language')) {
+            $errordoclink = get_docs_url();
+        } else {
+            $errordoclink = 'https://docs.moodle.org/en/';
+        }
     }
 
     if ($module === 'error') {
@@ -549,18 +588,16 @@ function get_exception_info($ex) {
     $moreinfourl = $errordoclink . 'error/' . $modulelink . '/' . $errorcode;
 
     if (empty($link)) {
-        if (!empty($SESSION->fromurl)) {
-            $link = $SESSION->fromurl;
-            unset($SESSION->fromurl);
-        } else {
-            $link = $CFG->wwwroot .'/';
-        }
+        $link = get_local_referer(false) ?: ($CFG->wwwroot . '/');
     }
 
-    // when printing an error the continue button should never link offsite
-    if (stripos($link, $CFG->wwwroot) === false &&
-        stripos($link, $CFG->httpswwwroot) === false) {
-        $link = $CFG->wwwroot.'/';
+    // When printing an error the continue button should never link offsite.
+    // We cannot use clean_param() here as it is not guaranteed that it has been loaded yet.
+    if (stripos($link, $CFG->wwwroot) === 0) {
+        // Internal HTTP, all good.
+    } else {
+        // External link spotted!
+        $link = $CFG->wwwroot . '/';
     }
 
     $info = new stdClass();
@@ -573,6 +610,15 @@ function get_exception_info($ex) {
     $info->debuginfo   = $debuginfo;
 
     return $info;
+}
+
+/**
+ * @deprecated since Moodle 3.8 MDL-61038 - please do not use this function any more.
+ * @see \core\uuid::generate()
+ */
+function generate_uuid() {
+    throw new coding_exception('generate_uuid() cannot be used anymore. Please use ' .
+        '\core\uuid::generate() instead.');
 }
 
 /**
@@ -645,13 +691,16 @@ function get_docs_url($path = null) {
 /**
  * Formats a backtrace ready for output.
  *
+ * This function does not include function arguments because they could contain sensitive information
+ * not suitable to be exposed in a response.
+ *
  * @param array $callers backtrace array, as returned by debug_backtrace().
  * @param boolean $plaintext if false, generates HTML, if true generates plain text.
  * @return string formatted backtrace, ready for output.
  */
 function format_backtrace($callers, $plaintext = false) {
     // do not use $CFG->dirroot because it might not be available in destructors
-    $dirroot = dirname(dirname(__FILE__));
+    $dirroot = dirname(__DIR__);
 
     if (empty($callers)) {
         return '';
@@ -742,6 +791,53 @@ function initialise_cfg() {
 }
 
 /**
+ * Cache any immutable config locally to avoid constant DB lookups.
+ *
+ * Only to be used only from lib/setup.php
+ */
+function initialise_local_config_cache() {
+    global $CFG;
+
+    $bootstrapcachefile = $CFG->localcachedir . '/bootstrap.php';
+
+    if (!empty($CFG->siteidentifier) && !file_exists($bootstrapcachefile)) {
+        $contents = "<?php
+// ********** This file is generated DO NOT EDIT **********
+\$CFG->siteidentifier = '" . addslashes($CFG->siteidentifier) . "';
+\$CFG->bootstraphash = '" . hash_local_config_cache() . "';
+// Only if the file is not stale and has not been defined.
+if (\$CFG->bootstraphash === hash_local_config_cache() && !defined('SYSCONTEXTID')) {
+    define('SYSCONTEXTID', ".SYSCONTEXTID.");
+}
+";
+
+        $temp = $bootstrapcachefile . '.tmp' . uniqid();
+        file_put_contents($temp, $contents);
+        @chmod($temp, $CFG->filepermissions);
+        rename($temp, $bootstrapcachefile);
+    }
+}
+
+/**
+ * Calculate a proper hash to be able to invalidate stale cached configs.
+ *
+ * Only to be used to verify bootstrap.php status.
+ *
+ * @return string md5 hash of all the sensible bits deciding if cached config is stale or no.
+ */
+function hash_local_config_cache() {
+    global $CFG;
+
+    // This is pretty much {@see moodle_database::get_settings_hash()} that is used
+    // as identifier for the database meta information MUC cache. Should be enough to
+    // react against any of the normal changes (new prefix, change of DB type) while
+    // *incorrectly* keeping the old dataroot directory unmodified with stale data.
+    // This may need more stuff to be considered if it's discovered that there are
+    // more variables making the file stale.
+    return md5($CFG->dbtype . $CFG->dbhost . $CFG->dbuser . $CFG->dbname . $CFG->prefix);
+}
+
+/**
  * Initialises $FULLME and friends. Private function. Should only be called from
  * setup.php.
  */
@@ -756,6 +852,13 @@ function initialise_fullme() {
     if (CLI_SCRIPT) {
         initialise_fullme_cli();
         return;
+    }
+    if (!empty($CFG->overridetossl)) {
+        if (strpos($CFG->wwwroot, 'http://') === 0) {
+            $CFG->wwwroot = str_replace('http:', 'https:', $CFG->wwwroot);
+        } else {
+            unset_config('overridetossl');
+        }
     }
 
     $rurl = setup_get_remote_url();
@@ -809,7 +912,11 @@ function initialise_fullme() {
     // (That is, the Moodle server uses http, with an external box translating everything to https).
     if (empty($CFG->sslproxy)) {
         if ($rurl['scheme'] === 'http' and $wwwroot['scheme'] === 'https') {
-            print_error('sslonlyaccess', 'error');
+            if (defined('REQUIRE_CORRECT_ACCESS') && REQUIRE_CORRECT_ACCESS) {
+                print_error('sslonlyaccess', 'error');
+            } else {
+                redirect($CFG->wwwroot, get_string('wwwrootmismatch', 'error', $CFG->wwwroot), 3);
+            }
         }
     } else {
         if ($wwwroot['scheme'] !== 'https') {
@@ -820,9 +927,10 @@ function initialise_fullme() {
         $_SERVER['SERVER_PORT'] = 443; // Assume default ssl port for the proxy.
     }
 
-    // hopefully this will stop all those "clever" admins trying to set up moodle
-    // with two different addresses in intranet and Internet
-    if (!empty($CFG->reverseproxy) && $rurl['host'] === $wwwroot['host']) {
+    // Hopefully this will stop all those "clever" admins trying to set up moodle
+    // with two different addresses in intranet and Internet.
+    // Port forwarding is still allowed!
+    if (!empty($CFG->reverseproxy) && $rurl['host'] === $wwwroot['host'] && (empty($wwwroot['port']) || $rurl['port'] === $wwwroot['port'])) {
         print_error('reverseproxyabused', 'error');
     }
 
@@ -873,13 +981,36 @@ function setup_get_remote_url() {
     } else {
         $rurl['host'] = null;
     }
-    $rurl['port'] = $_SERVER['SERVER_PORT'];
+    $rurl['port'] = (int)$_SERVER['SERVER_PORT'];
     $rurl['path'] = $_SERVER['SCRIPT_NAME']; // Script path without slash arguments
     $rurl['scheme'] = (empty($_SERVER['HTTPS']) or $_SERVER['HTTPS'] === 'off' or $_SERVER['HTTPS'] === 'Off' or $_SERVER['HTTPS'] === 'OFF') ? 'http' : 'https';
 
     if (stripos($_SERVER['SERVER_SOFTWARE'], 'apache') !== false) {
         //Apache server
         $rurl['fullpath'] = $_SERVER['REQUEST_URI'];
+
+        // Fixing a known issue with:
+        // - Apache versions lesser than 2.4.11
+        // - PHP deployed in Apache as PHP-FPM via mod_proxy_fcgi
+        // - PHP versions lesser than 5.6.3 and 5.5.18.
+        if (isset($_SERVER['PATH_INFO']) && (php_sapi_name() === 'fpm-fcgi') && isset($_SERVER['SCRIPT_NAME'])) {
+            $pathinfodec = rawurldecode($_SERVER['PATH_INFO']);
+            $lenneedle = strlen($pathinfodec);
+            // Checks whether SCRIPT_NAME ends with PATH_INFO, URL-decoded.
+            if (substr($_SERVER['SCRIPT_NAME'], -$lenneedle) === $pathinfodec) {
+                // This is the "Apache 2.4.10- running PHP-FPM via mod_proxy_fcgi" fingerprint,
+                // at least on CentOS 7 (Apache/2.4.6 PHP/5.4.16) and Ubuntu 14.04 (Apache/2.4.7 PHP/5.5.9)
+                // => SCRIPT_NAME contains 'slash arguments' data too, which is wrongly exposed via PATH_INFO as URL-encoded.
+                // Fix both $_SERVER['PATH_INFO'] and $_SERVER['SCRIPT_NAME'].
+                $lenhaystack = strlen($_SERVER['SCRIPT_NAME']);
+                $pos = $lenhaystack - $lenneedle;
+                // Here $pos is greater than 0 but let's double check it.
+                if ($pos > 0) {
+                    $_SERVER['PATH_INFO'] = $pathinfodec;
+                    $_SERVER['SCRIPT_NAME'] = substr($_SERVER['SCRIPT_NAME'], 0, $pos);
+                }
+            }
+        }
 
     } else if (stripos($_SERVER['SERVER_SOFTWARE'], 'iis') !== false) {
         //IIS - needs a lot of tweaking to make it work
@@ -984,7 +1115,10 @@ function workaround_max_input_vars() {
         return;
     }
 
-    if (count($_POST, COUNT_RECURSIVE) < $max) {
+    // Worst case is advanced checkboxes which use up to two max_input_vars
+    // slots for each entry in $_POST, because of sending two fields with the
+    // same name. So count everything twice just in case.
+    if (count($_POST, COUNT_RECURSIVE) * 2 < $max) {
         return;
     }
 
@@ -997,8 +1131,19 @@ function workaround_max_input_vars() {
     }
 
     $delim = '&';
-    $fun = create_function('$p', 'return implode("'.$delim.'", $p);');
+    $fun = function($p) use ($delim) {
+        return implode($delim, $p);
+    };
     $chunks = array_map($fun, array_chunk(explode($delim, $str), $max));
+
+    // Clear everything from existing $_POST array, otherwise it might be included
+    // twice (this affects array params primarily).
+    foreach ($_POST as $key => $value) {
+        unset($_POST[$key]);
+        // Also clear from request array - but only the things that are in $_POST,
+        // that way it will leave the things from a get request if any.
+        unset($_REQUEST[$key]);
+    }
 
     foreach ($chunks as $chunk) {
         $values = array();
@@ -1208,26 +1353,25 @@ function get_real_size($size = 0) {
     if (!$size) {
         return 0;
     }
-    $scan = array();
-    $scan['GB'] = 1073741824;
-    $scan['Gb'] = 1073741824;
-    $scan['G'] = 1073741824;
-    $scan['MB'] = 1048576;
-    $scan['Mb'] = 1048576;
-    $scan['M'] = 1048576;
-    $scan['m'] = 1048576;
-    $scan['KB'] = 1024;
-    $scan['Kb'] = 1024;
-    $scan['K'] = 1024;
-    $scan['k'] = 1024;
 
-    while (list($key) = each($scan)) {
-        if ((strlen($size)>strlen($key))&&(substr($size, strlen($size) - strlen($key))==$key)) {
-            $size = substr($size, 0, strlen($size) - strlen($key)) * $scan[$key];
-            break;
-        }
+    static $binaryprefixes = array(
+        'K' => 1024 ** 1,
+        'k' => 1024 ** 1,
+        'M' => 1024 ** 2,
+        'm' => 1024 ** 2,
+        'G' => 1024 ** 3,
+        'g' => 1024 ** 3,
+        'T' => 1024 ** 4,
+        't' => 1024 ** 4,
+        'P' => 1024 ** 5,
+        'p' => 1024 ** 5,
+    );
+
+    if (preg_match('/^([0-9]+)([KMGTP])/i', $size, $matches)) {
+        return $matches[1] * $binaryprefixes[$matches[2]];
     }
-    return $size;
+
+    return (int) $size;
 }
 
 /**
@@ -1261,19 +1405,41 @@ function disable_output_buffering() {
     ini_set('output_handler', '');
 
     error_reporting($olddebug);
+
+    // Disable buffering in nginx.
+    header('X-Accel-Buffering: no');
+
 }
 
 /**
- * Check whether a major upgrade is needed. That is defined as an upgrade that
- * changes something really fundamental in the database, so nothing can possibly
- * work until the database has been updated, and that is defined by the hard-coded
- * version number in this function.
+ * Check whether a major upgrade is needed.
+ *
+ * That is defined as an upgrade that changes something really fundamental
+ * in the database, so nothing can possibly work until the database has
+ * been updated, and that is defined by the hard-coded version number in
+ * this function.
+ *
+ * @return bool
+ */
+function is_major_upgrade_required() {
+    global $CFG;
+    $lastmajordbchanges = 2022022200.00;
+
+    $required = empty($CFG->version);
+    $required = $required || (float)$CFG->version < $lastmajordbchanges;
+    $required = $required || during_initial_install();
+    $required = $required || !empty($CFG->adminsetuppending);
+
+    return $required;
+}
+
+/**
+ * Redirect to the Notifications page if a major upgrade is required, and
+ * terminate the current user session.
  */
 function redirect_if_major_upgrade_required() {
     global $CFG;
-    $lastmajordbchanges = 2014093001.00;
-    if (empty($CFG->version) or (float)$CFG->version < $lastmajordbchanges or
-            during_initial_install() or !empty($CFG->adminsetuppending)) {
+    if (is_major_upgrade_required()) {
         try {
             @\core\session\manager::terminate_current();
         } catch (Exception $e) {
@@ -1341,6 +1507,51 @@ function check_dir_exists($dir, $create = true, $recursive = true) {
     }
 
     return mkdir($dir, $CFG->directorypermissions, $recursive);
+}
+
+/**
+ * Create a new unique directory within the specified directory.
+ *
+ * @param string $basedir The directory to create your new unique directory within.
+ * @param bool $exceptiononerror throw exception if error encountered
+ * @return string The created directory
+ * @throws invalid_dataroot_permissions
+ */
+function make_unique_writable_directory($basedir, $exceptiononerror = true) {
+    if (!is_dir($basedir) || !is_writable($basedir)) {
+        // The basedir is not writable. We will not be able to create the child directory.
+        if ($exceptiononerror) {
+            throw new invalid_dataroot_permissions($basedir . ' is not writable. Unable to create a unique directory within it.');
+        } else {
+            return false;
+        }
+    }
+
+    do {
+        // Let's use uniqid() because it's "unique enough" (microtime based). The loop does handle repetitions.
+        // Windows and old PHP don't like very long paths, so try to keep this shorter. See MDL-69975.
+        $uniquedir = $basedir . DIRECTORY_SEPARATOR . uniqid();
+    } while (
+            // Ensure that basedir is still writable - if we do not check, we could get stuck in a loop here.
+            is_writable($basedir) &&
+
+            // Make the new unique directory. If the directory already exists, it will return false.
+            !make_writable_directory($uniquedir, $exceptiononerror) &&
+
+            // Ensure that the directory now exists
+            file_exists($uniquedir) && is_dir($uniquedir)
+        );
+
+    // Check that the directory was correctly created.
+    if (!file_exists($uniquedir) || !is_dir($uniquedir) || !is_writable($uniquedir)) {
+        if ($exceptiononerror) {
+            throw new invalid_dataroot_permissions('Unique directory creation failed.');
+        } else {
+            return false;
+        }
+    }
+
+    return $uniquedir;
 }
 
 /**
@@ -1435,8 +1646,113 @@ function make_upload_directory($directory, $exceptiononerror = true) {
 }
 
 /**
+ * Get a per-request storage directory in the tempdir.
+ *
+ * The directory is automatically cleaned up during the shutdown handler.
+ *
+ * @param   bool    $exceptiononerror throw exception if error encountered
+ * @param   bool    $forcecreate Force creation of a new parent directory
+ * @return  string  Returns full path to directory if successful, false if not; may throw exception
+ */
+function get_request_storage_directory($exceptiononerror = true, bool $forcecreate = false) {
+    global $CFG;
+
+    static $requestdir = null;
+
+    $writabledirectoryexists = (null !== $requestdir);
+    $writabledirectoryexists = $writabledirectoryexists && file_exists($requestdir);
+    $writabledirectoryexists = $writabledirectoryexists && is_dir($requestdir);
+    $writabledirectoryexists = $writabledirectoryexists && is_writable($requestdir);
+    $createnewdirectory = $forcecreate || !$writabledirectoryexists;
+
+    if ($createnewdirectory) {
+
+        // Let's add the first chars of siteidentifier only. This is to help separate
+        // paths on systems which host multiple moodles. We don't use the full id
+        // as Windows and old PHP don't like very long paths. See MDL-69975.
+        $basedir = $CFG->localrequestdir . '/' . substr($CFG->siteidentifier, 0, 4);
+
+        make_writable_directory($basedir);
+        protect_directory($basedir);
+
+        if ($dir = make_unique_writable_directory($basedir, $exceptiononerror)) {
+            // Register a shutdown handler to remove the directory.
+            \core_shutdown_manager::register_function('remove_dir', [$dir]);
+        }
+
+        $requestdir = $dir;
+    }
+
+    return $requestdir;
+}
+
+/**
+ * Create a per-request directory and make sure it is writable.
+ * This can only be used during the current request and will be tidied away
+ * automatically afterwards.
+ *
+ * A new, unique directory is always created within a shared base request directory.
+ *
+ * In some exceptional cases an alternative base directory may be required. This can be accomplished using the
+ * $forcecreate parameter. Typically this will only be requried where the file may be required during a shutdown handler
+ * which may or may not be registered after a previous request directory has been created.
+ *
+ * @param   bool    $exceptiononerror throw exception if error encountered
+ * @param   bool    $forcecreate Force creation of a new parent directory
+ * @return  string  The full path to directory if successful, false if not; may throw exception
+ */
+function make_request_directory(bool $exceptiononerror = true, bool $forcecreate = false) {
+    $basedir = get_request_storage_directory($exceptiononerror, $forcecreate);
+    return make_unique_writable_directory($basedir, $exceptiononerror);
+}
+
+/**
+ * Get the full path of a directory under $CFG->backuptempdir.
+ *
+ * @param string $directory  the relative path of the directory under $CFG->backuptempdir
+ * @return string|false Returns full path to directory given a valid string; otherwise, false.
+ */
+function get_backup_temp_directory($directory) {
+    global $CFG;
+    if (($directory === null) || ($directory === false)) {
+        return false;
+    }
+    return "$CFG->backuptempdir/$directory";
+}
+
+/**
+ * Create a directory under $CFG->backuptempdir and make sure it is writable.
+ *
+ * Do not use for storing generic temp files - see make_temp_directory() instead for this purpose.
+ *
+ * Backup temporary files must be on a shared storage.
+ *
+ * @param string $directory  the relative path of the directory to be created under $CFG->backuptempdir
+ * @param bool $exceptiononerror throw exception if error encountered
+ * @return string|false Returns full path to directory if successful, false if not; may throw exception
+ */
+function make_backup_temp_directory($directory, $exceptiononerror = true) {
+    global $CFG;
+    if ($CFG->backuptempdir !== "$CFG->tempdir/backup") {
+        check_dir_exists($CFG->backuptempdir, true, true);
+        protect_directory($CFG->backuptempdir);
+    } else {
+        protect_directory($CFG->tempdir);
+    }
+    return make_writable_directory("$CFG->backuptempdir/$directory", $exceptiononerror);
+}
+
+/**
  * Create a directory under tempdir and make sure it is writable.
- * Temporary files should be used during the current request only!
+ *
+ * Where possible, please use make_request_directory() and limit the scope
+ * of your data to the current HTTP request.
+ *
+ * Do not use for storing cache files - see make_cache_directory(), and
+ * make_localcache_directory() instead for this purpose.
+ *
+ * Temporary files must be on a shared storage, and heavy usage is
+ * discouraged due to the performance impact upon clustered environments.
  *
  * @param string $directory  the full path of the directory to be created under $CFG->tempdir
  * @param bool $exceptiononerror throw exception if error encountered
@@ -1526,42 +1842,57 @@ function make_localcache_directory($directory, $exceptiononerror = true) {
 }
 
 /**
- * Checks if current user is a web crawler.
- *
- * This list can not be made complete, this is not a security
- * restriction, we make the list only to help these sites
- * especially when automatic guest login is disabled.
- *
- * If admin needs security they should enable forcelogin
- * and disable guest access!!
- *
- * @return bool
+ * Webserver access user logging
  */
-function is_web_crawler() {
-    if (!empty($_SERVER['HTTP_USER_AGENT'])) {
-        if (strpos($_SERVER['HTTP_USER_AGENT'], 'Googlebot') !== false ) {
-            return true;
-        } else if (strpos($_SERVER['HTTP_USER_AGENT'], 'google.com') !== false ) { // Google
-            return true;
-        } else if (strpos($_SERVER['HTTP_USER_AGENT'], 'Yahoo! Slurp') !== false ) {  // Yahoo
-            return true;
-        } else if (strpos($_SERVER['HTTP_USER_AGENT'], '[ZSEBOT]') !== false ) {  // Zoomspider
-            return true;
-        } else if (stripos($_SERVER['HTTP_USER_AGENT'], 'msnbot') !== false ) {  // MSN Search
-            return true;
-        } else if (strpos($_SERVER['HTTP_USER_AGENT'], 'bingbot') !== false ) {  // Bing
-            return true;
-        } else if (strpos($_SERVER['HTTP_USER_AGENT'], 'Yandex') !== false ) {
-            return true;
-        } else if (strpos($_SERVER['HTTP_USER_AGENT'], 'AltaVista') !== false ) {
-            return true;
-        } else if (stripos($_SERVER['HTTP_USER_AGENT'], 'baiduspider') !== false ) {  // Baidu
-            return true;
-        } else if (strpos($_SERVER['HTTP_USER_AGENT'], 'Teoma') !== false ) {  // Ask.com
-            return true;
+function set_access_log_user() {
+    global $USER, $CFG;
+    if ($USER && isset($USER->username)) {
+        $logmethod = '';
+        $logvalue = 0;
+        if (!empty($CFG->apacheloguser) && function_exists('apache_note')) {
+            $logmethod = 'apache';
+            $logvalue = $CFG->apacheloguser;
+        }
+        if (!empty($CFG->headerloguser)) {
+            $logmethod = 'header';
+            $logvalue = $CFG->headerloguser;
+        }
+        if (!empty($logmethod)) {
+            $loguserid = $USER->id;
+            $logusername = clean_filename($USER->username);
+            $logname = '';
+            if (isset($USER->firstname)) {
+                // We can assume both will be set
+                // - even if to empty.
+                $logname = clean_filename($USER->firstname . " " . $USER->lastname);
+            }
+            if (\core\session\manager::is_loggedinas()) {
+                $realuser = \core\session\manager::get_realuser();
+                $logusername = clean_filename($realuser->username." as ".$logusername);
+                $logname = clean_filename($realuser->firstname." ".$realuser->lastname ." as ".$logname);
+                $loguserid = clean_filename($realuser->id." as ".$loguserid);
+            }
+            switch ($logvalue) {
+                case 3:
+                    $logname = $logusername;
+                    break;
+                case 2:
+                    $logname = $logname;
+                    break;
+                case 1:
+                default:
+                    $logname = $loguserid;
+                    break;
+            }
+            if ($logmethod == 'apache') {
+                apache_note('MOODLEUSER', $logname);
+            }
+
+            if ($logmethod == 'header') {
+                header("X-MOODLEUSER: $logname");
+            }
         }
     }
-    return false;
 }
 
 /**
@@ -1672,11 +2003,7 @@ class bootstrap_renderer {
     public static function early_error_content($message, $moreinfourl, $link, $backtrace, $debuginfo = null) {
         global $CFG;
 
-        $content = '<div style="margin-top: 6em; margin-left:auto; margin-right:auto; color:#990000; text-align:center; font-size:large; border-width:1px;
-border-color:black; background-color:#ffffee; border-style:solid; border-radius: 20px; border-collapse: collapse;
-width: 80%; -moz-border-radius: 20px; padding: 15px">
-' . $message . '
-</div>';
+        $content = "<div class='alert-danger'>$message</div>";
         // Check whether debug is set.
         $debug = (!empty($CFG->debug) && $CFG->debug >= DEBUG_DEVELOPER);
         // Also check we have it set in the config file. This occurs if the method to read the config table from the
@@ -1684,7 +2011,15 @@ width: 80%; -moz-border-radius: 20px; padding: 15px">
         $debug = $debug || (!empty($CFG->config_php_settings['debug'])  && $CFG->config_php_settings['debug'] >= DEBUG_DEVELOPER );
         if ($debug) {
             if (!empty($debuginfo)) {
-                $debuginfo = s($debuginfo); // removes all nasty JS
+                // Remove all nasty JS.
+                if (function_exists('s')) { // Function may be not available for some early errors.
+                    $debuginfo = s($debuginfo);
+                } else {
+                    // Because weblib is not available for these early errors, we
+                    // just duplicate s() code here to be safe.
+                    $debuginfo = preg_replace('/&amp;#(\d+|x[0-9a-f]+);/i', '&#$1;',
+                    htmlspecialchars($debuginfo, ENT_QUOTES | ENT_HTML401 | ENT_SUBSTITUTE));
+                }
                 $debuginfo = str_replace("\n", '<br />', $debuginfo); // keep newlines
                 $content .= '<div class="notifytiny">Debug info: ' . $debuginfo . '</div>';
             }
@@ -1743,7 +2078,7 @@ width: 80%; -moz-border-radius: 20px; padding: 15px">
         // In the name of protocol correctness, monitoring and performance
         // profiling, set the appropriate error headers for machine consumption.
         $protocol = (isset($_SERVER['SERVER_PROTOCOL']) ? $_SERVER['SERVER_PROTOCOL'] : 'HTTP/1.0');
-        @header($protocol . ' 503 Service Unavailable');
+        @header($protocol . ' 500 Internal Server Error');
 
         // better disable any caching
         @header('Content-Type: text/html; charset=utf-8');
@@ -1813,6 +2148,8 @@ width: 80%; -moz-border-radius: 20px; padding: 15px">
      * @return string html page
      */
     public static function plain_page($title, $content, $meta = '') {
+        global $CFG;
+
         if (function_exists('get_string') && function_exists('get_html_lang')) {
             $htmllang = get_html_lang();
         } else {
@@ -1820,17 +2157,18 @@ width: 80%; -moz-border-radius: 20px; padding: 15px">
         }
 
         $footer = '';
-        if (MDL_PERF_TEST) {
-            $perfinfo = get_performance_info();
-            $footer = '<footer>' . $perfinfo['html'] . '</footer>';
+        if (function_exists('get_performance_info')) { // Function may be not available for some early errors.
+            if (MDL_PERF_TEST) {
+                $perfinfo = get_performance_info();
+                $footer = '<footer>' . $perfinfo['html'] . '</footer>';
+            }
         }
 
-        return '<!DOCTYPE html>
-<html ' . $htmllang . '>
-<head>
-<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-'.$meta.'
-<title>' . $title . '</title>
-</head><body>' . $content . $footer . '</body></html>';
+        ob_start();
+        include($CFG->dirroot . '/error/plainpage.php');
+        $html = ob_get_contents();
+        ob_end_clean();
+
+        return $html;
     }
 }

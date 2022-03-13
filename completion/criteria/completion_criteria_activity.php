@@ -60,7 +60,12 @@ class completion_criteria_activity extends completion_criteria {
      * @param stdClass $data details of various modules
      */
     public function config_form_display(&$mform, $data = null) {
-        $mform->addElement('checkbox', 'criteria_activity['.$data->id.']', ucfirst(self::get_mod_name($data->module)).' - '.$data->name);
+        $modnames = get_module_types_names();
+        $mform->addElement('advcheckbox',
+                'criteria_activity['.$data->id.']',
+                $modnames[self::get_mod_name($data->module)] . ' - ' . format_string($data->name),
+                null,
+                array('group' => 1));
 
         if ($this->id) {
             $mform->setDefault('criteria_activity['.$data->id.']', 1);
@@ -79,13 +84,17 @@ class completion_criteria_activity extends completion_criteria {
 
             $this->course = $data->id;
 
-            foreach (array_keys($data->criteria_activity) as $activity) {
-
-                $module = $DB->get_record('course_modules', array('id' => $activity));
-                $this->module = self::get_mod_name($module->module);
-                $this->moduleinstance = $activity;
-                $this->id = NULL;
-                $this->insert();
+            // Data comes from advcheckbox, so contains keys for all activities.
+            // A value of 0 is 'not checked' whereas 1 is 'checked'.
+            foreach ($data->criteria_activity as $activity => $val) {
+                // Only update those which are checked.
+                if (!empty($val)) {
+                    $module = $DB->get_record('course_modules', array('id' => $activity));
+                    $this->module = self::get_mod_name($module->module);
+                    $this->moduleinstance = $activity;
+                    $this->id = null;
+                    $this->insert();
+                }
             }
         }
     }
@@ -177,7 +186,8 @@ class completion_criteria_activity extends completion_criteria {
         $module = $DB->get_record('course_modules', array('id' => $this->moduleinstance));
         $activity = $DB->get_record($this->module, array('id' => $module->instance));
 
-        return shorten_text(urldecode($activity->name));
+        return shorten_text(format_string($activity->name, true,
+                array('context' => context_module::instance($module->id))));
     }
 
     /**
@@ -193,53 +203,7 @@ class completion_criteria_activity extends completion_criteria {
      * Find users who have completed this criteria and mark them accordingly
      */
     public function cron() {
-        global $DB;
-
-        // Get all users who meet this criteria
-        $sql = '
-            SELECT DISTINCT
-                c.id AS course,
-                cr.id AS criteriaid,
-                ra.userid AS userid,
-                mc.timemodified AS timecompleted
-            FROM
-                {course_completion_criteria} cr
-            INNER JOIN
-                {course} c
-             ON cr.course = c.id
-            INNER JOIN
-                {context} con
-             ON con.instanceid = c.id
-            INNER JOIN
-                {role_assignments} ra
-              ON ra.contextid = con.id
-            INNER JOIN
-                {course_modules_completion} mc
-             ON mc.coursemoduleid = cr.moduleinstance
-            AND mc.userid = ra.userid
-            LEFT JOIN
-                {course_completion_crit_compl} cc
-             ON cc.criteriaid = cr.id
-            AND cc.userid = ra.userid
-            WHERE
-                cr.criteriatype = '.COMPLETION_CRITERIA_TYPE_ACTIVITY.'
-            AND con.contextlevel = '.CONTEXT_COURSE.'
-            AND c.enablecompletion = 1
-            AND cc.id IS NULL
-            AND (
-                mc.completionstate = '.COMPLETION_COMPLETE.'
-             OR mc.completionstate = '.COMPLETION_COMPLETE_PASS.'
-             OR mc.completionstate = '.COMPLETION_COMPLETE_FAIL.'
-                )
-        ';
-
-        // Loop through completions, and mark as complete
-        $rs = $DB->get_recordset_sql($sql);
-        foreach ($rs as $record) {
-            $completion = new completion_criteria_completion((array) $record, DATA_OBJECT_FETCH_BY_KEY);
-            $completion->mark_complete($record->timecompleted);
-        }
-        $rs->close();
+        \core_completion\api::mark_course_completions_activity_criteria();
     }
 
     /**
@@ -269,18 +233,34 @@ class completion_criteria_activity extends completion_criteria {
             $details['requirement'][] = get_string('markingyourselfcomplete', 'completion');
         } elseif ($cm->completion == COMPLETION_TRACKING_AUTOMATIC) {
             if ($cm->completionview) {
-                $details['requirement'][] = get_string('viewingactivity', 'completion', $this->module);
+                $modulename = core_text::strtolower(get_string('modulename', $this->module));
+                $details['requirement'][] = get_string('viewingactivity', 'completion', $modulename);
             }
 
             if (!is_null($cm->completiongradeitemnumber)) {
                 $details['requirement'][] = get_string('achievinggrade', 'completion');
             }
+
+            if ($cm->completionpassgrade) {
+                $details['requirement'][] = get_string('achievingpassinggrade', 'completion');
+            }
         }
 
-        $details['requirement'] = implode($details['requirement'], ', ');
+        $details['requirement'] = implode(', ', $details['requirement']);
 
         $details['status'] = '';
 
         return $details;
+    }
+
+    /**
+     * Return pix_icon for display in reports.
+     *
+     * @param string $alt The alt text to use for the icon
+     * @param array $attributes html attributes
+     * @return pix_icon
+     */
+    public function get_icon($alt, array $attributes = null) {
+        return new pix_icon('icon', $alt, 'mod_'.$this->module, $attributes);
     }
 }

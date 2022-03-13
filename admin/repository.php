@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-require_once(dirname(dirname(__FILE__)) . '/config.php');
+require_once(__DIR__ . '/../config.php');
 require_once($CFG->dirroot . '/repository/lib.php');
 require_once($CFG->libdir . '/adminlib.php');
 
@@ -47,7 +47,6 @@ if ($action == 'newon') {
     $visible = false;
 }
 
-require_capability('moodle/site:config', context_system::instance());
 admin_externalpage_setup($pagename);
 
 $sesskeyurl = $CFG->wwwroot.'/'.$CFG->admin.'/repository.php?sesskey=' . sesskey();
@@ -124,13 +123,13 @@ if (($action == 'edit') || ($action == 'new')) {
             }
             $instanceoptionnames = repository::static_function($repository, 'get_instance_option_names');
             if (!empty($instanceoptionnames)) {
-                if (array_key_exists('enablecourseinstances', $fromform)) {
+                if (property_exists($fromform, 'enablecourseinstances')) {
                     $settings['enablecourseinstances'] = $fromform->enablecourseinstances;
                 }
                 else {
                     $settings['enablecourseinstances'] = 0;
                 }
-                if (array_key_exists('enableuserinstances', $fromform)) {
+                if (property_exists($fromform, 'enableuserinstances')) {
                     $settings['enableuserinstances'] = $fromform->enableuserinstances;
                 }
                 else {
@@ -143,6 +142,8 @@ if (($action == 'edit') || ($action == 'new')) {
             $success = true;
             if (!$repoid = $type->create()) {
                 $success = false;
+            } else {
+                add_to_config_log('repository_visibility', '', (int)$visible, $plugin);
             }
             $data = data_submitted();
         }
@@ -184,23 +185,15 @@ if (($action == 'edit') || ($action == 'new')) {
     if (!confirm_sesskey()) {
         print_error('confirmsesskeybad', '', $baseurl);
     }
-    $repositorytype = repository::get_type_by_typename($repository);
-    if (empty($repositorytype)) {
-        print_error('invalidplugin', 'repository', '', $repository);
-    }
-    $repositorytype->update_visibility(true);
-    core_plugin_manager::reset_caches();
+    $class = \core_plugin_manager::resolve_plugininfo_class('repository');
+    $class::enable_plugin($repository, 1);
     $return = true;
 } else if ($action == 'hide') {
     if (!confirm_sesskey()) {
         print_error('confirmsesskeybad', '', $baseurl);
     }
-    $repositorytype = repository::get_type_by_typename($repository);
-    if (empty($repositorytype)) {
-        print_error('invalidplugin', 'repository', '', $repository);
-    }
-    $repositorytype->update_visibility(false);
-    core_plugin_manager::reset_caches();
+    $class = \core_plugin_manager::resolve_plugininfo_class('repository');
+    $class::enable_plugin($repository, 0);
     $return = true;
 } else if ($action == 'delete') {
     $repositorytype = repository::get_type_by_typename($repository);
@@ -211,6 +204,8 @@ if (($action == 'edit') || ($action == 'new')) {
         }
 
         if ($repositorytype->delete($downloadcontents)) {
+            // Include this information into config changes table.
+            add_to_config_log('repository_visibility', $repositorytype->get_visible(), '', $repository);
             core_plugin_manager::reset_caches();
             redirect($baseurl);
         } else {
@@ -370,14 +365,14 @@ if (($action == 'edit') || ($action == 'new')) {
 
             if ($updowncount > 1) {
                 $updown .= "<a href=\"$sesskeyurl&amp;action=moveup&amp;repos=".$typename."\">";
-                $updown .= "<img src=\"" . $OUTPUT->pix_url('t/up') . "\" alt=\"up\" /></a>&nbsp;";
+                $updown .= $OUTPUT->pix_icon('t/up', get_string('moveup')) . "</a>&nbsp;";
             }
             else {
                 $updown .= $spacer;
             }
             if ($updowncount < $totalrepositorytypes) {
                 $updown .= "<a href=\"$sesskeyurl&amp;action=movedown&amp;repos=".$typename."\">";
-                $updown .= "<img src=\"" . $OUTPUT->pix_url('t/down') . "\" alt=\"down\" /></a>";
+                $updown .= $OUTPUT->pix_icon('t/down', get_string('movedown')) . "</a>&nbsp;";
             }
             else {
                 $updown .= $spacer;
@@ -391,6 +386,7 @@ if (($action == 'edit') || ($action == 'new')) {
             }
 
             $table->data[] = array($i->get_readablename(), $OUTPUT->render($select), $updown, $settings, $uninstall);
+            $table->rowclasses[] = '';
 
             if (!in_array($typename, $alreadyplugins)) {
                 $alreadyplugins[] = $typename;
@@ -411,6 +407,7 @@ if (($action == 'edit') || ($action == 'new')) {
                     $uninstall = html_writer::link($uninstallurl, $struninstall);
                 }
                 $table->data[] = array(get_string('pluginname', 'repository_'.$plugin), $OUTPUT->render($select), '', '', $uninstall);
+                $table->rowclasses[] = 'dimmed_text';
             }
         }
     }

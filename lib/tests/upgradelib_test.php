@@ -27,12 +27,13 @@ defined('MOODLE_INTERNAL') || die();
 
 global $CFG;
 require_once($CFG->libdir.'/upgradelib.php');
-
+require_once($CFG->libdir.'/db/upgradelib.php');
+require_once($CFG->dirroot . '/calendar/tests/helpers.php');
 
 /**
  * Tests various classes and functions in upgradelib.php library.
  */
-class core_upgradelib_testcase extends advanced_testcase {
+class upgradelib_test extends advanced_testcase {
 
     /**
      * Test the {@link upgrade_stale_php_files_present() function
@@ -41,80 +42,6 @@ class core_upgradelib_testcase extends advanced_testcase {
         // Just call the function, must return bool false always
         // if there aren't any old files in the codebase.
         $this->assertFalse(upgrade_stale_php_files_present());
-    }
-
-    /**
-     * Test the {@link upgrade_grade_item_fix_sortorder() function with
-     * faked duplicate sortorder data.
-     */
-    public function test_upgrade_grade_item_fix_sortorder() {
-        global $DB;
-
-        $this->resetAfterTest(true);
-
-        // The purpose of this test is to make sure that after upgrade script
-        // there is no duplicates in the field grade_items.sortorder (for each course)
-        // and the result of query "SELECT id FROM grade_items WHERE courseid=? ORDER BY sortorder, id" does not change.
-        $sequencesql = 'SELECT id FROM {grade_items} WHERE courseid=? ORDER BY sortorder, id';
-
-        // Each set is used for filling the db with fake data and will be representing the result of query:
-        // "SELECT sortorder from {grade_items} WHERE courseid=? ORDER BY id".
-        $testsets = array(
-            // Items that need no action.
-            array(1,2,3),
-            array(5,6,7),
-            array(7,6,1,3,2,5),
-            // Items with sortorder duplicates
-            array(1,2,2,3,3,4,5),
-            // Only one sortorder duplicate.
-            array(1,1),
-            array(3,3),
-            // Non-sequential sortorders with one or multiple duplicates.
-            array(3,3,7,5,6,6,9,10,8,3),
-            array(7,7,3),
-            array(3,4,5,3,5,4,7,1)
-        );
-        $origsequences = array();
-
-        // Generate the data and remember the initial sequence or items.
-        foreach ($testsets as $testset) {
-            $course = $this->getDataGenerator()->create_course();
-            foreach ($testset as $sortorder) {
-                $this->insert_fake_grade_item_sortorder($course->id, $sortorder);
-            }
-            $DB->get_records('grade_items');
-            $origsequences[$course->id] = $DB->get_fieldset_sql($sequencesql, array($course->id));
-        }
-
-        $duplicatedetectionsql = "SELECT courseid, sortorder
-                                    FROM {grade_items}
-                                GROUP BY courseid, sortorder
-                                  HAVING COUNT(id) > 1";
-
-        // Verify there are duplicates before we start the fix.
-        $dupes = $DB->record_exists_sql($duplicatedetectionsql);
-        $this->assertTrue($dupes);
-
-        // Do the work.
-        upgrade_grade_item_fix_sortorder();
-
-        // Verify that no duplicates are left in the database.
-        $dupes = $DB->record_exists_sql($duplicatedetectionsql);
-        $this->assertFalse($dupes);
-
-        // Verify that sequences are exactly the same as they were before upgrade script.
-        $idx = 0;
-        foreach ($origsequences as $courseid => $origsequence) {
-            if (count(($testsets[$idx])) == count(array_unique($testsets[$idx]))) {
-                // If there were no duplicates for this course verify that sortorders are not modified.
-                $newsortorders = $DB->get_fieldset_sql("SELECT sortorder from {grade_items} WHERE courseid=? ORDER BY id", array($courseid));
-                $this->assertEquals($testsets[$idx], $newsortorders);
-            }
-            $newsequence = $DB->get_fieldset_sql($sequencesql, array($courseid));
-            $this->assertEquals($origsequence, $newsequence,
-                    "Sequences do not match for test set $idx : ".join(',', $testsets[$idx]));
-            $idx++;
-        }
     }
 
     /**
@@ -150,207 +77,1546 @@ class core_upgradelib_testcase extends advanced_testcase {
         return $DB->get_record('grade_items', array('id' => $item->id));
     }
 
-    public function test_upgrade_fix_missing_root_folders() {
-        global $DB, $SITE;
+    public function test_upgrade_extra_credit_weightoverride() {
+        global $DB, $CFG;
 
         $this->resetAfterTest(true);
 
-        // Setup some broken data...
-        // Create two resources (and associated file areas).
-        $this->setAdminUser();
-        $resource1 = $this->getDataGenerator()->get_plugin_generator('mod_resource')
-            ->create_instance(array('course' => $SITE->id));
-        $resource2 = $this->getDataGenerator()->get_plugin_generator('mod_resource')
-            ->create_instance(array('course' => $SITE->id));
+        require_once($CFG->libdir . '/db/upgradelib.php');
 
-        // Delete the folder record of resource1 to simulate broken data.
-        $context = context_module::instance($resource1->cmid);
-        $selectargs = array('contextid' => $context->id,
-                            'component' => 'mod_resource',
-                            'filearea' => 'content',
-                            'itemid' => 0);
+        $c = array();
+        $a = array();
+        $gi = array();
+        for ($i=0; $i<5; $i++) {
+            $c[$i] = $this->getDataGenerator()->create_course();
+            $a[$i] = array();
+            $gi[$i] = array();
+            for ($j=0;$j<3;$j++) {
+                $a[$i][$j] = $this->getDataGenerator()->create_module('assign', array('course' => $c[$i], 'grade' => 100));
+                $giparams = array('itemtype' => 'mod', 'itemmodule' => 'assign', 'iteminstance' => $a[$i][$j]->id,
+                    'courseid' => $c[$i]->id, 'itemnumber' => 0);
+                $gi[$i][$j] = grade_item::fetch($giparams);
+            }
+        }
 
-        // Verify file records exist.
-        $areafilecount = $DB->count_records('files', $selectargs);
-        $this->assertNotEmpty($areafilecount);
+        // Case 1: Course $c[0] has aggregation method different from natural.
+        $coursecategory = grade_category::fetch_course_category($c[0]->id);
+        $coursecategory->aggregation = GRADE_AGGREGATE_WEIGHTED_MEAN;
+        $coursecategory->update();
+        $gi[0][1]->aggregationcoef = 1;
+        $gi[0][1]->update();
+        $gi[0][2]->weightoverride = 1;
+        $gi[0][2]->update();
 
-        // Delete the folder record.
-        $folderrecord = $selectargs;
-        $folderrecord['filepath'] = '/';
-        $folderrecord['filename'] = '.';
+        // Case 2: Course $c[1] has neither extra credits nor overrides
 
-        // Get previous folder record.
-        $oldrecord = $DB->get_record('files', $folderrecord);
-        $DB->delete_records('files', $folderrecord);
+        // Case 3: Course $c[2] has extra credits but no overrides
+        $gi[2][1]->aggregationcoef = 1;
+        $gi[2][1]->update();
 
-        // Verify the folder record has been removed.
-        $newareafilecount = $DB->count_records('files', $selectargs);
-        $this->assertSame($newareafilecount, $areafilecount - 1);
+        // Case 4: Course $c[3] has no extra credits and has overrides
+        $gi[3][2]->weightoverride = 1;
+        $gi[3][2]->update();
 
-        $this->assertFalse($DB->record_exists('files', $folderrecord));
+        // Case 5: Course $c[4] has both extra credits and overrides
+        $gi[4][1]->aggregationcoef = 1;
+        $gi[4][1]->update();
+        $gi[4][2]->weightoverride = 1;
+        $gi[4][2]->update();
 
-        // Run the upgrade step!
-        upgrade_fix_missing_root_folders();
+        // Run the upgrade script and make sure only course $c[4] was marked as needed to be fixed.
+        upgrade_extra_credit_weightoverride();
 
-        // Verify the folder record has been restored.
-        $newareafilecount = $DB->count_records('files', $selectargs);
-        $this->assertSame($newareafilecount, $areafilecount);
+        $this->assertTrue(empty($CFG->{'gradebook_calculations_freeze_' . $c[0]->id}));
+        $this->assertTrue(empty($CFG->{'gradebook_calculations_freeze_' . $c[1]->id}));
+        $this->assertTrue(empty($CFG->{'gradebook_calculations_freeze_' . $c[2]->id}));
+        $this->assertTrue(empty($CFG->{'gradebook_calculations_freeze_' . $c[3]->id}));
+        $this->assertEquals(20150619, $CFG->{'gradebook_calculations_freeze_' . $c[4]->id});
 
-        $newrecord = $DB->get_record('files', $folderrecord, '*', MUST_EXIST);
-        // Verify the hash is correctly created.
-        $this->assertSame($oldrecord->pathnamehash, $newrecord->pathnamehash);
-    }
+        set_config('gradebook_calculations_freeze_' . $c[4]->id, null);
 
-    public function test_upgrade_fix_missing_root_folders_draft() {
-        global $DB, $SITE;
-
-        $this->resetAfterTest(true);
-
-        $user = $this->getDataGenerator()->create_user();
-        $usercontext = context_user::instance($user->id);
-        $this->setUser($user);
-        $resource1 = $this->getDataGenerator()->get_plugin_generator('mod_resource')
-            ->create_instance(array('course' => $SITE->id));
-        $context = context_module::instance($resource1->cmid);
-        $draftitemid = 0;
-        file_prepare_draft_area($draftitemid, $context->id, 'mod_resource', 'content', 0);
-
-        $queryparams = array(
-            'component' => 'user',
-            'contextid' => $usercontext->id,
-            'filearea' => 'draft',
-            'itemid' => $draftitemid,
-        );
-
-        // Make sure there are two records in files for the draft file area and one of them has filename '.'.
-        $records = $DB->get_records_menu('files', $queryparams, '', 'id, filename');
-        $this->assertEquals(2, count($records));
-        $this->assertTrue(in_array('.', $records));
-        $originalhash = $DB->get_field('files', 'pathnamehash', $queryparams + array('filename' => '.'));
-
-        // Delete record with filename '.' and make sure it does not exist any more.
-        $DB->delete_records('files', $queryparams + array('filename' => '.'));
-
-        $records = $DB->get_records_menu('files', $queryparams, '', 'id, filename');
-        $this->assertEquals(1, count($records));
-        $this->assertFalse(in_array('.', $records));
-
-        // Run upgrade script and make sure the record is restored.
-        upgrade_fix_missing_root_folders_draft();
-
-        $records = $DB->get_records_menu('files', $queryparams, '', 'id, filename');
-        $this->assertEquals(2, count($records));
-        $this->assertTrue(in_array('.', $records));
-        $newhash = $DB->get_field('files', 'pathnamehash', $queryparams + array('filename' => '.'));
-        $this->assertEquals($originalhash, $newhash);
+        // Run the upgrade script for a single course only.
+        upgrade_extra_credit_weightoverride($c[0]->id);
+        $this->assertTrue(empty($CFG->{'gradebook_calculations_freeze_' . $c[0]->id}));
+        upgrade_extra_credit_weightoverride($c[4]->id);
+        $this->assertEquals(20150619, $CFG->{'gradebook_calculations_freeze_' . $c[4]->id});
     }
 
     /**
-     * Tests the upgrade of an individual course-module or section from the
-     * old to new availability system. (This test does not use the database
-     * so it can run any time.)
+     * Test the upgrade function for flagging courses with calculated grade item problems.
      */
-    public function test_upgrade_availability_item() {
-        global $CFG;
+    public function test_upgrade_calculated_grade_items_freeze() {
+        global $DB, $CFG;
+
         $this->resetAfterTest();
 
-        // This function is in the other upgradelib.
         require_once($CFG->libdir . '/db/upgradelib.php');
 
-        // Groupmembersonly (or nothing). Show option on but ignored.
-        // Note: This $CFG option doesn't exist any more but we are testing the
-        // upgrade function so it did exist then...
-        $CFG->enablegroupmembersonly = 0;
-        $this->assertNull(
-                upgrade_availability_item(1, 0, 0, 0, 1, array(), array()));
-        $CFG->enablegroupmembersonly = 1;
-        $this->assertNull(
-                upgrade_availability_item(0, 0, 0, 0, 1, array(), array()));
-        $this->assertEquals(
-                '{"op":"&","showc":[false],"c":[{"type":"group"}]}',
-                upgrade_availability_item(1, 0, 0, 0, 1, array(), array()));
-        $this->assertEquals(
-                '{"op":"&","showc":[false],"c":[{"type":"grouping","id":4}]}',
-                upgrade_availability_item(1, 4, 0, 0, 1, array(), array()));
+        // Create a user.
+        $user = $this->getDataGenerator()->create_user();
 
-        // Dates (with show/hide options - until date always hides).
-        $this->assertEquals(
-                '{"op":"&","showc":[true],"c":[{"type":"date","d":">=","t":996}]}',
-                upgrade_availability_item(0, 0, 996, 0, 1, array(), array()));
-        $this->assertEquals(
-                '{"op":"&","showc":[false],"c":[{"type":"date","d":">=","t":997}]}',
-                upgrade_availability_item(0, 0, 997, 0, 0, array(), array()));
-        $this->assertEquals(
-                '{"op":"&","showc":[false],"c":[{"type":"date","d":"<","t":998}]}',
-                upgrade_availability_item(0, 0, 0, 998, 1, array(), array()));
-        $this->assertEquals(
-                '{"op":"&","showc":[true,false],"c":[' .
-                '{"type":"date","d":">=","t":995},{"type":"date","d":"<","t":999}]}',
-                upgrade_availability_item(0, 0, 995, 999, 1, array(), array()));
+        // Create a couple of courses.
+        $course1 = $this->getDataGenerator()->create_course();
+        $course2 = $this->getDataGenerator()->create_course();
+        $course3 = $this->getDataGenerator()->create_course();
 
-        // Grade (show option works as normal).
-        $availrec = (object)array(
-                'sourcecmid' => null, 'requiredcompletion' => null,
-                'gradeitemid' => 13, 'grademin' => null, 'grademax' => null);
-        $this->assertEquals(
-                '{"op":"&","showc":[true],"c":[{"type":"grade","id":13}]}',
-                upgrade_availability_item(0, 0, 0, 0, 1, array($availrec), array()));
-        $availrec->grademin = 4.1;
-        $this->assertEquals(
-                '{"op":"&","showc":[false],"c":[{"type":"grade","id":13,"min":4.10000}]}',
-                upgrade_availability_item(0, 0, 0, 0, 0, array($availrec), array()));
-        $availrec->grademax = 9.9;
-        $this->assertEquals(
-                '{"op":"&","showc":[true],"c":[{"type":"grade","id":13,"min":4.10000,"max":9.90000}]}',
-                upgrade_availability_item(0, 0, 0, 0, 1, array($availrec), array()));
-        $availrec->grademin = null;
-        $this->assertEquals(
-                '{"op":"&","showc":[true],"c":[{"type":"grade","id":13,"max":9.90000}]}',
-                upgrade_availability_item(0, 0, 0, 0, 1, array($availrec), array()));
+        // Enrol the user in the courses.
+        $studentrole = $DB->get_record('role', array('shortname' => 'student'));
+        $maninstance1 = $DB->get_record('enrol', array('courseid' => $course1->id, 'enrol' => 'manual'), '*', MUST_EXIST);
+        $maninstance2 = $DB->get_record('enrol', array('courseid' => $course2->id, 'enrol' => 'manual'), '*', MUST_EXIST);
+        $maninstance3 = $DB->get_record('enrol', array('courseid' => $course3->id, 'enrol' => 'manual'), '*', MUST_EXIST);
+        $manual = enrol_get_plugin('manual');
+        $manual->enrol_user($maninstance1, $user->id, $studentrole->id);
+        $manual->enrol_user($maninstance2, $user->id, $studentrole->id);
+        $manual->enrol_user($maninstance3, $user->id, $studentrole->id);
 
-        // Completion (show option normal).
-        $availrec->grademax = null;
-        $availrec->gradeitemid = null;
-        $availrec->sourcecmid = 666;
-        $availrec->requiredcompletion = 1;
-        $this->assertEquals(
-                '{"op":"&","showc":[true],"c":[{"type":"completion","cm":666,"e":1}]}',
-                upgrade_availability_item(0, 0, 0, 0, 1, array($availrec), array()));
-        $this->assertEquals(
-                '{"op":"&","showc":[false],"c":[{"type":"completion","cm":666,"e":1}]}',
-                upgrade_availability_item(0, 0, 0, 0, 0, array($availrec), array()));
+        // To create the data we need we freeze the grade book to use the old behaviour.
+        set_config('gradebook_calculations_freeze_' . $course1->id, 20150627);
+        set_config('gradebook_calculations_freeze_' . $course2->id, 20150627);
+        set_config('gradebook_calculations_freeze_' . $course3->id, 20150627);
+        $CFG->grade_minmaxtouse = 2;
 
-        // Profile conditions (custom/standard field, values/not, show option normal).
-        $fieldrec = (object)array('userfield' => 'email', 'operator' => 'isempty',
-                'value' => '', 'shortname' => null);
-        $this->assertEquals(
-                '{"op":"&","showc":[true],"c":[{"type":"profile","op":"isempty","sf":"email"}]}',
-                upgrade_availability_item(0, 0, 0, 0, 1, array(), array($fieldrec)));
-        $fieldrec->value = '@';
-        $fieldrec->operator = 'contains';
-        $this->assertEquals(
-                '{"op":"&","showc":[true],"c":[{"type":"profile","op":"contains","sf":"email","v":"@"}]}',
-                upgrade_availability_item(0, 0, 0, 0, 1, array(), array($fieldrec)));
-        $fieldrec->operator = 'isnotempty';
-        $fieldrec->userfield = null;
-        $fieldrec->shortname = 'frogtype';
-        $this->assertEquals(
-                '{"op":"&","showc":[false],"c":[{"type":"profile","op":"isnotempty","cf":"frogtype"}]}',
-                upgrade_availability_item(0, 0, 0, 0, 0, array(), array($fieldrec)));
+        // Creating a category for a grade item.
+        $gradecategory = new grade_category();
+        $gradecategory->fullname = 'calculated grade category';
+        $gradecategory->courseid = $course1->id;
+        $gradecategory->insert();
+        $gradecategoryid = $gradecategory->id;
 
-        // Everything at once.
-        $this->assertEquals('{"op":"&","showc":[false,true,false,true,true,true],' .
-                '"c":[{"type":"grouping","id":13},' .
-                '{"type":"date","d":">=","t":990},' .
-                '{"type":"date","d":"<","t":991},' .
-                '{"type":"grade","id":665,"min":70.00000},' .
-                '{"type":"completion","cm":42,"e":2},' .
-                '{"type":"profile","op":"isempty","sf":"email"}]}',
-                upgrade_availability_item(1, 13, 990, 991, 1, array(
-                    (object)array('sourcecmid' => null, 'gradeitemid' => 665, 'grademin' => 70),
-                    (object)array('sourcecmid' => 42, 'gradeitemid' => null, 'requiredcompletion' => 2)
-                ), array(
-                    (object)array('userfield' => 'email', 'shortname' => null, 'operator' => 'isempty'),
-                )));
+        // This is a manual grade item.
+        $gradeitem = new grade_item();
+        $gradeitem->itemname = 'grade item one';
+        $gradeitem->itemtype = 'manual';
+        $gradeitem->categoryid = $gradecategoryid;
+        $gradeitem->courseid = $course1->id;
+        $gradeitem->idnumber = 'gi1';
+        $gradeitem->insert();
+
+        // Changing the category into a calculated grade category.
+        $gradecategoryitem = grade_item::fetch(array('iteminstance' => $gradecategory->id));
+        $gradecategoryitem->calculation = '=##gi' . $gradeitem->id . '##/2';
+        $gradecategoryitem->update();
+
+        // Setting a grade for the student.
+        $grade = $gradeitem->get_grade($user->id, true);
+        $grade->finalgrade = 50;
+        $grade->update();
+        // Creating all the grade_grade items.
+        grade_regrade_final_grades($course1->id);
+        // Updating the grade category to a new grade max and min.
+        $gradecategoryitem->grademax = 50;
+        $gradecategoryitem->grademin = 5;
+        $gradecategoryitem->update();
+
+        // Different manual grade item for course 2. We are creating a course with a calculated grade item that has a grade max of
+        // 50. The grade_grade will have a rawgrademax of 100 regardless.
+        $gradeitem = new grade_item();
+        $gradeitem->itemname = 'grade item one';
+        $gradeitem->itemtype = 'manual';
+        $gradeitem->courseid = $course2->id;
+        $gradeitem->idnumber = 'gi1';
+        $gradeitem->grademax = 25;
+        $gradeitem->insert();
+
+        // Calculated grade item for course 2.
+        $calculatedgradeitem = new grade_item();
+        $calculatedgradeitem->itemname = 'calculated grade';
+        $calculatedgradeitem->itemtype = 'manual';
+        $calculatedgradeitem->courseid = $course2->id;
+        $calculatedgradeitem->calculation = '=##gi' . $gradeitem->id . '##*2';
+        $calculatedgradeitem->grademax = 50;
+        $calculatedgradeitem->insert();
+
+        // Assigning a grade for the user.
+        $grade = $gradeitem->get_grade($user->id, true);
+        $grade->finalgrade = 10;
+        $grade->update();
+
+        // Setting all of the grade_grade items.
+        grade_regrade_final_grades($course2->id);
+
+        // Different manual grade item for course 3. We are creating a course with a calculated grade item that has a grade max of
+        // 50. The grade_grade will have a rawgrademax of 100 regardless.
+        $gradeitem = new grade_item();
+        $gradeitem->itemname = 'grade item one';
+        $gradeitem->itemtype = 'manual';
+        $gradeitem->courseid = $course3->id;
+        $gradeitem->idnumber = 'gi1';
+        $gradeitem->grademax = 25;
+        $gradeitem->insert();
+
+        // Calculated grade item for course 2.
+        $calculatedgradeitem = new grade_item();
+        $calculatedgradeitem->itemname = 'calculated grade';
+        $calculatedgradeitem->itemtype = 'manual';
+        $calculatedgradeitem->courseid = $course3->id;
+        $calculatedgradeitem->calculation = '=##gi' . $gradeitem->id . '##*2';
+        $calculatedgradeitem->grademax = 50;
+        $calculatedgradeitem->insert();
+
+        // Assigning a grade for the user.
+        $grade = $gradeitem->get_grade($user->id, true);
+        $grade->finalgrade = 10;
+        $grade->update();
+
+        // Setting all of the grade_grade items.
+        grade_regrade_final_grades($course3->id);
+        // Need to do this first before changing the other courses, otherwise they will be flagged too early.
+        set_config('gradebook_calculations_freeze_' . $course3->id, null);
+        upgrade_calculated_grade_items($course3->id);
+        $this->assertEquals(20150627, $CFG->{'gradebook_calculations_freeze_' . $course3->id});
+
+        // Change the setting back to null.
+        set_config('gradebook_calculations_freeze_' . $course1->id, null);
+        set_config('gradebook_calculations_freeze_' . $course2->id, null);
+        // Run the upgrade.
+        upgrade_calculated_grade_items();
+        // The setting should be set again after the upgrade.
+        $this->assertEquals(20150627, $CFG->{'gradebook_calculations_freeze_' . $course1->id});
+        $this->assertEquals(20150627, $CFG->{'gradebook_calculations_freeze_' . $course2->id});
+    }
+
+    /**
+     * Test the upgrade function for final grade after setting grade max for category and grade item.
+     */
+    public function test_upgrade_update_category_grademax_regrade_final_grades() {
+        global $DB;
+
+        $this->resetAfterTest();
+
+        $generator = $this->getDataGenerator();
+        $user = $generator->create_user();
+
+        // Create a new course.
+        $course = $generator->create_course();
+
+        // Set the course aggregation to weighted mean of grades.
+        $unitcategory = \grade_category::fetch_course_category($course->id);
+        $unitcategory->aggregation = GRADE_AGGREGATE_WEIGHTED_MEAN;
+        $unitcategory->update();
+
+        // Set grade max for category.
+        $gradecategoryitem = grade_item::fetch(array('iteminstance' => $unitcategory->id));
+        $gradecategoryitem->grademax = 50;
+        $gradecategoryitem->update();
+
+        // Make new grade item.
+        $gradeitem = new \grade_item($generator->create_grade_item([
+            'itemname'        => 'Grade item',
+            'idnumber'        => 'git1',
+            'courseid'        => $course->id,
+            'grademin'        => 0,
+            'grademax'        => 50,
+            'aggregationcoef' => 100.0,
+        ]));
+
+        // Set final grade.
+        $grade = $gradeitem->get_grade($user->id, true);
+        $grade->finalgrade = 20;
+        $grade->update();
+
+        $courseitem = \grade_item::fetch(['courseid' => $course->id, 'itemtype' => 'course']);
+        $gradeitem->force_regrading();
+
+        // Trigger regrade because the grade items needs to be updated.
+        grade_regrade_final_grades($course->id);
+
+        $coursegrade = new \grade_grade($courseitem->get_final($user->id), false);
+        $this->assertEquals(20, $coursegrade->finalgrade);
+    }
+
+    function test_upgrade_calculated_grade_items_regrade() {
+        global $DB, $CFG;
+
+        $this->resetAfterTest();
+
+        require_once($CFG->libdir . '/db/upgradelib.php');
+
+        // Create a user.
+        $user = $this->getDataGenerator()->create_user();
+
+        // Create a course.
+        $course = $this->getDataGenerator()->create_course();
+
+        // Enrol the user in the course.
+        $studentrole = $DB->get_record('role', array('shortname' => 'student'));
+        $maninstance1 = $DB->get_record('enrol', array('courseid' => $course->id, 'enrol' => 'manual'), '*', MUST_EXIST);
+        $manual = enrol_get_plugin('manual');
+        $manual->enrol_user($maninstance1, $user->id, $studentrole->id);
+
+        set_config('upgrade_calculatedgradeitemsonlyregrade', 1);
+
+        // Creating a category for a grade item.
+        $gradecategory = new grade_category();
+        $gradecategory->fullname = 'calculated grade category';
+        $gradecategory->courseid = $course->id;
+        $gradecategory->insert();
+        $gradecategoryid = $gradecategory->id;
+
+        // This is a manual grade item.
+        $gradeitem = new grade_item();
+        $gradeitem->itemname = 'grade item one';
+        $gradeitem->itemtype = 'manual';
+        $gradeitem->categoryid = $gradecategoryid;
+        $gradeitem->courseid = $course->id;
+        $gradeitem->idnumber = 'gi1';
+        $gradeitem->insert();
+
+        // Changing the category into a calculated grade category.
+        $gradecategoryitem = grade_item::fetch(array('iteminstance' => $gradecategory->id));
+        $gradecategoryitem->calculation = '=##gi' . $gradeitem->id . '##/2';
+        $gradecategoryitem->grademax = 50;
+        $gradecategoryitem->grademin = 15;
+        $gradecategoryitem->update();
+
+        // Setting a grade for the student.
+        $grade = $gradeitem->get_grade($user->id, true);
+        $grade->finalgrade = 50;
+        $grade->update();
+
+        grade_regrade_final_grades($course->id);
+        $grade = grade_grade::fetch(array('itemid' => $gradecategoryitem->id, 'userid' => $user->id));
+        $grade->rawgrademax = 100;
+        $grade->rawgrademin = 0;
+        $grade->update();
+        $this->assertNotEquals($gradecategoryitem->grademax, $grade->rawgrademax);
+        $this->assertNotEquals($gradecategoryitem->grademin, $grade->rawgrademin);
+
+        // This is the function that we are testing. If we comment out this line, then the test fails because the grade items
+        // are not flagged for regrading.
+        upgrade_calculated_grade_items();
+        grade_regrade_final_grades($course->id);
+
+        $grade = grade_grade::fetch(array('itemid' => $gradecategoryitem->id, 'userid' => $user->id));
+
+        $this->assertEquals($gradecategoryitem->grademax, $grade->rawgrademax);
+        $this->assertEquals($gradecategoryitem->grademin, $grade->rawgrademin);
+    }
+
+    /**
+     * Test that the upgrade script correctly flags courses to be frozen due to letter boundary problems.
+     */
+    public function test_upgrade_course_letter_boundary() {
+        global $CFG, $DB;
+        $this->resetAfterTest(true);
+
+        require_once($CFG->libdir . '/db/upgradelib.php');
+
+        // Create a user.
+        $user = $this->getDataGenerator()->create_user();
+
+        // Create some courses.
+        $courses = array();
+        $contexts = array();
+        for ($i = 0; $i < 45; $i++) {
+            $course = $this->getDataGenerator()->create_course();
+            $context = context_course::instance($course->id);
+            if (in_array($i, array(2, 5, 10, 13, 14, 19, 23, 25, 30, 34, 36))) {
+                // Assign good letter boundaries.
+                $this->assign_good_letter_boundary($context->id);
+            }
+            if (in_array($i, array(3, 6, 11, 15, 20, 24, 26, 31, 35))) {
+                // Assign bad letter boundaries.
+                $this->assign_bad_letter_boundary($context->id);
+            }
+
+            if (in_array($i, array(3, 9, 10, 11, 18, 19, 20, 29, 30, 31, 40))) {
+                grade_set_setting($course->id, 'displaytype', '3');
+            } else if (in_array($i, array(8, 17, 28))) {
+                grade_set_setting($course->id, 'displaytype', '2');
+            }
+
+            if (in_array($i, array(37, 43))) {
+                // Show.
+                grade_set_setting($course->id, 'report_user_showlettergrade', '1');
+            } else if (in_array($i, array(38, 42))) {
+                // Hide.
+                grade_set_setting($course->id, 'report_user_showlettergrade', '0');
+            }
+
+            $assignrow = $this->getDataGenerator()->create_module('assign', array('course' => $course->id, 'name' => 'Test!'));
+            $gi = grade_item::fetch(
+                    array('itemtype' => 'mod',
+                          'itemmodule' => 'assign',
+                          'iteminstance' => $assignrow->id,
+                          'courseid' => $course->id));
+            if (in_array($i, array(6, 13, 14, 15, 23, 24, 34, 35, 36, 41))) {
+                grade_item::set_properties($gi, array('display' => 3));
+                $gi->update();
+            } else if (in_array($i, array(12, 21, 32))) {
+                grade_item::set_properties($gi, array('display' => 2));
+                $gi->update();
+            }
+            $gradegrade = new grade_grade();
+            $gradegrade->itemid = $gi->id;
+            $gradegrade->userid = $user->id;
+            $gradegrade->rawgrade = 55.5563;
+            $gradegrade->finalgrade = 55.5563;
+            $gradegrade->rawgrademax = 100;
+            $gradegrade->rawgrademin = 0;
+            $gradegrade->timecreated = time();
+            $gradegrade->timemodified = time();
+            $gradegrade->insert();
+
+            $contexts[] = $context;
+            $courses[] = $course;
+        }
+
+        upgrade_course_letter_boundary();
+
+        // No system setting for grade letter boundaries.
+        // [0] A course with no letter boundaries.
+        $this->assertTrue(empty($CFG->{'gradebook_calculations_freeze_' . $courses[0]->id}));
+        // [1] A course with letter boundaries which are default.
+        $this->assertTrue(empty($CFG->{'gradebook_calculations_freeze_' . $courses[1]->id}));
+        // [2] A course with letter boundaries which are custom but not affected.
+        $this->assertTrue(empty($CFG->{'gradebook_calculations_freeze_' . $courses[2]->id}));
+        // [3] A course with letter boundaries which are custom and will be affected.
+        $this->assertEquals(20160518, $CFG->{'gradebook_calculations_freeze_' . $courses[3]->id});
+        // [4] A course with no letter boundaries, but with a grade item with letter boundaries which are default.
+        $this->assertTrue(empty($CFG->{'gradebook_calculations_freeze_' . $courses[4]->id}));
+        // [5] A course with no letter boundaries, but with a grade item with letter boundaries which are not default, but not affected.
+        $this->assertTrue(empty($CFG->{'gradebook_calculations_freeze_' . $courses[5]->id}));
+        // [6] A course with no letter boundaries, but with a grade item with letter boundaries which are not default which will be affected.
+        $this->assertEquals(20160518, $CFG->{'gradebook_calculations_freeze_' . $courses[6]->id});
+
+        // System setting for grade letter boundaries (default).
+        set_config('grade_displaytype', '3');
+        for ($i = 0; $i < 45; $i++) {
+            unset_config('gradebook_calculations_freeze_' . $courses[$i]->id);
+        }
+        upgrade_course_letter_boundary();
+
+        // [7] A course with no grade display settings for the course or grade items.
+        $this->assertTrue(empty($CFG->{'gradebook_calculations_freeze_' . $courses[7]->id}));
+        // [8] A course with grade display settings, but for something that isn't letters.
+        $this->assertTrue(empty($CFG->{'gradebook_calculations_freeze_' . $courses[8]->id}));
+        // [9] A course with grade display settings of letters which are default.
+        $this->assertTrue(empty($CFG->{'gradebook_calculations_freeze_' . $courses[9]->id}));
+        // [10] A course with grade display settings of letters which are not default, but not affected.
+        $this->assertTrue(empty($CFG->{'gradebook_calculations_freeze_' . $courses[10]->id}));
+        // [11] A course with grade display settings of letters which are not default, which will be affected.
+        $this->assertEquals(20160518, $CFG->{'gradebook_calculations_freeze_' . $courses[11]->id});
+        // [12] A grade item with display settings that are not letters.
+        $this->assertTrue(empty($CFG->{'gradebook_calculations_freeze_' . $courses[12]->id}));
+        // [13] A grade item with display settings of letters which are default.
+        $this->assertTrue(empty($CFG->{'gradebook_calculations_freeze_' . $courses[13]->id}));
+        // [14] A grade item with display settings of letters which are not default, but not affected.
+        $this->assertTrue(empty($CFG->{'gradebook_calculations_freeze_' . $courses[14]->id}));
+        // [15] A grade item with display settings of letters which are not default, which will be affected.
+        $this->assertEquals(20160518, $CFG->{'gradebook_calculations_freeze_' . $courses[15]->id});
+
+        // System setting for grade letter boundaries (custom with problem).
+        $systemcontext = context_system::instance();
+        $this->assign_bad_letter_boundary($systemcontext->id);
+        for ($i = 0; $i < 45; $i++) {
+            unset_config('gradebook_calculations_freeze_' . $courses[$i]->id);
+        }
+        upgrade_course_letter_boundary();
+
+        // [16] A course with no grade display settings for the course or grade items.
+        $this->assertEquals(20160518, $CFG->{'gradebook_calculations_freeze_' . $courses[16]->id});
+        // [17] A course with grade display settings, but for something that isn't letters.
+        $this->assertTrue(empty($CFG->{'gradebook_calculations_freeze_' . $courses[17]->id}));
+        // [18] A course with grade display settings of letters which are default.
+        $this->assertEquals(20160518, $CFG->{'gradebook_calculations_freeze_' . $courses[18]->id});
+        // [19] A course with grade display settings of letters which are not default, but not affected.
+        $this->assertTrue(empty($CFG->{'gradebook_calculations_freeze_' . $courses[19]->id}));
+        // [20] A course with grade display settings of letters which are not default, which will be affected.
+        $this->assertEquals(20160518, $CFG->{'gradebook_calculations_freeze_' . $courses[20]->id});
+        // [21] A grade item with display settings which are not letters. Grade total will be affected so should be frozen.
+        $this->assertEquals(20160518, $CFG->{'gradebook_calculations_freeze_' . $courses[21]->id});
+        // [22] A grade item with display settings of letters which are default.
+        $this->assertEquals(20160518, $CFG->{'gradebook_calculations_freeze_' . $courses[22]->id});
+        // [23] A grade item with display settings of letters which are not default, but not affected. Course uses new letter boundary setting.
+        $this->assertTrue(empty($CFG->{'gradebook_calculations_freeze_' . $courses[23]->id}));
+        // [24] A grade item with display settings of letters which are not default, which will be affected.
+        $this->assertEquals(20160518, $CFG->{'gradebook_calculations_freeze_' . $courses[24]->id});
+        // [25] A course which is using the default grade display setting, but has updated the grade letter boundary (not 57) Should not be frozen.
+        $this->assertTrue(empty($CFG->{'gradebook_calculations_freeze_' . $courses[25]->id}));
+        // [26] A course that is using the default display setting (letters) and altered the letter boundary with 57. Should be frozen.
+        $this->assertEquals(20160518, $CFG->{'gradebook_calculations_freeze_' . $courses[26]->id});
+
+        // System setting not showing letters.
+        set_config('grade_displaytype', '2');
+        for ($i = 0; $i < 45; $i++) {
+            unset_config('gradebook_calculations_freeze_' . $courses[$i]->id);
+        }
+        upgrade_course_letter_boundary();
+
+        // [27] A course with no grade display settings for the course or grade items.
+        $this->assertTrue(empty($CFG->{'gradebook_calculations_freeze_' . $courses[27]->id}));
+        // [28] A course with grade display settings, but for something that isn't letters.
+        $this->assertTrue(empty($CFG->{'gradebook_calculations_freeze_' . $courses[28]->id}));
+        // [29] A course with grade display settings of letters which are default.
+        $this->assertEquals(20160518, $CFG->{'gradebook_calculations_freeze_' . $courses[29]->id});
+        // [30] A course with grade display settings of letters which are not default, but not affected.
+        $this->assertTrue(empty($CFG->{'gradebook_calculations_freeze_' . $courses[30]->id}));
+        // [31] A course with grade display settings of letters which are not default, which will be affected.
+        $this->assertEquals(20160518, $CFG->{'gradebook_calculations_freeze_' . $courses[31]->id});
+        // [32] A grade item with display settings which are not letters.
+        $this->assertTrue(empty($CFG->{'gradebook_calculations_freeze_' . $courses[32]->id}));
+        // [33] All system defaults.
+        $this->assertTrue(empty($CFG->{'gradebook_calculations_freeze_' . $courses[33]->id}));
+        // [34] A grade item with display settings of letters which are not default, but not affected. Course uses new letter boundary setting.
+        $this->assertTrue(empty($CFG->{'gradebook_calculations_freeze_' . $courses[34]->id}));
+        // [35] A grade item with display settings of letters which are not default, which will be affected.
+        $this->assertEquals(20160518, $CFG->{'gradebook_calculations_freeze_' . $courses[35]->id});
+        // [36] A course with grade display settings of letters with modified and good boundary (not 57) Should not be frozen.
+        $this->assertTrue(empty($CFG->{'gradebook_calculations_freeze_' . $courses[36]->id}));
+
+        // Previous site conditions still exist.
+        for ($i = 0; $i < 45; $i++) {
+            unset_config('gradebook_calculations_freeze_' . $courses[$i]->id);
+        }
+        upgrade_course_letter_boundary();
+
+        // [37] Site setting for not showing the letter column and course setting set to show (frozen).
+        $this->assertEquals(20160518, $CFG->{'gradebook_calculations_freeze_' . $courses[37]->id});
+        // [38] Site setting for not showing the letter column and course setting set to hide.
+        $this->assertTrue(empty($CFG->{'gradebook_calculations_freeze_' . $courses[38]->id}));
+        // [39] Site setting for not showing the letter column and course setting set to default.
+        $this->assertTrue(empty($CFG->{'gradebook_calculations_freeze_' . $courses[39]->id}));
+        // [40] Site setting for not showing the letter column and course setting set to default. Course display set to letters (frozen).
+        $this->assertEquals(20160518, $CFG->{'gradebook_calculations_freeze_' . $courses[40]->id});
+        // [41] Site setting for not showing the letter column and course setting set to default. Grade item display set to letters (frozen).
+        $this->assertEquals(20160518, $CFG->{'gradebook_calculations_freeze_' . $courses[41]->id});
+
+        // Previous site conditions still exist.
+        for ($i = 0; $i < 45; $i++) {
+            unset_config('gradebook_calculations_freeze_' . $courses[$i]->id);
+        }
+        set_config('grade_report_user_showlettergrade', '1');
+        upgrade_course_letter_boundary();
+
+        // [42] Site setting for showing the letter column, but course setting set to hide.
+        $this->assertTrue(empty($CFG->{'gradebook_calculations_freeze_' . $courses[42]->id}));
+        // [43] Site setting for showing the letter column and course setting set to show (frozen).
+        $this->assertEquals(20160518, $CFG->{'gradebook_calculations_freeze_' . $courses[43]->id});
+        // [44] Site setting for showing the letter column and course setting set to default (frozen).
+        $this->assertEquals(20160518, $CFG->{'gradebook_calculations_freeze_' . $courses[44]->id});
+    }
+
+    /**
+     * Test upgrade_letter_boundary_needs_freeze function.
+     */
+    public function test_upgrade_letter_boundary_needs_freeze() {
+        global $CFG;
+
+        $this->resetAfterTest();
+
+        require_once($CFG->libdir . '/db/upgradelib.php');
+
+        $courses = array();
+        $contexts = array();
+        for ($i = 0; $i < 3; $i++) {
+            $courses[] = $this->getDataGenerator()->create_course();
+            $contexts[] = context_course::instance($courses[$i]->id);
+        }
+
+        // Course one is not using a letter boundary.
+        $this->assertFalse(upgrade_letter_boundary_needs_freeze($contexts[0]));
+
+        // Let's make course 2 use the bad boundary.
+        $this->assign_bad_letter_boundary($contexts[1]->id);
+        $this->assertTrue(upgrade_letter_boundary_needs_freeze($contexts[1]));
+        // Course 3 has letter boundaries that are fine.
+        $this->assign_good_letter_boundary($contexts[2]->id);
+        $this->assertFalse(upgrade_letter_boundary_needs_freeze($contexts[2]));
+        // Try the system context not using a letter boundary.
+        $systemcontext = context_system::instance();
+        $this->assertFalse(upgrade_letter_boundary_needs_freeze($systemcontext));
+    }
+
+    /**
+     * Assigns letter boundaries with comparison problems.
+     *
+     * @param int $contextid Context ID.
+     */
+    private function assign_bad_letter_boundary($contextid) {
+        global $DB;
+        $newlettersscale = array(
+                array('contextid' => $contextid, 'lowerboundary' => 90.00000, 'letter' => 'A'),
+                array('contextid' => $contextid, 'lowerboundary' => 85.00000, 'letter' => 'A-'),
+                array('contextid' => $contextid, 'lowerboundary' => 80.00000, 'letter' => 'B+'),
+                array('contextid' => $contextid, 'lowerboundary' => 75.00000, 'letter' => 'B'),
+                array('contextid' => $contextid, 'lowerboundary' => 70.00000, 'letter' => 'B-'),
+                array('contextid' => $contextid, 'lowerboundary' => 65.00000, 'letter' => 'C+'),
+                array('contextid' => $contextid, 'lowerboundary' => 57.00000, 'letter' => 'C'),
+                array('contextid' => $contextid, 'lowerboundary' => 50.00000, 'letter' => 'C-'),
+                array('contextid' => $contextid, 'lowerboundary' => 40.00000, 'letter' => 'D+'),
+                array('contextid' => $contextid, 'lowerboundary' => 25.00000, 'letter' => 'D'),
+                array('contextid' => $contextid, 'lowerboundary' => 0.00000, 'letter' => 'F'),
+            );
+
+        $DB->delete_records('grade_letters', array('contextid' => $contextid));
+        foreach ($newlettersscale as $record) {
+            // There is no API to do this, so we have to manually insert into the database.
+            $DB->insert_record('grade_letters', $record);
+        }
+    }
+
+    /**
+     * Assigns letter boundaries with no comparison problems.
+     *
+     * @param int $contextid Context ID.
+     */
+    private function assign_good_letter_boundary($contextid) {
+        global $DB;
+        $newlettersscale = array(
+                array('contextid' => $contextid, 'lowerboundary' => 90.00000, 'letter' => 'A'),
+                array('contextid' => $contextid, 'lowerboundary' => 85.00000, 'letter' => 'A-'),
+                array('contextid' => $contextid, 'lowerboundary' => 80.00000, 'letter' => 'B+'),
+                array('contextid' => $contextid, 'lowerboundary' => 75.00000, 'letter' => 'B'),
+                array('contextid' => $contextid, 'lowerboundary' => 70.00000, 'letter' => 'B-'),
+                array('contextid' => $contextid, 'lowerboundary' => 65.00000, 'letter' => 'C+'),
+                array('contextid' => $contextid, 'lowerboundary' => 54.00000, 'letter' => 'C'),
+                array('contextid' => $contextid, 'lowerboundary' => 50.00000, 'letter' => 'C-'),
+                array('contextid' => $contextid, 'lowerboundary' => 40.00000, 'letter' => 'D+'),
+                array('contextid' => $contextid, 'lowerboundary' => 25.00000, 'letter' => 'D'),
+                array('contextid' => $contextid, 'lowerboundary' => 0.00000, 'letter' => 'F'),
+            );
+
+        $DB->delete_records('grade_letters', array('contextid' => $contextid));
+        foreach ($newlettersscale as $record) {
+            // There is no API to do this, so we have to manually insert into the database.
+            $DB->insert_record('grade_letters', $record);
+        }
+    }
+
+    /**
+     * Test libcurl custom check api.
+     */
+    public function test_check_libcurl_version() {
+        $supportedversion = 0x071304;
+        $curlinfo = curl_version();
+        $currentversion = $curlinfo['version_number'];
+
+        $result = new environment_results("custom_checks");
+        if ($currentversion < $supportedversion) {
+            $this->assertFalse(check_libcurl_version($result)->getStatus());
+        } else {
+            $this->assertNull(check_libcurl_version($result));
+        }
+    }
+
+    /**
+     * Create a collection of test themes to test determining parent themes.
+     *
+     * @return Url to the path containing the test themes
+     */
+    public function create_testthemes() {
+        global $CFG;
+
+        $themedircontent = [
+            'testtheme' => [
+                'config.php' => '<?php $THEME->name = "testtheme"; $THEME->parents = [""];',
+            ],
+            'childoftesttheme' => [
+                'config.php' => '<?php $THEME->name = "childofboost"; $THEME->parents = ["testtheme"];',
+            ],
+            'infinite' => [
+                'config.php' => '<?php $THEME->name = "infinite"; $THEME->parents = ["forever"];',
+            ],
+            'forever' => [
+                'config.php' => '<?php $THEME->name = "forever"; $THEME->parents = ["infinite", "childoftesttheme"];',
+            ],
+            'orphantheme' => [
+                'config.php' => '<?php $THEME->name = "orphantheme"; $THEME->parents = [];',
+            ],
+            'loop' => [
+                'config.php' => '<?php $THEME->name = "loop"; $THEME->parents = ["around"];',
+            ],
+            'around' => [
+                'config.php' => '<?php $THEME->name = "around"; $THEME->parents = ["loop"];',
+            ],
+            'themewithbrokenparent' => [
+                'config.php' => '<?php $THEME->name = "orphantheme"; $THEME->parents = ["nonexistent", "testtheme"];',
+            ],
+        ];
+        $vthemedir = \org\bovigo\vfs\vfsStream::setup('themes', null, $themedircontent);
+
+        return \org\bovigo\vfs\vfsStream::url('themes');
+    }
+
+    /**
+     * Data provider of serialized string.
+     *
+     * @return array
+     */
+    public function serialized_strings_dataprovider() {
+        return [
+            'A configuration that uses the old object' => [
+                'O:6:"object":3:{s:4:"text";s:32:"Nothing that anyone cares about.";s:5:"title";s:16:"Really old block";s:6:"format";s:1:"1";}',
+                true,
+                'O:8:"stdClass":3:{s:4:"text";s:32:"Nothing that anyone cares about.";s:5:"title";s:16:"Really old block";s:6:"format";s:1:"1";}'
+            ],
+            'A configuration that uses stdClass' => [
+                'O:8:"stdClass":5:{s:5:"title";s:4:"Tags";s:12:"numberoftags";s:2:"80";s:12:"showstandard";s:1:"0";s:3:"ctx";s:3:"289";s:3:"rec";s:1:"1";}',
+                false,
+                'O:8:"stdClass":5:{s:5:"title";s:4:"Tags";s:12:"numberoftags";s:2:"80";s:12:"showstandard";s:1:"0";s:3:"ctx";s:3:"289";s:3:"rec";s:1:"1";}'
+            ],
+            'A setting I saw when importing a course with blocks from 1.9' => [
+                'N;',
+                false,
+                'N;'
+            ],
+            'An object in an object' => [
+                'O:6:"object":2:{s:2:"id";i:5;s:5:"other";O:6:"object":1:{s:4:"text";s:13:"something new";}}',
+                true,
+                'O:8:"stdClass":2:{s:2:"id";i:5;s:5:"other";O:8:"stdClass":1:{s:4:"text";s:13:"something new";}}'
+            ],
+            'An array with an object in it' => [
+                'a:3:{s:4:"name";s:4:"Test";s:10:"additional";O:6:"object":2:{s:2:"id";i:5;s:4:"info";s:18:"text in the object";}s:4:"type";i:1;}',
+                true,
+                'a:3:{s:4:"name";s:4:"Test";s:10:"additional";O:8:"stdClass":2:{s:2:"id";i:5;s:4:"info";s:18:"text in the object";}s:4:"type";i:1;}'
+            ]
+        ];
+    }
+
+    /**
+     * Test that objects in serialized strings will be changed over to stdClass.
+     *
+     * @dataProvider serialized_strings_dataprovider
+     * @param string $initialstring The initial serialized setting.
+     * @param bool $expectededited If the string is expected to be edited.
+     * @param string $expectedresult The expected serialized setting to be returned.
+     */
+    public function test_upgrade_fix_serialized_objects($initialstring, $expectededited, $expectedresult) {
+        list($edited, $resultstring) = upgrade_fix_serialized_objects($initialstring);
+        $this->assertEquals($expectededited, $edited);
+        $this->assertEquals($expectedresult, $resultstring);
+    }
+
+    /**
+     * Data provider for base64_encoded block instance config data.
+     */
+    public function encoded_strings_dataprovider() {
+        return [
+            'Normal data using stdClass' => [
+                'Tzo4OiJzdGRDbGFzcyI6NTp7czo1OiJ0aXRsZSI7czo0OiJUYWdzIjtzOjEyOiJudW1iZXJvZnRhZ3MiO3M6MjoiODAiO3M6MTI6InNob3dzdGFuZGFyZCI7czoxOiIwIjtzOjM6ImN0eCI7czozOiIyODkiO3M6MzoicmVjIjtzOjE6IjEiO30=',
+                'Tzo4OiJzdGRDbGFzcyI6NTp7czo1OiJ0aXRsZSI7czo0OiJUYWdzIjtzOjEyOiJudW1iZXJvZnRhZ3MiO3M6MjoiODAiO3M6MTI6InNob3dzdGFuZGFyZCI7czoxOiIwIjtzOjM6ImN0eCI7czozOiIyODkiO3M6MzoicmVjIjtzOjE6IjEiO30='
+            ],
+            'No data at all' => [
+                '',
+                ''
+            ],
+            'Old data using object' => [
+                'Tzo2OiJvYmplY3QiOjM6e3M6NDoidGV4dCI7czozMjoiTm90aGluZyB0aGF0IGFueW9uZSBjYXJlcyBhYm91dC4iO3M6NToidGl0bGUiO3M6MTY6IlJlYWxseSBvbGQgYmxvY2siO3M6NjoiZm9ybWF0IjtzOjE6IjEiO30=',
+                'Tzo4OiJzdGRDbGFzcyI6Mzp7czo0OiJ0ZXh0IjtzOjMyOiJOb3RoaW5nIHRoYXQgYW55b25lIGNhcmVzIGFib3V0LiI7czo1OiJ0aXRsZSI7czoxNjoiUmVhbGx5IG9sZCBibG9jayI7czo2OiJmb3JtYXQiO3M6MToiMSI7fQ=='
+            ]
+        ];
+    }
+
+    /**
+     * Check that orphaned files are deleted.
+     */
+    public function test_upgrade_delete_orphaned_file_records() {
+        global $DB, $CFG;
+        require_once($CFG->dirroot . '/repository/lib.php');
+
+        $this->resetAfterTest();
+        // Create user.
+        $generator = $this->getDataGenerator();
+        $user = $generator->create_user();
+        $this->setUser($user);
+        $usercontext = context_user::instance($user->id);
+        $syscontext = context_system::instance();
+
+        $fs = get_file_storage();
+
+        $userrepository = array();
+        $newstoredfile = array();
+        $repositorypluginname = array('user', 'areafiles');
+
+        // Create two repositories with one file in each.
+        foreach ($repositorypluginname as $key => $value) {
+            // Override repository permission.
+            $capability = 'repository/' . $value . ':view';
+            $guestroleid = $DB->get_field('role', 'id', array('shortname' => 'guest'));
+            assign_capability($capability, CAP_ALLOW, $guestroleid, $syscontext->id, true);
+
+            $args = array();
+            $args['type'] = $value;
+            $repos = repository::get_instances($args);
+            $userrepository[$key] = reset($repos);
+
+            $this->assertInstanceOf('repository', $userrepository[$key]);
+
+            $component = 'user';
+            $filearea  = 'private';
+            $itemid    = $key;
+            $filepath  = '/';
+            $filename  = 'userfile.txt';
+
+            $filerecord = array(
+                'contextid' => $usercontext->id,
+                'component' => $component,
+                'filearea'  => $filearea,
+                'itemid'    => $itemid,
+                'filepath'  => $filepath,
+                'filename'  => $filename,
+            );
+
+            $content = 'Test content';
+            $originalfile = $fs->create_file_from_string($filerecord, $content);
+            $this->assertInstanceOf('stored_file', $originalfile);
+
+            $newfilerecord = array(
+                'contextid' => $syscontext->id,
+                'component' => 'core',
+                'filearea'  => 'phpunit',
+                'itemid'    => $key,
+                'filepath'  => $filepath,
+                'filename'  => $filename,
+            );
+            $ref = $fs->pack_reference($filerecord);
+            $newstoredfile[$key] = $fs->create_file_from_reference($newfilerecord, $userrepository[$key]->id, $ref);
+
+            // Look for references by repository ID.
+            $files = $fs->get_external_files($userrepository[$key]->id);
+            $file = reset($files);
+            $this->assertEquals($file, $newstoredfile[$key]);
+        }
+
+        // Make one file orphaned by deleting first repository.
+        $DB->delete_records('repository_instances', array('id' => $userrepository[0]->id));
+        $DB->delete_records('repository_instance_config', array('instanceid' => $userrepository[0]->id));
+
+        upgrade_delete_orphaned_file_records();
+
+        $files = $fs->get_external_files($userrepository[0]->id);
+        $file = reset($files);
+        $this->assertFalse($file);
+
+        $files = $fs->get_external_files($userrepository[1]->id);
+        $file = reset($files);
+        $this->assertEquals($file, $newstoredfile[1]);
+    }
+
+    /**
+     * Test that the previous records are updated according to the reworded actions.
+     * @return null
+     */
+    public function test_upgrade_rename_prediction_actions_useful_incorrectly_flagged() {
+        global $DB;
+
+        $this->resetAfterTest();
+        $this->setAdminUser();
+
+        $models = $DB->get_records('analytics_models');
+        $upcomingactivitiesdue = null;
+        $noteaching = null;
+        foreach ($models as $model) {
+            if ($model->target === '\\core_user\\analytics\\target\\upcoming_activities_due') {
+                $upcomingactivitiesdue = new \core_analytics\model($model);
+            }
+            if ($model->target === '\\core_course\\analytics\\target\\no_teaching') {
+                $noteaching = new \core_analytics\model($model);
+            }
+        }
+
+        // Upcoming activities due generating some insights.
+        $course1 = $this->getDataGenerator()->create_course();
+        $attrs = ['course' => $course1, 'duedate' => time() + WEEKSECS - DAYSECS];
+        $assign = $this->getDataGenerator()->get_plugin_generator('mod_assign')->create_instance($attrs);
+        $student = $this->getDataGenerator()->create_user();
+        $usercontext = \context_user::instance($student->id);
+        $this->getDataGenerator()->enrol_user($student->id, $course1->id, 'student');
+        $upcomingactivitiesdue->predict();
+        list($ignored, $predictions) = $upcomingactivitiesdue->get_predictions($usercontext, true);
+        $prediction = reset($predictions);
+
+        $predictionaction = (object)[
+            'predictionid' => $prediction->get_prediction_data()->id,
+            'userid' => 2,
+            'actionname' => 'fixed',
+            'timecreated' => time()
+        ];
+        $DB->insert_record('analytics_prediction_actions', $predictionaction);
+        $predictionaction->actionname = 'notuseful';
+        $DB->insert_record('analytics_prediction_actions', $predictionaction);
+
+        upgrade_rename_prediction_actions_useful_incorrectly_flagged();
+
+        $this->assertEquals(0, $DB->count_records('analytics_prediction_actions',
+            ['actionname' => \core_analytics\prediction::ACTION_FIXED]));
+        $this->assertEquals(1, $DB->count_records('analytics_prediction_actions',
+            ['actionname' => \core_analytics\prediction::ACTION_USEFUL]));
+        $this->assertEquals(1, $DB->count_records('analytics_prediction_actions',
+            ['actionname' => \core_analytics\prediction::ACTION_NOT_USEFUL]));
+        $this->assertEquals(0, $DB->count_records('analytics_prediction_actions',
+            ['actionname' => \core_analytics\prediction::ACTION_INCORRECTLY_FLAGGED]));
+
+        // No teaching generating some insights.
+        $course2 = $this->getDataGenerator()->create_course(['startdate' => time() + (2 * DAYSECS)]);
+        $noteaching->predict();
+        list($ignored, $predictions) = $noteaching->get_predictions(\context_system::instance(), true);
+        $prediction = reset($predictions);
+
+        $predictionaction = (object)[
+            'predictionid' => $prediction->get_prediction_data()->id,
+            'userid' => 2,
+            'actionname' => 'notuseful',
+            'timecreated' => time()
+        ];
+        $DB->insert_record('analytics_prediction_actions', $predictionaction);
+        $predictionaction->actionname = 'fixed';
+        $DB->insert_record('analytics_prediction_actions', $predictionaction);
+
+        upgrade_rename_prediction_actions_useful_incorrectly_flagged();
+
+        $this->assertEquals(1, $DB->count_records('analytics_prediction_actions',
+            ['actionname' => \core_analytics\prediction::ACTION_FIXED]));
+        $this->assertEquals(1, $DB->count_records('analytics_prediction_actions',
+            ['actionname' => \core_analytics\prediction::ACTION_USEFUL]));
+        $this->assertEquals(1, $DB->count_records('analytics_prediction_actions',
+            ['actionname' => \core_analytics\prediction::ACTION_NOT_USEFUL]));
+        $this->assertEquals(1, $DB->count_records('analytics_prediction_actions',
+            ['actionname' => \core_analytics\prediction::ACTION_INCORRECTLY_FLAGGED]));
+
+        // We also check that there are no records incorrectly switched in upcomingactivitiesdue.
+        $upcomingactivitiesdue->clear();
+
+        $this->assertEquals(1, $DB->count_records('analytics_prediction_actions',
+            ['actionname' => \core_analytics\prediction::ACTION_FIXED]));
+        $this->assertEquals(0, $DB->count_records('analytics_prediction_actions',
+            ['actionname' => \core_analytics\prediction::ACTION_USEFUL]));
+        $this->assertEquals(0, $DB->count_records('analytics_prediction_actions',
+            ['actionname' => \core_analytics\prediction::ACTION_NOT_USEFUL]));
+        $this->assertEquals(1, $DB->count_records('analytics_prediction_actions',
+            ['actionname' => \core_analytics\prediction::ACTION_INCORRECTLY_FLAGGED]));
+
+        $upcomingactivitiesdue->predict();
+        list($ignored, $predictions) = $upcomingactivitiesdue->get_predictions($usercontext, true);
+        $prediction = reset($predictions);
+
+        $predictionaction = (object)[
+            'predictionid' => $prediction->get_prediction_data()->id,
+            'userid' => 2,
+            'actionname' => 'fixed',
+            'timecreated' => time()
+        ];
+        $DB->insert_record('analytics_prediction_actions', $predictionaction);
+        $predictionaction->actionname = 'notuseful';
+        $DB->insert_record('analytics_prediction_actions', $predictionaction);
+
+        upgrade_rename_prediction_actions_useful_incorrectly_flagged();
+
+        $this->assertEquals(1, $DB->count_records('analytics_prediction_actions',
+            ['actionname' => \core_analytics\prediction::ACTION_FIXED]));
+        $this->assertEquals(1, $DB->count_records('analytics_prediction_actions',
+            ['actionname' => \core_analytics\prediction::ACTION_USEFUL]));
+        $this->assertEquals(1, $DB->count_records('analytics_prediction_actions',
+            ['actionname' => \core_analytics\prediction::ACTION_NOT_USEFUL]));
+        $this->assertEquals(1, $DB->count_records('analytics_prediction_actions',
+            ['actionname' => \core_analytics\prediction::ACTION_INCORRECTLY_FLAGGED]));
+    }
+
+    /**
+     * Test the functionality of the {@link upgrade_convert_hub_config_site_param_names()} function.
+     */
+    public function test_upgrade_convert_hub_config_site_param_names() {
+
+        $config = (object) [
+            // This is how site settings related to registration at https://moodle.net are stored.
+            'site_name_httpsmoodlenet' => 'Foo Site',
+            'site_language_httpsmoodlenet' => 'en',
+            'site_emailalert_httpsmoodlenet' => 1,
+            // These are unexpected relics of a value as registered at the old http://hub.moodle.org site.
+            'site_name_httphubmoodleorg' => 'Bar Site',
+            'site_description_httphubmoodleorg' => 'Old description',
+            // This is the target value we are converting to - here it already somehow exists.
+            'site_emailalert' => 0,
+            // This is a setting not related to particular hub.
+            'custom' => 'Do not touch this',
+            // A setting defined for multiple alternative hubs.
+            'site_foo_httpfirsthuborg' => 'First',
+            'site_foo_httpanotherhubcom' => 'Another',
+            'site_foo_httpyetanotherhubcom' => 'Yet another',
+            // A setting defined for multiple alternative hubs and one referential one.
+            'site_bar_httpfirsthuborg' => 'First',
+            'site_bar_httpanotherhubcom' => 'Another',
+            'site_bar_httpsmoodlenet' => 'One hub to rule them all!',
+            'site_bar_httpyetanotherhubcom' => 'Yet another',
+        ];
+
+        $converted = upgrade_convert_hub_config_site_param_names($config, 'https://moodle.net');
+
+        // Values defined for the moodle.net take precedence over the ones defined for other hubs.
+        $this->assertSame($converted->site_name, 'Foo Site');
+        $this->assertSame($converted->site_bar, 'One hub to rule them all!');
+        $this->assertNull($converted->site_name_httpsmoodlenet);
+        $this->assertNull($converted->site_bar_httpfirsthuborg);
+        $this->assertNull($converted->site_bar_httpanotherhubcom);
+        $this->assertNull($converted->site_bar_httpyetanotherhubcom);
+        // Values defined for alternative hubs only do not have any guaranteed value. Just for convenience, we use the first one.
+        $this->assertSame($converted->site_foo, 'First');
+        $this->assertNull($converted->site_foo_httpfirsthuborg);
+        $this->assertNull($converted->site_foo_httpanotherhubcom);
+        $this->assertNull($converted->site_foo_httpyetanotherhubcom);
+        // Values that are already defined with the new name format are kept.
+        $this->assertSame($converted->site_emailalert, 0);
+        // Eventual custom values not following the expected hub-specific naming format, are kept.
+        $this->assertSame($converted->custom, 'Do not touch this');
+    }
+
+    /**
+     * Test the functionality of the {@link upgrade_analytics_fix_contextids_defaults} function.
+     */
+    public function test_upgrade_analytics_fix_contextids_defaults() {
+        global $DB, $USER;
+
+        $this->resetAfterTest();
+
+        $model = (object)[
+            'name' => 'asd',
+            'target' => 'ou',
+            'indicators' => '[]',
+            'version' => '1',
+            'timecreated' => time(),
+            'timemodified' => time(),
+            'usermodified' => $USER->id,
+            'contextids' => ''
+        ];
+        $DB->insert_record('analytics_models', $model);
+
+        $model->contextids = null;
+        $DB->insert_record('analytics_models', $model);
+
+        unset($model->contextids);
+        $DB->insert_record('analytics_models', $model);
+
+        $model->contextids = '0';
+        $DB->insert_record('analytics_models', $model);
+
+        $model->contextids = 'null';
+        $DB->insert_record('analytics_models', $model);
+
+        $select = $DB->sql_compare_text('contextids') . ' = :zero OR ' . $DB->sql_compare_text('contextids') . ' = :null';
+        $params = ['zero' => '0', 'null' => 'null'];
+        $this->assertEquals(2, $DB->count_records_select('analytics_models', $select, $params));
+
+        upgrade_analytics_fix_contextids_defaults();
+
+        $this->assertEquals(0, $DB->count_records_select('analytics_models', $select, $params));
+    }
+
+    /**
+     * Test the functionality of {@link upgrade_core_licenses} function.
+     */
+    public function test_upgrade_core_licenses() {
+        global $CFG, $DB;
+
+        $this->resetAfterTest();
+
+        // Emulate that upgrade is in process.
+        $CFG->upgraderunning = time();
+
+        $deletedcorelicenseshortname = 'unknown';
+        $DB->delete_records('license', ['shortname' => $deletedcorelicenseshortname]);
+
+        upgrade_core_licenses();
+
+        $expectedshortnames = ['allrightsreserved', 'cc', 'cc-nc', 'cc-nc-nd', 'cc-nc-sa', 'cc-nd', 'cc-sa', 'public'];
+        $licenses = $DB->get_records('license');
+
+        foreach ($licenses as $license) {
+            $this->assertContains($license->shortname, $expectedshortnames);
+            $this->assertObjectHasAttribute('custom', $license);
+            $this->assertObjectHasAttribute('sortorder', $license);
+        }
+        // A core license which was deleted prior to upgrade should not be reinstalled.
+        $actualshortnames = $DB->get_records_menu('license', null, '', 'id, shortname');
+        $this->assertNotContains($deletedcorelicenseshortname, $actualshortnames);
+    }
+
+    /**
+     * Execute same problematic query from upgrade step.
+     *
+     * @return bool
+     */
+    public function run_upgrade_step_query() {
+        global $DB;
+
+        return $DB->execute("UPDATE {event} SET userid = 0 WHERE eventtype <> 'user' OR priority <> 0");
+    }
+
+    /**
+     * Test the functionality of upgrade_calendar_events_status() function.
+     */
+    public function test_upgrade_calendar_events_status() {
+
+        $this->resetAfterTest();
+        $this->setAdminUser();
+
+        $events = create_standard_events(5);
+        $eventscount = count($events);
+
+        // Run same DB query as the problematic upgrade step.
+        $this->run_upgrade_step_query();
+
+        // Get the events info.
+        $status = upgrade_calendar_events_status(false);
+
+        // Total events.
+        $expected = [
+            'total' => (object)[
+                'count' => $eventscount,
+                'bad' => $eventscount - 5, // Event count excluding user events.
+            ],
+            'standard' => (object)[
+                'count' => $eventscount,
+                'bad' => $eventscount - 5, // Event count excluding user events.
+            ],
+        ];
+
+        $this->assertEquals($expected['standard']->count, $status['standard']->count);
+        $this->assertEquals($expected['standard']->bad, $status['standard']->bad);
+        $this->assertEquals($expected['total']->count, $status['total']->count);
+        $this->assertEquals($expected['total']->bad, $status['total']->bad);
+    }
+
+    /**
+     * Test the functionality of upgrade_calendar_events_get_teacherid() function.
+     */
+    public function test_upgrade_calendar_events_get_teacherid() {
+        global $DB;
+
+        $this->resetAfterTest();
+
+        // Create a new course and enrol a user as editing teacher.
+        $generator = $this->getDataGenerator();
+        $course = $generator->create_course();
+        $teacher = $generator->create_and_enrol($course, 'editingteacher');
+
+        // There's a teacher enrolled in the course, return its user id.
+        $userid = upgrade_calendar_events_get_teacherid($course->id);
+
+        // It should return the enrolled teacher by default.
+        $this->assertEquals($teacher->id, $userid);
+
+        // Un-enrol teacher from course.
+        $instance = $DB->get_record('enrol', ['courseid' => $course->id, 'enrol' => 'manual']);
+        enrol_get_plugin('manual')->unenrol_user($instance, $teacher->id);
+
+        // Since there are no teachers enrolled in the course, fallback to admin user id.
+        $admin = get_admin();
+        $userid = upgrade_calendar_events_get_teacherid($course->id);
+        $this->assertEquals($admin->id, $userid);
+    }
+
+    /**
+     * Test the functionality of upgrade_calendar_standard_events_fix() function.
+     */
+    public function test_upgrade_calendar_standard_events_fix() {
+
+        $this->resetAfterTest();
+        $this->setAdminUser();
+
+        $events = create_standard_events(5);
+        $eventscount = count($events);
+
+        // Get the events info.
+        $info = upgrade_calendar_events_status(false);
+
+        // There should be no standard events to be fixed.
+        $this->assertEquals(0, $info['standard']->bad);
+
+        // No events to be fixed, should return false.
+        $this->assertFalse(upgrade_calendar_standard_events_fix($info['standard'], false));
+
+        // Run same problematic DB query.
+        $this->run_upgrade_step_query();
+
+        // Get the events info.
+        $info = upgrade_calendar_events_status(false);
+
+        // There should be 20 events to be fixed (five from each type except user).
+        $this->assertEquals($eventscount - 5, $info['standard']->bad);
+
+        // Test the function runtime, passing -1 as end time.
+        // It should not be able to fix all events so fast, so some events should remain to be fixed in the next run.
+        $result = upgrade_calendar_standard_events_fix($info['standard'], false, -1);
+        $this->assertNotFalse($result);
+
+        // Call the function again, this time it will run until all events have been fixed.
+        $this->assertFalse(upgrade_calendar_standard_events_fix($info['standard'], false));
+
+        // Get the events info again.
+        $info = upgrade_calendar_events_status(false);
+
+        // All standard events should have been recovered.
+        // There should be no standard events flagged to be fixed.
+        $this->assertEquals(0, $info['standard']->bad);
+    }
+
+    /**
+     * Test the functionality of upgrade_calendar_subscription_events_fix() function.
+     */
+    public function test_upgrade_calendar_subscription_events_fix() {
+        global $CFG, $DB;
+
+        require_once($CFG->dirroot . '/calendar/lib.php');
+        require_once($CFG->dirroot . '/lib/bennu/bennu.inc.php');
+
+        $this->resetAfterTest();
+        $this->setAdminUser();
+
+        // Create event subscription.
+        $subscription = new stdClass;
+        $subscription->name = 'Repeated events';
+        $subscription->importfrom = CALENDAR_IMPORT_FROM_FILE;
+        $subscription->eventtype = 'site';
+        $id = calendar_add_subscription($subscription);
+
+        // Get repeated events ICS file.
+        $calendar = file_get_contents($CFG->dirroot . '/lib/tests/fixtures/repeated_events.ics');
+        $ical = new iCalendar();
+        $ical->unserialize($calendar);
+
+        // Import subscription events.
+        calendar_import_events_from_ical($ical, $id);
+
+        // Subscription should have added 18 events.
+        $eventscount = $DB->count_records('event');
+
+        // Get the events info.
+        $info = upgrade_calendar_events_status(false);
+
+        // There should be no subscription events to be fixed at this point.
+        $this->assertEquals(0, $info['subscription']->bad);
+
+        // No events to be fixed, should return false.
+        $this->assertFalse(upgrade_calendar_subscription_events_fix($info['subscription'], false));
+
+        // Run same problematic DB query.
+        $this->run_upgrade_step_query();
+
+        // Get the events info and assert total number of events is correct.
+        $info = upgrade_calendar_events_status(false);
+        $subscriptioninfo = $info['subscription'];
+
+        $this->assertEquals($eventscount, $subscriptioninfo->count);
+
+        // Since we have added our subscription as site, all sub events have been affected.
+        $this->assertEquals($eventscount, $subscriptioninfo->bad);
+
+        // Test the function runtime, passing -1 as end time.
+        // It should not be able to fix all events so fast, so some events should remain to be fixed in the next run.
+        $result = upgrade_calendar_subscription_events_fix($subscriptioninfo, false, -1);
+        $this->assertNotFalse($result);
+
+        // Call the function again, this time it will run until all events have been fixed.
+        $this->assertFalse(upgrade_calendar_subscription_events_fix($subscriptioninfo, false));
+
+        // Get the events info again.
+        $info = upgrade_calendar_events_status(false);
+
+        // All standard events should have been recovered.
+        // There should be no standard events flagged to be fixed.
+        $this->assertEquals(0, $info['subscription']->bad);
+    }
+
+    /**
+     * Test the functionality of upgrade_calendar_action_events_fix() function.
+     */
+    public function test_upgrade_calendar_action_events_fix() {
+        global $DB;
+
+        $this->resetAfterTest();
+        $this->setAdminUser();
+
+        // Create a new course and a choice activity.
+        $course = $this->getDataGenerator()->create_course();
+        $choice = $this->getDataGenerator()->create_module('choice', ['course' => $course->id]);
+
+        // Create some action events.
+        create_action_event(['courseid' => $course->id, 'modulename' => 'choice', 'instance' => $choice->id,
+            'eventtype' => CHOICE_EVENT_TYPE_OPEN]);
+        create_action_event(['courseid' => $course->id, 'modulename' => 'choice', 'instance' => $choice->id,
+            'eventtype' => CHOICE_EVENT_TYPE_CLOSE]);
+
+        $eventscount = $DB->count_records('event');
+
+        // Get the events info.
+        $info = upgrade_calendar_events_status(false);
+        $actioninfo = $info['action'];
+
+        // There should be no standard events to be fixed.
+        $this->assertEquals(0, $actioninfo->bad);
+
+        // No events to be fixed, should return false.
+        $this->assertFalse(upgrade_calendar_action_events_fix($actioninfo, false));
+
+        // Run same problematic DB query.
+        $this->run_upgrade_step_query();
+
+        // Get the events info.
+        $info = upgrade_calendar_events_status(false);
+        $actioninfo = $info['action'];
+
+        // There should be 2 events to be fixed.
+        $this->assertEquals($eventscount, $actioninfo->bad);
+
+        // Test the function runtime, passing -1 as end time.
+        // It should not be able to fix all events so fast, so some events should remain to be fixed in the next run.
+        $this->assertNotFalse(upgrade_calendar_action_events_fix($actioninfo, false, -1));
+
+        // Call the function again, this time it will run until all events have been fixed.
+        $this->assertFalse(upgrade_calendar_action_events_fix($actioninfo, false));
+
+        // Get the events info again.
+        $info = upgrade_calendar_events_status(false);
+
+        // All standard events should have been recovered.
+        // There should be no standard events flagged to be fixed.
+        $this->assertEquals(0, $info['action']->bad);
+    }
+
+    /**
+     * Test the user override part of upgrade_calendar_override_events_fix() function.
+     */
+    public function test_upgrade_calendar_user_override_events_fix() {
+        global $DB;
+
+        $this->resetAfterTest();
+        $this->setAdminUser();
+
+        $generator = $this->getDataGenerator();
+
+        // Create a new course.
+        $course = $generator->create_course();
+
+        // Create few users and enrol as students.
+        $student1 = $generator->create_and_enrol($course, 'student');
+        $student2 = $generator->create_and_enrol($course, 'student');
+        $student3 = $generator->create_and_enrol($course, 'student');
+
+        // Create some activities and some override events.
+        foreach (['assign', 'lesson', 'quiz'] as $modulename) {
+            $instance = $generator->create_module($modulename, ['course' => $course->id]);
+            create_user_override_event($modulename, $instance->id, $student1->id);
+            create_user_override_event($modulename, $instance->id, $student2->id);
+            create_user_override_event($modulename, $instance->id, $student3->id);
+        }
+
+        // There should be 9 override events to be fixed (three from each module).
+        $eventscount = $DB->count_records('event');
+        $this->assertEquals(9, $eventscount);
+
+        // Get the events info.
+        $info = upgrade_calendar_events_status(false);
+        $overrideinfo = $info['override'];
+
+        // There should be no standard events to be fixed.
+        $this->assertEquals(0, $overrideinfo->bad);
+
+        // No events to be fixed, should return false.
+        $this->assertFalse(upgrade_calendar_override_events_fix($overrideinfo, false));
+
+        // Run same problematic DB query.
+        $this->run_upgrade_step_query();
+
+        // Get the events info.
+        $info = upgrade_calendar_events_status(false);
+        $overrideinfo = $info['override'];
+
+        // There should be 9 events to be fixed (three from each module).
+        $this->assertEquals($eventscount, $overrideinfo->bad);
+
+        // Call the function again, this time it will run until all events have been fixed.
+        $this->assertFalse(upgrade_calendar_override_events_fix($overrideinfo, false));
+
+        // Get the events info again.
+        $info = upgrade_calendar_events_status(false);
+
+        // All standard events should have been recovered.
+        // There should be no standard events flagged to be fixed.
+        $this->assertEquals(0, $info['override']->bad);
+    }
+
+    /**
+     * Test the group override part of upgrade_calendar_override_events_fix() function.
+     */
+    public function test_upgrade_calendar_group_override_events_fix() {
+        global $DB;
+
+        $this->resetAfterTest();
+        $this->setAdminUser();
+
+        $generator = $this->getDataGenerator();
+
+        // Create a new course and few groups.
+        $course = $generator->create_course();
+        $group1 = $generator->create_group(['courseid' => $course->id]);
+        $group2 = $generator->create_group(['courseid' => $course->id]);
+        $group3 = $generator->create_group(['courseid' => $course->id]);
+
+        // Create some activities and some override events.
+        foreach (['assign', 'lesson', 'quiz'] as $modulename) {
+            $instance = $generator->create_module($modulename, ['course' => $course->id]);
+            create_group_override_event($modulename, $instance->id, $course->id, $group1->id);
+            create_group_override_event($modulename, $instance->id, $course->id, $group2->id);
+            create_group_override_event($modulename, $instance->id, $course->id, $group3->id);
+        }
+
+        // There should be 9 override events to be fixed (three from each module).
+        $eventscount = $DB->count_records('event');
+        $this->assertEquals(9, $eventscount);
+
+        // Get the events info.
+        $info = upgrade_calendar_events_status(false);
+
+        // We classify group overrides as action events since they do not record the userid.
+        $groupoverrideinfo = $info['action'];
+
+        // There should be no events to be fixed.
+        $this->assertEquals(0, $groupoverrideinfo->bad);
+
+        // No events to be fixed, should return false.
+        $this->assertFalse(upgrade_calendar_action_events_fix($groupoverrideinfo, false));
+
+        // Run same problematic DB query.
+        $this->run_upgrade_step_query();
+
+        // Get the events info.
+        $info = upgrade_calendar_events_status(false);
+        $this->assertEquals(9, $info['action']->bad);
+
+        // Call the function again, this time it will run until all events have been fixed.
+        $this->assertFalse(upgrade_calendar_action_events_fix($info['action'], false));
+
+        // Since group override events do not set userid, these events should not be flagged to be fixed.
+        $this->assertEquals(0, $groupoverrideinfo->bad);
+    }
+
+    /**
+     * Test the admin_dir_usage check with no admin setting specified.
+     */
+    public function test_admin_dir_usage_not_set(): void {
+        $result = new environment_results("custom_checks");
+
+        $this->assertNull(check_admin_dir_usage($result));
+    }
+
+    /**
+     * Test the admin_dir_usage check with the default admin setting specified.
+     */
+    public function test_admin_dir_usage_is_default(): void {
+        global $CFG;
+
+        $CFG->admin = 'admin';
+
+        $result = new environment_results("custom_checks");
+        $this->assertNull(check_admin_dir_usage($result));
+    }
+
+    /**
+     * Test the admin_dir_usage check with a custom admin setting specified.
+     */
+    public function test_admin_dir_usage_non_standard(): void {
+        global $CFG;
+
+        $this->resetAfterTest(true);
+        $CFG->admin = 'notadmin';
+
+        $result = new environment_results("custom_checks");
+        $this->assertInstanceOf(environment_results::class, check_admin_dir_usage($result));
+        $this->assertEquals('admin_dir_usage', $result->getInfo());
+        $this->assertFalse($result->getStatus());
+    }
+
+    /**
+     * Test the check_xmlrpc_usage check when the XML-RPC web service method is not set.
+     *
+     * @return void
+     */
+    public function test_check_xmlrpc_webservice_is_not_set(): void {
+        global $CFG;
+
+        $this->resetAfterTest();
+
+        $result = new environment_results('custom_checks');
+        $this->assertNull(check_xmlrpc_usage($result));
+
+        $CFG->webserviceprotocols = 'rest';
+        $result = new environment_results('custom_checks');
+        $this->assertNull(check_xmlrpc_usage($result));
+    }
+
+    /**
+     * Test the check_xmlrpc_usage check when the XML-RPC web service method is set.
+     *
+     * @return void
+     */
+    public function test_check_xmlrpc_webservice_is_set(): void {
+        global $CFG;
+
+        $this->resetAfterTest();
+        $CFG->webserviceprotocols = 'xmlrpc,rest';
+
+        $result = new environment_results('custom_checks');
+        $this->assertInstanceOf(environment_results::class, check_xmlrpc_usage($result));
+        $this->assertEquals('xmlrpc_webservice_usage', $result->getInfo());
+        $this->assertFalse($result->getStatus());
+    }
+
+    /**
+     * Test the check_xmlrpc_usage check when the MNet is turned on but no host was set up.
+     *
+     * @return void
+     */
+    public function test_check_xmlrpc_mnet_host_is_not_set(): void {
+        global $CFG;
+
+        $this->resetAfterTest();
+        $CFG->mnet_dispatcher_mode = 'strict';
+
+        $result = new environment_results('custom_checks');
+        $this->assertNull(check_xmlrpc_usage($result));
+    }
+
+    /**
+     * Test the check_xmlrpc_usage check when the MNet is turned on and the host was set up.
+     *
+     * @return void
+     */
+    public function test_check_xmlrpc_mnet_host_is_set(): void {
+        global $CFG, $DB;
+
+        $this->resetAfterTest();
+        $CFG->mnet_dispatcher_mode = 'strict';
+
+        // Add a mnet host.
+        $mnethost = new stdClass();
+        $mnethost->name = 'A mnet host';
+        $mnethost->public_key = 'A random public key!';
+        $mnethost->id = $DB->insert_record('mnet_host', $mnethost);
+
+        $result = new environment_results('custom_checks');
+        $this->assertInstanceOf(environment_results::class, check_xmlrpc_usage($result));
+        $this->assertEquals('xmlrpc_mnet_usage', $result->getInfo());
+        $this->assertFalse($result->getStatus());
+    }
+
+    /**
+     * Test the check_xmlrpc_usage check when the MNet is turned on and the Mahara portfolios was set up.
+     *
+     * @return void
+     */
+    public function test_check_xmlrpc_mahara_portfolios_is_set(): void {
+        global $CFG;
+
+        $this->resetAfterTest();
+        $CFG->mnet_dispatcher_mode = 'strict';
+
+        // Enable the Mahara portfolios.
+        \core\plugininfo\portfolio::enable_plugin('mahara', 1);
+
+        $result = new environment_results('custom_checks');
+        $this->assertInstanceOf(environment_results::class, check_xmlrpc_usage($result));
+        $this->assertEquals('xmlrpc_mahara_usage', $result->getInfo());
+        $this->assertFalse($result->getStatus());
     }
 }

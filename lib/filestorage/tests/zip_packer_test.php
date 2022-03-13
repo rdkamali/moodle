@@ -37,7 +37,7 @@ class core_files_zip_packer_testcase extends advanced_testcase implements file_p
      */
     protected $progress;
 
-    protected function setUp() {
+    protected function setUp(): void {
         parent::setUp();
 
         $this->testfile = __DIR__.'/fixtures/test.txt';
@@ -143,7 +143,7 @@ class core_files_zip_packer_testcase extends advanced_testcase implements file_p
         $packer = get_file_packer('application/zip');
         $archive = "$CFG->tempdir/archive.zip";
 
-        $this->assertFileNotExists($archive);
+        $this->assertFileDoesNotExist($archive);
         $result = $packer->archive_to_pathname($this->files, $archive);
         $this->assertTrue($result);
         $this->assertFileExists($archive);
@@ -157,15 +157,15 @@ class core_files_zip_packer_testcase extends advanced_testcase implements file_p
 
         // Test invalid files parameter.
         $archive = "$CFG->tempdir/archive2.zip";
-        $this->assertFileNotExists($archive);
+        $this->assertFileDoesNotExist($archive);
 
-        $this->assertFileNotExists(__DIR__.'/xx/yy/ee.txt');
+        $this->assertFileDoesNotExist(__DIR__.'/xx/yy/ee.txt');
         $files = array('xtest.txt'=>__DIR__.'/xx/yy/ee.txt');
 
         $result = $packer->archive_to_pathname($files, $archive, false);
         $this->assertFalse($result);
         $this->assertDebuggingCalled();
-        $this->assertFileNotExists($archive);
+        $this->assertFileDoesNotExist($archive);
 
         $result = $packer->archive_to_pathname($files, $archive);
         $this->assertTrue($result);
@@ -175,7 +175,7 @@ class core_files_zip_packer_testcase extends advanced_testcase implements file_p
         $this->assertSame(array(), $archivefiles);
         unlink($archive);
 
-        $this->assertFileNotExists(__DIR__.'/xx/yy/ee.txt');
+        $this->assertFileDoesNotExist(__DIR__.'/xx/yy/ee.txt');
         $this->assertFileExists(__DIR__.'/fixtures/test.txt');
         $files = array('xtest.txt'=>__DIR__.'/xx/yy/ee.txt', 'test.txt'=>__DIR__.'/fixtures/test.txt', 'ytest.txt'=>__DIR__.'/xx/yy/yy.txt');
         $result = $packer->archive_to_pathname($files, $archive);
@@ -255,6 +255,79 @@ class core_files_zip_packer_testcase extends advanced_testcase implements file_p
     }
 
     /**
+     * Test functionality of {@see zip_packer} for entries with folders ending with dots.
+     *
+     * @link https://bugs.php.net/bug.php?id=77214
+     */
+    public function test_zip_entry_path_having_folder_ending_with_dot() {
+        global $CFG;
+
+        $this->resetAfterTest(false);
+
+        $packer = get_file_packer('application/zip');
+        $tmp = make_request_directory();
+        $now = time();
+
+        // Create a test archive containing a folder ending with dot.
+        $zippath = $tmp . '/test_archive.zip';
+        $zipcontents = [
+            'HOW.TO' => ['Just run tests.'],
+            'README.' => ['This is a test ZIP file'],
+            './Current time' => [$now],
+            'Data/sub1./sub2/1221' => ['1221'],
+            'Data/sub1./sub2./Příliš žluťoučký kůň úpěl Ďábelské Ódy.txt' => [''],
+        ];
+
+        if ($CFG->ostype === 'WINDOWS') {
+            // File names cannot end with dots on Windows and trailing dots are replaced with underscore.
+            $filenamemap = [
+                'HOW.TO' => 'HOW.TO',
+                'README.' => 'README_',
+                './Current time' => 'Current time',
+                'Data/sub1./sub2/1221' => 'Data/sub1_/sub2/1221',
+                'Data/sub1./sub2./Příliš žluťoučký kůň úpěl Ďábelské Ódy.txt' =>
+                    'Data/sub1_/sub2_/Příliš žluťoučký kůň úpěl Ďábelské Ódy.txt',
+            ];
+
+        } else {
+            $filenamemap = [
+                'HOW.TO' => 'HOW.TO',
+                'README.' => 'README.',
+                './Current time' => 'Current time',
+                'Data/sub1./sub2/1221' => 'Data/sub1./sub2/1221',
+                'Data/sub1./sub2./Příliš žluťoučký kůň úpěl Ďábelské Ódy.txt' =>
+                    'Data/sub1./sub2./Příliš žluťoučký kůň úpěl Ďábelské Ódy.txt',
+            ];
+        }
+
+        // Check that the archive can be created.
+        $result = $packer->archive_to_pathname($zipcontents, $zippath, false);
+        $this->assertTrue($result);
+
+        // Check list of files.
+        $listfiles = $packer->list_files($zippath);
+        $this->assertEquals(count($zipcontents), count($listfiles));
+
+        foreach ($listfiles as $fileinfo) {
+            $this->assertSame($fileinfo->pathname, $fileinfo->original_pathname);
+            $this->assertArrayHasKey($fileinfo->pathname, $zipcontents);
+        }
+
+        // Check actual extracting.
+        $targetpath = $tmp . '/target';
+        check_dir_exists($targetpath);
+        $result = $packer->extract_to_pathname($zippath, $targetpath, null, null, true);
+
+        $this->assertTrue($result);
+
+        foreach ($zipcontents as $filename => $filecontents) {
+            $filecontents = reset($filecontents);
+            $this->assertTrue(is_readable($targetpath . '/' . $filenamemap[$filename]));
+            $this->assertEquals($filecontents, file_get_contents($targetpath . '/' . $filenamemap[$filename]));
+        }
+    }
+
+    /**
      * @depends test_archive_to_storage
      */
     public function test_extract_to_pathname_onlyfiles() {
@@ -289,9 +362,44 @@ class core_files_zip_packer_testcase extends advanced_testcase implements file_p
         }
         foreach ($donotextract as $file) {
             $this->assertFalse(isset($result[$file]));
-            $this->assertFileNotExists($target.$file);
+            $this->assertFileDoesNotExist($target.$file);
         }
 
+    }
+
+    /**
+     * @depends test_archive_to_storage
+     */
+    public function test_extract_to_pathname_returnvalue_successful() {
+        global $CFG;
+
+        $this->resetAfterTest(false);
+
+        $packer = get_file_packer('application/zip');
+
+        $target = make_request_directory();
+
+        $archive = "$CFG->tempdir/archive.zip";
+        $this->assertFileExists($archive);
+        $result = $packer->extract_to_pathname($archive, $target, null, null, true);
+        $this->assertTrue($result);
+    }
+
+    /**
+     * @depends test_archive_to_storage
+     */
+    public function test_extract_to_pathname_returnvalue_failure() {
+        global $CFG;
+
+        $this->resetAfterTest(false);
+
+        $packer = get_file_packer('application/zip');
+
+        $target = make_request_directory();
+
+        $archive = "$CFG->tempdir/noarchive.zip";
+        $result = $packer->extract_to_pathname($archive, $target, null, null, true);
+        $this->assertFalse($result);
     }
 
     /**
@@ -345,7 +453,7 @@ class core_files_zip_packer_testcase extends advanced_testcase implements file_p
         $packer = get_file_packer('application/zip');
         $archive = "$CFG->tempdir/archive.zip";
 
-        $this->assertFileNotExists($archive);
+        $this->assertFileDoesNotExist($archive);
         $packer->archive_to_pathname(array(), $archive);
         $this->assertFileExists($archive);
 
@@ -376,6 +484,73 @@ class core_files_zip_packer_testcase extends advanced_testcase implements file_p
         unlink($archive);
     }
 
+    public function test_close_archive() {
+        global $CFG;
+
+        $this->resetAfterTest(true);
+
+        $archive = "$CFG->tempdir/archive.zip";
+        $textfile = "$CFG->tempdir/textfile.txt";
+        touch($textfile);
+
+        $this->assertFileDoesNotExist($archive);
+        $this->assertFileExists($textfile);
+
+        // Create archive and close it without files.
+        // (returns true, without any warning).
+        $zip_archive = new zip_archive();
+        $result = $zip_archive->open($archive, file_archive::CREATE);
+        $this->assertTrue($result);
+        $result = $zip_archive->close();
+        $this->assertTrue($result);
+        unlink($archive);
+
+        // Create archive and close it with files.
+        // (returns true, without any warning).
+        $zip_archive = new zip_archive();
+        $result = $zip_archive->open($archive, file_archive::CREATE);
+        $this->assertTrue($result);
+        $result = $zip_archive->add_file_from_string('test.txt', 'test');
+        $this->assertTrue($result);
+        $result = $zip_archive->add_file_from_pathname('test2.txt', $textfile);
+        $result = $zip_archive->close();
+        $this->assertTrue($result);
+        unlink($archive);
+
+        // Create archive and close if forcing error.
+        // (returns true for old PHP versions and
+        // false with warnings for new PHP versions). MDL-51863.
+        $zip_archive = new zip_archive();
+        $result = $zip_archive->open($archive, file_archive::CREATE);
+        $this->assertTrue($result);
+        $result = $zip_archive->add_file_from_string('test.txt', 'test');
+        $this->assertTrue($result);
+        $result = $zip_archive->add_file_from_pathname('test2.txt', $textfile);
+        $this->assertTrue($result);
+        // Delete the file before closing does force close() to fail.
+        unlink($textfile);
+        // Behavior is different between old PHP versions and new ones. Let's detect it.
+        $result = false;
+        try {
+            // Old PHP versions were not printing any warning.
+            $result = $zip_archive->close();
+        } catch (Exception $e) {
+            // New PHP versions print PHP Warning.
+            $this->assertInstanceOf('PHPUnit\Framework\Error\Warning', $e);
+            $this->assertStringContainsString('ZipArchive::close', $e->getMessage());
+        }
+        // This is crazy, but it shows how some PHP versions do return true.
+        try {
+            // And some PHP versions do return correctly false (5.4.25, 5.6.14...)
+            $this->assertFalse($result);
+        } catch (Exception $e) {
+            // But others do insist into returning true (5.6.13...). Only can accept them.
+            $this->assertInstanceOf('PHPUnit\Framework\ExpectationFailedException', $e);
+            $this->assertTrue($result);
+        }
+        $this->assertFileDoesNotExist($archive);
+    }
+
     /**
      * @depends test_add_files
      */
@@ -386,7 +561,7 @@ class core_files_zip_packer_testcase extends advanced_testcase implements file_p
 
         $archive = "$CFG->tempdir/archive.zip";
 
-        $this->assertFileNotExists($archive);
+        $this->assertFileDoesNotExist($archive);
 
         $zip_archive = new zip_archive();
         $result = $zip_archive->open($archive, file_archive::OPEN);
@@ -421,6 +596,24 @@ class core_files_zip_packer_testcase extends advanced_testcase implements file_p
         $zip_archive->close();
 
         unlink($archive);
+    }
+
+    /**
+     * Test opening an encrypted archive
+     */
+    public function test_open_encrypted_archive() {
+        $this->resetAfterTest();
+
+        // The archive contains a single encrypted "hello.txt" file.
+        $archive = __DIR__ . '/fixtures/passwordis1.zip';
+
+        /** @var zip_packer $packer */
+        $packer = get_file_packer('application/zip');
+        $result = $packer->extract_to_pathname($archive, make_temp_directory('zip'));
+
+        $this->assertIsArray($result);
+        $this->assertArrayHasKey('hello.txt', $result);
+        $this->assertEquals('Can not read file from zip archive', $result['hello.txt']);
     }
 
     /**

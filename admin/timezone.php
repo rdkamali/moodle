@@ -12,9 +12,7 @@
     $PAGE->set_url('/admin/timezone.php');
     $PAGE->set_context(context_system::instance());
 
-    require_login();
-
-    require_capability('moodle/site:config', context_system::instance());
+    require_admin();
 
     $strtimezone = get_string("timezone");
     $strsavechanges = get_string("savechanges");
@@ -41,11 +39,11 @@
     }
 
     require_once($CFG->dirroot.'/calendar/lib.php');
-    $timezones = get_list_of_timezones();
+    $timezones = core_date::get_list_of_timezones(null, true);
 
     echo '<center><form action="timezone.php" method="post">';
     echo html_writer::label($strusers . ' (' . $strall . '): ', 'menuzone');
-    echo html_writer::select($timezones, "zone", $current, array('99'=>get_string("serverlocaltime")));
+    echo html_writer::select($timezones, "zone", $current);
     echo "<input type=\"hidden\" name=\"sesskey\" value=\"".sesskey()."\" />";
     echo '<input type="submit" value="'.s($strsavechanges).'" />';
     echo "</form></center>";

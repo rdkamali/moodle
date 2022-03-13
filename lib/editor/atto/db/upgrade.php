@@ -30,74 +30,116 @@ defined('MOODLE_INTERNAL') || die();
  * @return bool
  */
 function xmldb_editor_atto_upgrade($oldversion) {
-    global $CFG, $DB;
+    global $CFG;
 
-    $dbman = $DB->get_manager();
+    // Automatically generated Moodle v3.6.0 release upgrade line.
+    // Put any upgrade step following this.
 
-    if ($oldversion < 2014032800) {
-        // Make Atto the default.
-        $currenteditors = $CFG->texteditors;
-        $neweditors = array();
+    // Automatically generated Moodle v3.7.0 release upgrade line.
+    // Put any upgrade step following this.
 
-        $list = explode(',', $currenteditors);
-        array_push($neweditors, 'atto');
-        foreach ($list as $editor) {
-            if ($editor != 'atto') {
-                array_push($neweditors, $editor);
+    if ($oldversion < 2019090900) {
+        $toolbar = get_config('editor_atto', 'toolbar');
+
+        if (strpos($toolbar, 'h5p') === false) {
+            $glue = "\r\n";
+            if (strpos($toolbar, $glue) === false) {
+                $glue = "\n";
+            }
+            $groups = explode($glue, $toolbar);
+            // Try to put h5p in the files group.
+            foreach ($groups as $i => $group) {
+                $parts = explode('=', $group);
+                if (trim($parts[0]) == 'files') {
+                    $groups[$i] = 'files = ' . trim($parts[1]) . ', h5p';
+                    // Update config variable.
+                    $toolbar = implode($glue, $groups);
+                    set_config('toolbar', $toolbar, 'editor_atto');
+                }
             }
         }
-
-        set_config('texteditors', implode(',', $neweditors));
-        upgrade_plugin_savepoint(true, 2014032800, 'editor', 'atto');
+        // Atto editor savepoint reached.
+        upgrade_plugin_savepoint(true, 2019090900, 'editor', 'atto');
     }
-
-    // Moodle v2.7.0 release upgrade line.
+    // Automatically generated Moodle v3.8.0 release upgrade line.
     // Put any upgrade step following this.
-    if ($oldversion < 2014081400) {
 
-        // Define table editor_atto_autosave to be created.
-        $table = new xmldb_table('editor_atto_autosave');
+    if ($oldversion < 2020052100) {
+        // The old default toolbar config for 38 and below.
+        $oldtoolbar = 'collapse = collapse
+style1 = title, bold, italic
+list = unorderedlist, orderedlist
+links = link
+files = image, media, recordrtc, managefiles, h5p
+style2 = underline, strike, subscript, superscript
+align = align
+indent = indent
+insert = equation, charmap, table, clear
+undo = undo
+accessibility = accessibilitychecker, accessibilityhelper
+other = html';
 
-        // Adding fields to table editor_atto_autosave.
-        $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
-        $table->add_field('elementid', XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL, null, null);
-        $table->add_field('contextid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
-        $table->add_field('pagehash', XMLDB_TYPE_CHAR, '64', null, XMLDB_NOTNULL, null, null);
-        $table->add_field('userid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
-        $table->add_field('drafttext', XMLDB_TYPE_TEXT, null, null, XMLDB_NOTNULL, null, null);
-        $table->add_field('draftid', XMLDB_TYPE_INTEGER, '10', null, null, null, null);
-        $table->add_field('pageinstance', XMLDB_TYPE_CHAR, '64', null, XMLDB_NOTNULL, null, null);
-
-        // Adding keys to table editor_atto_autosave.
-        $table->add_key('primary', XMLDB_KEY_PRIMARY, array('id'));
-        $table->add_key('autosave_uniq_key', XMLDB_KEY_UNIQUE, array('elementid', 'contextid', 'userid', 'pagehash'));
-
-        // Conditionally launch create table for editor_atto_autosave.
-        if (!$dbman->table_exists($table)) {
-            $dbman->create_table($table);
+        // Check if the current toolbar config matches the old toolbar config.
+        if (get_config('editor_atto', 'toolbar') === $oldtoolbar) {
+            // If the site is still using the old defaults, upgrade to the new default.
+            $newtoolbar = 'collapse = collapse
+style1 = title, bold, italic
+list = unorderedlist, orderedlist, indent
+links = link
+files = emojipicker, image, media, recordrtc, managefiles, h5p
+style2 = underline, strike, subscript, superscript
+align = align
+insert = equation, charmap, table, clear
+undo = undo
+accessibility = accessibilitychecker, accessibilityhelper
+other = html';
+            set_config('toolbar', $newtoolbar, 'editor_atto');
         }
 
-        // Atto savepoint reached.
-        upgrade_plugin_savepoint(true, 2014081400, 'editor', 'atto');
+        upgrade_plugin_savepoint(true, 2020052100, 'editor', 'atto');
     }
 
-    if ($oldversion < 2014081900) {
+    // Automatically generated Moodle v3.9.0 release upgrade line.
+    // Put any upgrade step following this.
 
-        // Define field timemodified to be added to editor_atto_autosave.
-        $table = new xmldb_table('editor_atto_autosave');
-        $field = new xmldb_field('timemodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0', 'pageinstance');
+    if ($oldversion < 2021062400) {
+        // The old default toolbar config for 311 and below.
+        $oldtoolbar = 'collapse = collapse
+style1 = title, bold, italic
+list = unorderedlist, orderedlist, indent
+links = link
+files = emojipicker, image, media, recordrtc, managefiles, h5p
+style2 = underline, strike, subscript, superscript
+align = align
+insert = equation, charmap, table, clear
+undo = undo
+accessibility = accessibilitychecker, accessibilityhelper
+other = html';
 
-        // Conditionally launch add field timemodified.
-        if (!$dbman->field_exists($table, $field)) {
-            $dbman->add_field($table, $field);
+        // Check if the current toolbar config matches the old toolbar config.
+        $sametoolbar = str_replace(["\r\n", "\r"], "\n", get_config('editor_atto', 'toolbar')) == $oldtoolbar;
+        // Check if the current showgroups config matches the old showgroups config.
+        $sameshowgroups = get_config('atto_collapse', 'showgroups') == 5;
+
+        if ($sametoolbar && $sameshowgroups) {
+            // If the site is still using the old defaults, upgrade to the new default.
+            $newtoolbar = 'collapse = collapse
+style1 = title, bold, italic
+list = unorderedlist, orderedlist, indent
+links = link
+files = emojipicker, image, media, recordrtc, managefiles, h5p
+accessibility = accessibilitychecker, accessibilityhelper
+style2 = underline, strike, subscript, superscript
+align = align
+insert = equation, charmap, table, clear
+undo = undo
+other = html';
+            set_config('toolbar', $newtoolbar, 'editor_atto');
+            set_config('showgroups', 6, 'atto_collapse');
         }
 
-        // Atto savepoint reached.
-        upgrade_plugin_savepoint(true, 2014081900, 'editor', 'atto');
+        upgrade_plugin_savepoint(true, 2021062400, 'editor', 'atto');
     }
-
-    // Moodle v2.8.0 release upgrade line.
-    // Put any upgrade step following this.
 
     return true;
 }

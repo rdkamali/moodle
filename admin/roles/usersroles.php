@@ -45,7 +45,7 @@ $PAGE->set_pagelayout('admin');
 
 // Check login and permissions.
 if ($course->id == SITEID) {
-    require_login();
+    require_login(null, false);
     $PAGE->set_context($usercontext);
 } else {
     require_login($course);
@@ -193,10 +193,8 @@ function print_report_tree($contextid, $contexts, $systemcontext, $fullname, $al
                 $strgoto = get_string('gotoassignroles', 'core_role', $a);
                 $strcheck = get_string('checkuserspermissionshere', 'core_role', $a);
             }
-            echo ' <a title="' . $strgoto . '" href="' . $raurl . '"><img class="iconsmall" src="' .
-                    $OUTPUT->pix_url('t/edit') . '" alt="' . $stredit . '" /></a> ';
-            echo ' <a title="' . $strcheck . '" href="' . $churl . '"><img class="iconsmall" src="' .
-                    $OUTPUT->pix_url('t/preview') . '" alt="' . $strcheckpermissions . '" /></a> ';
+            echo ' <a title="' . $strgoto . '" href="' . $raurl . '">' . $OUTPUT->pix_icon('t/edit', $stredit) . '</a> ';
+            echo ' <a title="' . $strcheck . '" href="' . $churl . '">' . $OUTPUT->pix_icon('t/preview', $strcheckpermissions) . '</a> ';
             echo "</p>\n";
         }
     }

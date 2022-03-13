@@ -57,7 +57,7 @@ class grade_edit_tree {
     /**
      * Constructor
      */
-    public function __construct($gtree, $moving=false, $gpr) {
+    public function __construct($gtree, $moving, $gpr) {
         global $USER, $OUTPUT, $COURSE;
 
         $systemdefault = get_config('moodle', 'grade_report_showcalculations');
@@ -115,7 +115,6 @@ class grade_edit_tree {
         $eid    = $element['eid'];
         $object->name = $this->gtree->get_element_header($element, true, true, true, true, true);
         $object->stripped_name = $this->gtree->get_element_header($element, false, false, false);
-
         $is_category_item = false;
         if ($element['type'] == 'categoryitem' || $element['type'] == 'courseitem') {
             $is_category_item = true;
@@ -128,16 +127,17 @@ class grade_edit_tree {
 
         $moveaction = '';
         $actionsmenu = new action_menu();
-        $actionsmenu->initialise_js($PAGE);
         $actionsmenu->set_menu_trigger(get_string('edit'));
         $actionsmenu->set_owner_selector('grade-item-' . $eid);
-        $actionsmenu->set_alignment(action_menu::TL, action_menu::BL);
 
         if (!$is_category_item && ($icon = $this->gtree->get_edit_icon($element, $this->gpr, true))) {
             $actionsmenu->add($icon);
         }
-
-        if ($this->show_calculations && ($icon = $this->gtree->get_calculation_icon($element, $this->gpr, true))) {
+        // MDL-49281 if grade_item already has calculation, it should be editable even if global setting is off.
+        $type = $element['type'];
+        $iscalculated = ($type == 'item' or $type == 'courseitem' or $type == 'categoryitem') && $object->is_calculated();
+        $icon = $this->gtree->get_calculation_icon($element, $this->gpr, true);
+        if ($iscalculated || ($this->show_calculations && $icon)) {
             $actionsmenu->add($icon);
         }
 
@@ -145,6 +145,18 @@ class grade_edit_tree {
             if ($this->element_deletable($element)) {
                 $aurl = new moodle_url('index.php', array('id' => $COURSE->id, 'action' => 'delete', 'eid' => $eid, 'sesskey' => sesskey()));
                 $icon = new action_menu_link_secondary($aurl, new pix_icon('t/delete', get_string('delete')), get_string('delete'));
+                $actionsmenu->add($icon);
+            }
+
+            if ($this->element_duplicatable($element)) {
+                $duplicateparams = array();
+                $duplicateparams['id'] = $COURSE->id;
+                $duplicateparams['action'] = 'duplicate';
+                $duplicateparams['eid'] = $eid;
+                $duplicateparams['sesskey'] = sesskey();
+                $aurl = new moodle_url('index.php', $duplicateparams);
+                $duplicateicon = new pix_icon('t/copy', get_string('duplicate'));
+                $icon = new action_menu_link_secondary($aurl, $duplicateicon, get_string('duplicate'));
                 $actionsmenu->add($icon);
             }
 
@@ -220,7 +232,6 @@ class grade_edit_tree {
                 if ($this->moving && $this->moving != $child_eid) {
 
                     $strmove     = get_string('move');
-                    $strmovehere = get_string('movehere');
                     $actions = $moveaction = ''; // no action icons when moving
 
                     $aurl = new moodle_url('index.php', array('id' => $COURSE->id, 'action' => 'move', 'eid' => $this->moving, 'moveafter' => $child_eid, 'sesskey' => sesskey()));
@@ -232,8 +243,7 @@ class grade_edit_tree {
                     $cell->colspan = 12;
                     $cell->attributes['class'] = 'movehere level' . ($level + 1) . ' level' . ($level % 2 ? 'even' : 'odd');
 
-                    $icon = new pix_icon('movehere', $strmovehere, null, array('class'=>'movetarget'));
-                    $cell->text = $OUTPUT->action_icon($aurl, $icon);
+                    $cell->text = html_writer::link($aurl, '', array('title' => get_string('movehere'), 'class' => 'movehere'));
 
                     $moveto = new html_table_row(array($cell));
                 }
@@ -292,6 +302,8 @@ class grade_edit_tree {
             $row = new html_table_row();
             $row->id = 'grade-item-' . $eid;
             $row->attributes['class'] = $courseclass . ' category ' . $dimmed;
+            $row->attributes['data-category'] = $eid;
+            $row->attributes['data-itemid'] = $category->get_grade_item()->id;
             foreach ($rowclasses as $class) {
                 $row->attributes['class'] .= ' ' . $class;
             }
@@ -306,9 +318,14 @@ class grade_edit_tree {
 
             foreach ($this->columns as $column) {
                 if (!($this->moving && $column->hide_when_moving)) {
-                    $row->cells[] = $column->get_category_cell($category, $levelclass, array('id' => $id,
-                        'name' => $object->name, 'level' => $level, 'actions' => $actions,
-                        'moveaction' => $moveaction, 'eid' => $eid));
+                    $row->cells[] = $column->get_category_cell($category, $levelclass, [
+                        'id' => $id,
+                        'name' => $object->name,
+                        'level' => $level,
+                        'actions' => $actions,
+                        'moveaction' => $moveaction,
+                        'eid' => $eid,
+                    ]);
                 }
             }
 
@@ -341,6 +358,7 @@ class grade_edit_tree {
             $gradeitemrow = new html_table_row();
             $gradeitemrow->id = 'grade-item-' . $eid;
             $gradeitemrow->attributes['class'] = $categoryitemclass . ' item ' . $dimmed;
+            $gradeitemrow->attributes['data-itemid'] = $object->id;
             foreach ($rowclasses as $class) {
                 $gradeitemrow->attributes['class'] .= ' ' . $class;
             }
@@ -389,52 +407,32 @@ class grade_edit_tree {
         $str = '';
 
         if ($aggcoef == 'aggregationcoefweight' || $aggcoef == 'aggregationcoef' || $aggcoef == 'aggregationcoefextraweight') {
-            return '<label class="accesshide" for="weight_'.$item->id.'">'.
-                get_string('extracreditvalue', 'grades', $itemname).'</label>'.
-                '<input type="text" size="6" id="weight_'.$item->id.'" name="weight_'.$item->id.'"
-                value="'.grade_edit_tree::format_number($item->aggregationcoef).'" />';
+
+            return $OUTPUT->render_from_template('core_grades/weight_field', [
+                'id' => $item->id,
+                'itemname' => $itemname,
+                'value' => self::format_number($item->aggregationcoef)
+            ]);
+
         } else if ($aggcoef == 'aggregationcoefextraweightsum') {
 
-            $checkboxname = 'weightoverride_' . $item->id;
-            $checkboxlbl = html_writer::tag('label', get_string('overrideweightofa', 'grades', $itemname),
-                array('for' => $checkboxname, 'class' => 'accesshide'));
-            $checkbox = html_writer::empty_tag('input', array('name' => $checkboxname,
-                'type' => 'hidden', 'value' => 0));
-            $checkbox .= html_writer::empty_tag('input', array('name' => $checkboxname,
-                'type' => 'checkbox', 'value' => 1, 'id' => $checkboxname, 'class' => 'weightoverride',
-                'checked' => ($item->weightoverride ? 'checked' : null)));
+            $tpldata = [
+                'id' => $item->id,
+                'itemname' => $itemname,
+                'value' => self::format_number($item->aggregationcoef2 * 100.0),
+                'checked' => $item->weightoverride,
+                'disabled' => !$item->weightoverride
+            ];
+            $str .= $OUTPUT->render_from_template('core_grades/weight_override_field', $tpldata);
 
-            $name = 'weight_' . $item->id;
-            $hiddenlabel = html_writer::tag(
-                'label',
-                get_string('weightofa', 'grades', $itemname),
-                array(
-                    'class' => 'accesshide',
-                    'for' => $name
-                )
-            );
-
-            $input = html_writer::empty_tag(
-                'input',
-                array(
-                    'type' =>   'text',
-                    'size' =>   6,
-                    'id' =>     $name,
-                    'name' =>   $name,
-                    'value' =>  grade_edit_tree::format_number($item->aggregationcoef2 * 100.0),
-                    'disabled' => ($item->weightoverride ? null : 'disabled')
-                )
-            );
-
-            $str .= $checkboxlbl . $checkbox . $hiddenlabel . $input;
         }
 
         return $str;
     }
 
-    //Trims trailing zeros
-    //Used on the 'categories and items' page for grade items settings like aggregation co-efficient
-    //Grader report has its own decimal place settings so they are handled elsewhere
+    // Trims trailing zeros.
+    // Used on the 'Gradebook setup' page for grade items settings like aggregation co-efficient.
+    // Grader report has its own decimal place settings so they are handled elsewhere.
     static function format_number($number) {
         $formatted = rtrim(format_float($number, 4),'0');
         if (substr($formatted, -1)==get_string('decsep', 'langconfig')) { //if last char is the decimal point
@@ -468,6 +466,24 @@ class grade_edit_tree {
             return true;
         }
 
+        return false;
+    }
+
+    /**
+     * Given an element of the grade tree, returns whether it is duplicatable or not (only manual grade items are duplicatable)
+     *
+     * @param array $element
+     * @return bool
+     */
+    public function element_duplicatable($element) {
+        if ($element['type'] != 'item') {
+            return false;
+        }
+
+        $gradeitem = $element['object'];
+        if ($gradeitem->itemtype != 'mod') {
+            return true;
+        }
         return false;
     }
 
@@ -535,9 +551,157 @@ class grade_edit_tree {
                 }
                 $deepest_level = $this->get_deepest_level($child_el, $level, $deepest_level);
             }
+
+            $category = grade_category::fetch(array('id' => $object->id));
+            $item = $category->get_grade_item();
+            if ($item->gradetype == GRADE_TYPE_NONE) {
+                // Add 1 more level for grade category that has no total.
+                $deepest_level++;
+            }
         }
 
         return $deepest_level;
+    }
+
+    /**
+     * Updates the provided gradecategory item with the provided data.
+     *
+     * @param grade_category $gradecategory The category to update.
+     * @param stdClass $data the data to update the category with.
+     * @return void
+     */
+    public static function update_gradecategory(grade_category $gradecategory, stdClass $data) {
+        // If no fullname is entered for a course category, put ? in the DB.
+        if (!isset($data->fullname) || $data->fullname == '') {
+            $data->fullname = '?';
+        }
+
+        if (!isset($data->aggregateonlygraded)) {
+            $data->aggregateonlygraded = 0;
+        }
+        if (!isset($data->aggregateoutcomes)) {
+            $data->aggregateoutcomes = 0;
+        }
+        grade_category::set_properties($gradecategory, $data);
+
+        // CATEGORY.
+        if (empty($gradecategory->id)) {
+            $gradecategory->insert();
+
+        } else {
+            $gradecategory->update();
+        }
+
+        // GRADE ITEM.
+        // Grade item data saved with prefix "grade_item_".
+        $itemdata = new stdClass();
+        foreach ($data as $k => $v) {
+            if (preg_match('/grade_item_(.*)/', $k, $matches)) {
+                $itemdata->{$matches[1]} = $v;
+            }
+        }
+
+        if (!isset($itemdata->aggregationcoef)) {
+            $itemdata->aggregationcoef = 0;
+        }
+
+        if (!isset($itemdata->gradepass) || $itemdata->gradepass == '') {
+            $itemdata->gradepass = 0;
+        }
+
+        if (!isset($itemdata->grademax) || $itemdata->grademax == '') {
+            $itemdata->grademax = 0;
+        }
+
+        if (!isset($itemdata->grademin) || $itemdata->grademin == '') {
+            $itemdata->grademin = 0;
+        }
+
+        $hidden      = empty($itemdata->hidden) ? 0 : $itemdata->hidden;
+        $hiddenuntil = empty($itemdata->hiddenuntil) ? 0 : $itemdata->hiddenuntil;
+        unset($itemdata->hidden);
+        unset($itemdata->hiddenuntil);
+
+        $locked   = empty($itemdata->locked) ? 0 : $itemdata->locked;
+        $locktime = empty($itemdata->locktime) ? 0 : $itemdata->locktime;
+        unset($itemdata->locked);
+        unset($itemdata->locktime);
+
+        $convert = array('grademax', 'grademin', 'gradepass', 'multfactor', 'plusfactor', 'aggregationcoef', 'aggregationcoef2');
+        foreach ($convert as $param) {
+            if (property_exists($itemdata, $param)) {
+                $itemdata->$param = unformat_float($itemdata->$param);
+            }
+        }
+        if (isset($itemdata->aggregationcoef2)) {
+            $itemdata->aggregationcoef2 = $itemdata->aggregationcoef2 / 100.0;
+        }
+
+        // When creating a new category, a number of grade item fields are filled out automatically, and are required.
+        // If the user leaves these fields empty during creation of a category, we let the default values take effect.
+        // Otherwise, we let the user-entered grade item values take effect.
+        $gradeitem = $gradecategory->load_grade_item();
+        $gradeitemcopy = fullclone($gradeitem);
+        grade_item::set_properties($gradeitem, $itemdata);
+
+        if (empty($gradeitem->id)) {
+            $gradeitem->id = $gradeitemcopy->id;
+        }
+        if (empty($gradeitem->grademax) && $gradeitem->grademax != '0') {
+            $gradeitem->grademax = $gradeitemcopy->grademax;
+        }
+        if (empty($gradeitem->grademin) && $gradeitem->grademin != '0') {
+            $gradeitem->grademin = $gradeitemcopy->grademin;
+        }
+        if (empty($gradeitem->gradepass) && $gradeitem->gradepass != '0') {
+            $gradeitem->gradepass = $gradeitemcopy->gradepass;
+        }
+        if (empty($gradeitem->aggregationcoef) && $gradeitem->aggregationcoef != '0') {
+            $gradeitem->aggregationcoef = $gradeitemcopy->aggregationcoef;
+        }
+
+        // Handle null decimals value - must be done before update!
+        if (!property_exists($itemdata, 'decimals') or $itemdata->decimals < 0) {
+            $gradeitem->decimals = null;
+        }
+
+        // Change weightoverride flag. Check if the value is set, because it is not when the checkbox is not ticked.
+        $itemdata->weightoverride = isset($itemdata->weightoverride) ? $itemdata->weightoverride : 0;
+        if ($gradeitem->weightoverride != $itemdata->weightoverride && $gradecategory->aggregation == GRADE_AGGREGATE_SUM) {
+            // If we are using natural weight and the weight has been un-overriden, force parent category to recalculate weights.
+            $gradecategory->force_regrading();
+        }
+        $gradeitem->weightoverride = $itemdata->weightoverride;
+
+        $gradeitem->outcomeid = null;
+
+        // This means we want to rescale overridden grades as well.
+        if (!empty($data->grade_item_rescalegrades) && $data->grade_item_rescalegrades == 'yes') {
+            $gradeitem->markasoverriddenwhengraded = false;
+            $gradeitem->rescale_grades_keep_percentage($gradeitemcopy->grademin, $gradeitemcopy->grademax,
+                $gradeitem->grademin, $gradeitem->grademax, 'gradebook');
+        }
+
+        // Only update the category's 'hidden' status if it has changed. Leaving a category as 'unhidden' (checkbox left
+        // unmarked) and submitting the form without this conditional check will result in displaying any grade items that
+        // are in the category, including those that were previously 'hidden'.
+        if (($gradecategory->get_hidden() != $hiddenuntil) || ($gradecategory->get_hidden() != $hidden)) {
+            if ($hiddenuntil) {
+                $gradecategory->set_hidden($hiddenuntil, true);
+            } else {
+                $gradecategory->set_hidden($hidden, true);
+            }
+        }
+
+        $gradeitem->set_locktime($locktime); // Locktime first - it might be removed when unlocking.
+        $gradeitem->set_locked($locked, false, true);
+
+        $gradeitem->update(); // We don't need to insert it, it's already created when the category is created.
+
+        // Set parent if needed.
+        if (isset($data->parentcategory)) {
+            $gradecategory->set_parent($data->parentcategory, 'gradebook');
+        }
     }
 }
 
@@ -845,30 +1009,84 @@ class grade_edit_tree_column_select extends grade_edit_tree_column {
 
     public function get_category_cell($category, $levelclass, $params) {
         global $OUTPUT;
+
         if (empty($params['eid'])) {
             throw new Exception('Array key (eid) missing from 3rd param of grade_edit_tree_column_select::get_category_cell($category, $levelclass, $params)');
         }
-        $selectall  = new action_link(new moodle_url('#'), get_string('all'), new component_action('click', 'togglecheckboxes', array('eid' => $params['eid'], 'check' => true)));
-        $selectnone = new action_link(new moodle_url('#'), get_string('none'), new component_action('click', 'togglecheckboxes', array('eid' => $params['eid'], 'check' => false)));
+
+        // Get toggle group for this master checkbox.
+        $togglegroup = $this->get_checkbox_togglegroup($category);
+        // Set label for this master checkbox.
+        $masterlabel = get_string('all');
+        // Use category name if available.
+        if ($category->fullname !== '?') {
+            $masterlabel = format_string($category->fullname, true, ['escape' => false]);
+            // Limit the displayed category name to prevent the Select column from getting too wide.
+            if (core_text::strlen($masterlabel) > 20) {
+                $masterlabel = get_string('textellipsis', 'core', core_text::substr($masterlabel, 0, 12));
+            }
+        }
+        // Build the master checkbox.
+        $mastercheckbox = new \core\output\checkbox_toggleall($togglegroup, true, [
+            'id' => $togglegroup,
+            'name' => $togglegroup,
+            'value' => 1,
+            'classes' => 'itemselect ignoredirty',
+            'label' => $masterlabel,
+            // Consistent label to prevent the select column from resizing.
+            'selectall' => $masterlabel,
+            'deselectall' => $masterlabel,
+            'labelclasses' => 'm-0',
+        ]);
 
         $categorycell = parent::get_category_cell($category, $levelclass, $params);
-        $categorycell->text = $OUTPUT->render($selectall) . ' / ' . $OUTPUT->render($selectnone);
+        $categorycell->text = $OUTPUT->render($mastercheckbox);
         return $categorycell;
     }
 
     public function get_item_cell($item, $params) {
         if (empty($params['itemtype']) || empty($params['eid'])) {
-            error('Array key (itemtype or eid) missing from 2nd param of grade_edit_tree_column_select::get_item_cell($item, $params)');
+            print_error('missingitemtypeoreid', 'core_grades');
         }
         $itemcell = parent::get_item_cell($item, $params);
 
         if ($params['itemtype'] != 'course' && $params['itemtype'] != 'category') {
-            $itemcell->text = '<label class="accesshide" for="select_'.$params['eid'].'">'.
-                get_string('select', 'grades', $item->itemname).'</label>
-                <input class="itemselect ignoredirty" type="checkbox" name="select_'.$params['eid'].'" id="select_'.$params['eid'].
-                '" onchange="toggleCategorySelector();"/>'; // TODO: convert to YUI handler
+            global $OUTPUT;
+
+            // Fetch the grade item's category.
+            $category = grade_category::fetch(['id' => $item->categoryid]);
+            $togglegroup = $this->get_checkbox_togglegroup($category);
+
+            $checkboxid = 'select_' . $params['eid'];
+            $checkbox = new \core\output\checkbox_toggleall($togglegroup, false, [
+                'id' => $checkboxid,
+                'name' => $checkboxid,
+                'label' => get_string('select', 'grades', $item->itemname),
+                'labelclasses' => 'accesshide',
+                'classes' => 'itemselect ignoredirty',
+            ]);
+            $itemcell->text = $OUTPUT->render($checkbox);
         }
         return $itemcell;
     }
-}
 
+    /**
+     * Generates a toggle group name for a bulk-action checkbox based on the given grade category.
+     *
+     * @param grade_category $category The grade category.
+     * @return string
+     */
+    protected function get_checkbox_togglegroup(grade_category $category): string {
+        $levels = [];
+        $categories = explode('/', $category->path);
+        foreach ($categories as $categoryid) {
+            $level = 'category' . $categoryid;
+            if (!in_array($level, $levels)) {
+                $levels[] = 'category' . $categoryid;
+            }
+        }
+        $togglegroup = implode(' ', $levels);
+
+        return $togglegroup;
+    }
+}

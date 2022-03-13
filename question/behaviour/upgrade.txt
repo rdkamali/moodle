@@ -1,11 +1,33 @@
 This files describes API changes for question behaviour plugins.
 
+=== 3.10 ===
+
+1) The slot parameter of method M.core_question_engine.init_submit_button now removed.
+   The method will get the unique id by using the 'Check' button element.
+
+
+=== 3.1 ===
+
+1) The standard behaviours that use a 'Check' button have all been changed so
+   that they only show the button when the question is active. Your behaviour
+   may interit this behaviour, because the change was made in the base class,
+   and this is probably good for consistency. However, if your question behaviour
+   uses the Check button, your probably want to test it carefully, and you will
+   probably have to update your unit tests. See MDL-53304 for more details.
+
+
 === 2.9 ===
 
-1) New method question_behaviour::can_finish_during_attempt. This returns false
-   by default. You should override it if, with your behaviour, questions may
+1) There are new methods question_behaviour::can_finish_during_attempt and
+   question_behaviour_type::can_finish_during_attempt. These methods both return
+   false by default. You should override it if, with your behaviour, questions may
    finish just through the student interacting with them (e.g. by clicking the
-   Check button within the question.)
+   Check button within the question).
+
+   The behaviour type method answers the the question for this behaviour in
+   general, without reference to a specific question. The method on the
+   behaviour class answers the question for a specific attempt at a specific
+   question.
 
 
 === 2.7 ===

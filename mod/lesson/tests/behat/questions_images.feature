@@ -7,8 +7,8 @@ Feature: In a lesson activity, teacher can add embedded images in questions answ
   Scenario: questions with images in answers and responses
     Given the following "users" exist:
       | username | firstname | lastname | email |
-      | teacher1 | Teacher | 1 | teacher1@asd.com |
-      | student1 | Student | 1 | student1@asd.com |
+      | teacher1 | Teacher | 1 | teacher1@example.com |
+      | student1 | Student | 1 | student1@example.com |
     And the following "courses" exist:
       | fullname | shortname | category |
       | Course 1 | C1 | 0 |
@@ -16,17 +16,18 @@ Feature: In a lesson activity, teacher can add embedded images in questions answ
       | user | course | role |
       | teacher1 | C1 | editingteacher |
       | student1 | C1 | student |
+    And the following "activity" exists:
+      | course   | C1               |
+      | activity | lesson           |
+      | name     | Test lesson name |
+    And the following "blocks" exist:
+      | blockname     | contextlevel | reference | pagetypepattern | defaultregion |
+      | private_files | System       | 1         | my-index        | side-post     |
     And I log in as "teacher1"
-    And I navigate to "My private files" node in "My profile"
+    And I follow "Manage private files"
     And I upload "mod/lesson/tests/fixtures/moodle_logo.jpg" file to "Files" filemanager
     And I click on "Save changes" "button"
-    When I am on homepage
-    And I follow "Course 1"
-    And I turn editing mode on
-    And I add a "Lesson" to section "1" and I fill the form with:
-      | Name | Test lesson name |
-      | Description | Test lesson description |
-    And I follow "Test lesson name"
+    When I am on the "Test lesson name" "lesson activity" page
     And I follow "Add a question page"
     And I set the field "Select a question type" to "Multichoice"
     And I press "Add a question page"
@@ -47,15 +48,15 @@ Feature: In a lesson activity, teacher can add embedded images in questions answ
       | id_score_2 | 0 |
     # Atto needs focus to add image, select empty p tag to do so.
     And I select the text in the "id_answer_editor_2" Atto editor
-    And I click on "Image" "button" in the "#fitem_id_answer_editor_2" "css_element"
+    And I click on "Insert or edit image" "button" in the "//*[@data-fieldtype='editor']/*[descendant::*[@id='id_answer_editor_2']]" "xpath_element"
     And I click on "Browse repositories..." "button"
-    And I click on "Private files" "link"
+    And I click on "Private files" "link" in the ".fp-repo-area" "css_element"
     And I click on "moodle_logo.jpg" "link"
     And I click on "Select this file" "button"
     And I set the field "Describe this image for someone who cannot see it" to "It's the logo"
     And I click on "Save image" "button"
     And I press "Save page"
-    And I set the field "qtype" to "Question"
+    And I set the field "qtype" to "Add a question page"
     And I set the field "Select a question type" to "True/false"
     And I press "Add a question page"
     And I set the following fields to these values:
@@ -69,18 +70,16 @@ Feature: In a lesson activity, teacher can add embedded images in questions answ
       | id_jumpto_1 | This page |
     # Atto needs focus to add image, select empty p tag to do so.
     And I select the text in the "id_response_editor_0" Atto editor
-    And I click on "Image" "button" in the "#fitem_id_response_editor_0" "css_element"
+    And I click on "Insert or edit image" "button" in the "//*[@data-fieldtype='editor']/*[descendant::*[@id='id_response_editor_0']]" "xpath_element"
     And I click on "Browse repositories..." "button"
-    And I click on "Private files" "link"
+    And I click on "Private files" "link" in the ".fp-repo-area" "css_element"
     And I click on "moodle_logo.jpg" "link"
     And I click on "Select this file" "button"
     And I set the field "Describe this image for someone who cannot see it" to "It's the logo"
     And I click on "Save image" "button"
     And I press "Save page"
     And I log out
-    And I log in as "student1"
-    And I follow "Course 1"
-    When I follow "Test lesson name"
+    When I am on the "Test lesson name" "lesson activity" page logged in as student1
     Then I should see "What animal is an amphibian?"
     And "//*[contains(@class, 'answeroption')]//img[contains(@src, 'pluginfile.php')]" "xpath_element" should exist
     And "//*[contains(@class, 'answeroption')]//img[contains(@src, 'moodle_logo.jpg')]" "xpath_element" should exist

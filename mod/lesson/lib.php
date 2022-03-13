@@ -25,6 +25,11 @@
 
 defined('MOODLE_INTERNAL') || die();
 
+// Event types.
+define('LESSON_EVENT_TYPE_OPEN', 'open');
+define('LESSON_EVENT_TYPE_CLOSE', 'close');
+
+require_once(__DIR__ . '/deprecatedlib.php');
 /* Do not include any libraries here! */
 
 /**
@@ -95,6 +100,248 @@ function lesson_update_instance($data, $mform) {
     return true;
 }
 
+/**
+ * This function updates the events associated to the lesson.
+ * If $override is non-zero, then it updates only the events
+ * associated with the specified override.
+ *
+ * @uses LESSON_MAX_EVENT_LENGTH
+ * @param object $lesson the lesson object.
+ * @param object $override (optional) limit to a specific override
+ */
+function lesson_update_events($lesson, $override = null) {
+    global $CFG, $DB;
+
+    require_once($CFG->dirroot . '/mod/lesson/locallib.php');
+    require_once($CFG->dirroot . '/calendar/lib.php');
+
+    // Load the old events relating to this lesson.
+    $conds = array('modulename' => 'lesson',
+                   'instance' => $lesson->id);
+    if (!empty($override)) {
+        // Only load events for this override.
+        if (isset($override->userid)) {
+            $conds['userid'] = $override->userid;
+        } else {
+            $conds['groupid'] = $override->groupid;
+        }
+    }
+    $oldevents = $DB->get_records('event', $conds, 'id ASC');
+
+    // Now make a to-do list of all that needs to be updated.
+    if (empty($override)) {
+        // We are updating the primary settings for the lesson, so we need to add all the overrides.
+        $overrides = $DB->get_records('lesson_overrides', array('lessonid' => $lesson->id), 'id ASC');
+        // It is necessary to add an empty stdClass to the beginning of the array as the $oldevents
+        // list contains the original (non-override) event for the module. If this is not included
+        // the logic below will end up updating the wrong row when we try to reconcile this $overrides
+        // list against the $oldevents list.
+        array_unshift($overrides, new stdClass());
+    } else {
+        // Just do the one override.
+        $overrides = array($override);
+    }
+
+    // Get group override priorities.
+    $grouppriorities = lesson_get_group_override_priorities($lesson->id);
+
+    foreach ($overrides as $current) {
+        $groupid   = isset($current->groupid) ? $current->groupid : 0;
+        $userid    = isset($current->userid) ? $current->userid : 0;
+        $available  = isset($current->available) ? $current->available : $lesson->available;
+        $deadline = isset($current->deadline) ? $current->deadline : $lesson->deadline;
+
+        // Only add open/close events for an override if they differ from the lesson default.
+        $addopen  = empty($current->id) || !empty($current->available);
+        $addclose = empty($current->id) || !empty($current->deadline);
+
+        if (!empty($lesson->coursemodule)) {
+            $cmid = $lesson->coursemodule;
+        } else {
+            $cmid = get_coursemodule_from_instance('lesson', $lesson->id, $lesson->course)->id;
+        }
+
+        $event = new stdClass();
+        $event->type = !$deadline ? CALENDAR_EVENT_TYPE_ACTION : CALENDAR_EVENT_TYPE_STANDARD;
+        $event->description = format_module_intro('lesson', $lesson, $cmid, false);
+        $event->format = FORMAT_HTML;
+        // Events module won't show user events when the courseid is nonzero.
+        $event->courseid    = ($userid) ? 0 : $lesson->course;
+        $event->groupid     = $groupid;
+        $event->userid      = $userid;
+        $event->modulename  = 'lesson';
+        $event->instance    = $lesson->id;
+        $event->timestart   = $available;
+        $event->timeduration = max($deadline - $available, 0);
+        $event->timesort    = $available;
+        $event->visible     = instance_is_visible('lesson', $lesson);
+        $event->eventtype   = LESSON_EVENT_TYPE_OPEN;
+        $event->priority    = null;
+
+        // Determine the event name and priority.
+        if ($groupid) {
+            // Group override event.
+            $params = new stdClass();
+            $params->lesson = $lesson->name;
+            $params->group = groups_get_group_name($groupid);
+            if ($params->group === false) {
+                // Group doesn't exist, just skip it.
+                continue;
+            }
+            $eventname = get_string('overridegroupeventname', 'lesson', $params);
+            // Set group override priority.
+            if ($grouppriorities !== null) {
+                $openpriorities = $grouppriorities['open'];
+                if (isset($openpriorities[$available])) {
+                    $event->priority = $openpriorities[$available];
+                }
+            }
+        } else if ($userid) {
+            // User override event.
+            $params = new stdClass();
+            $params->lesson = $lesson->name;
+            $eventname = get_string('overrideusereventname', 'lesson', $params);
+            // Set user override priority.
+            $event->priority = CALENDAR_EVENT_USER_OVERRIDE_PRIORITY;
+        } else {
+            // The parent event.
+            $eventname = $lesson->name;
+        }
+
+        if ($addopen or $addclose) {
+            // Separate start and end events.
+            $event->timeduration  = 0;
+            if ($available && $addopen) {
+                if ($oldevent = array_shift($oldevents)) {
+                    $event->id = $oldevent->id;
+                } else {
+                    unset($event->id);
+                }
+                $event->name = get_string('lessoneventopens', 'lesson', $eventname);
+                // The method calendar_event::create will reuse a db record if the id field is set.
+                calendar_event::create($event, false);
+            }
+            if ($deadline && $addclose) {
+                if ($oldevent = array_shift($oldevents)) {
+                    $event->id = $oldevent->id;
+                } else {
+                    unset($event->id);
+                }
+                $event->type      = CALENDAR_EVENT_TYPE_ACTION;
+                $event->name      = get_string('lessoneventcloses', 'lesson', $eventname);
+                $event->timestart = $deadline;
+                $event->timesort  = $deadline;
+                $event->eventtype = LESSON_EVENT_TYPE_CLOSE;
+                if ($groupid && $grouppriorities !== null) {
+                    $closepriorities = $grouppriorities['close'];
+                    if (isset($closepriorities[$deadline])) {
+                        $event->priority = $closepriorities[$deadline];
+                    }
+                }
+                calendar_event::create($event, false);
+            }
+        }
+    }
+
+    // Delete any leftover events.
+    foreach ($oldevents as $badevent) {
+        $badevent = calendar_event::load($badevent);
+        $badevent->delete();
+    }
+}
+
+/**
+ * Calculates the priorities of timeopen and timeclose values for group overrides for a lesson.
+ *
+ * @param int $lessonid The lesson ID.
+ * @return array|null Array of group override priorities for open and close times. Null if there are no group overrides.
+ */
+function lesson_get_group_override_priorities($lessonid) {
+    global $DB;
+
+    // Fetch group overrides.
+    $where = 'lessonid = :lessonid AND groupid IS NOT NULL';
+    $params = ['lessonid' => $lessonid];
+    $overrides = $DB->get_records_select('lesson_overrides', $where, $params, '', 'id, groupid, available, deadline');
+    if (!$overrides) {
+        return null;
+    }
+
+    $grouptimeopen = [];
+    $grouptimeclose = [];
+    foreach ($overrides as $override) {
+        if ($override->available !== null && !in_array($override->available, $grouptimeopen)) {
+            $grouptimeopen[] = $override->available;
+        }
+        if ($override->deadline !== null && !in_array($override->deadline, $grouptimeclose)) {
+            $grouptimeclose[] = $override->deadline;
+        }
+    }
+
+    // Sort open times in ascending manner. The earlier open time gets higher priority.
+    sort($grouptimeopen);
+    // Set priorities.
+    $opengrouppriorities = [];
+    $openpriority = 1;
+    foreach ($grouptimeopen as $timeopen) {
+        $opengrouppriorities[$timeopen] = $openpriority++;
+    }
+
+    // Sort close times in descending manner. The later close time gets higher priority.
+    rsort($grouptimeclose);
+    // Set priorities.
+    $closegrouppriorities = [];
+    $closepriority = 1;
+    foreach ($grouptimeclose as $timeclose) {
+        $closegrouppriorities[$timeclose] = $closepriority++;
+    }
+
+    return [
+        'open' => $opengrouppriorities,
+        'close' => $closegrouppriorities
+    ];
+}
+
+/**
+ * This standard function will check all instances of this module
+ * and make sure there are up-to-date events created for each of them.
+ * If courseid = 0, then every lesson event in the site is checked, else
+ * only lesson events belonging to the course specified are checked.
+ * This function is used, in its new format, by restore_refresh_events()
+ *
+ * @param int $courseid
+ * @param int|stdClass $instance Lesson module instance or ID.
+ * @param int|stdClass $cm Course module object or ID (not used in this module).
+ * @return bool
+ */
+function lesson_refresh_events($courseid = 0, $instance = null, $cm = null) {
+    global $DB;
+
+    // If we have instance information then we can just update the one event instead of updating all events.
+    if (isset($instance)) {
+        if (!is_object($instance)) {
+            $instance = $DB->get_record('lesson', array('id' => $instance), '*', MUST_EXIST);
+        }
+        lesson_update_events($instance);
+        return true;
+    }
+
+    if ($courseid == 0) {
+        if (!$lessons = $DB->get_records('lesson')) {
+            return true;
+        }
+    } else {
+        if (!$lessons = $DB->get_records('lesson', array('course' => $courseid))) {
+            return true;
+        }
+    }
+
+    foreach ($lessons as $lesson) {
+        lesson_update_events($lesson);
+    }
+
+    return true;
+}
 
 /**
  * Given an ID of an instance of this module,
@@ -115,19 +362,6 @@ function lesson_delete_instance($id) {
 }
 
 /**
- * Given a course object, this function will clean up anything that
- * would be leftover after all the instances were deleted
- *
- * @global object
- * @param object $course an object representing the course that is being deleted
- * @param boolean $feedback to specify if the process must output a summary of its work
- * @return boolean
- */
-function lesson_delete_course($course, $feedback=true) {
-    return true;
-}
-
-/**
  * Return a small object with summary information about what a
  * user has done with a given particular instance of this module
  * Used for user activity reports.
@@ -142,25 +376,45 @@ function lesson_delete_course($course, $feedback=true) {
  * @return object
  */
 function lesson_user_outline($course, $user, $mod, $lesson) {
-    global $CFG;
+    global $CFG, $DB;
 
     require_once("$CFG->libdir/gradelib.php");
     $grades = grade_get_grades($course->id, 'mod', 'lesson', $lesson->id, $user->id);
-
     $return = new stdClass();
+
     if (empty($grades->items[0]->grades)) {
-        $return->info = get_string("no")." ".get_string("attempts", "lesson");
+        $return->info = get_string("nolessonattempts", "lesson");
     } else {
         $grade = reset($grades->items[0]->grades);
-        $return->info = get_string("grade") . ': ' . $grade->str_long_grade;
+        if (empty($grade->grade)) {
 
-        //datesubmitted == time created. dategraded == time modified or time overridden
-        //if grade was last modified by the user themselves use date graded. Otherwise use date submitted
-        //TODO: move this copied & pasted code somewhere in the grades API. See MDL-26704
-        if ($grade->usermodified == $user->id || empty($grade->datesubmitted)) {
-            $return->time = $grade->dategraded;
+            // Check to see if it an ungraded / incomplete attempt.
+            $sql = "SELECT *
+                      FROM {lesson_timer}
+                     WHERE lessonid = :lessonid
+                       AND userid = :userid
+                  ORDER BY starttime DESC";
+            $params = array('lessonid' => $lesson->id, 'userid' => $user->id);
+
+            if ($attempts = $DB->get_records_sql($sql, $params, 0, 1)) {
+                $attempt = reset($attempts);
+                if ($attempt->completed) {
+                    $return->info = get_string("completed", "lesson");
+                } else {
+                    $return->info = get_string("notyetcompleted", "lesson");
+                }
+                $return->time = $attempt->lessontime;
+            } else {
+                $return->info = get_string("nolessonattempts", "lesson");
+            }
         } else {
-            $return->time = $grade->datesubmitted;
+            if (!$grade->hidden || has_capability('moodle/grade:viewhidden', context_course::instance($course->id))) {
+                $return->info = get_string('gradenoun') . ': ' . $grade->str_long_grade;
+            } else {
+                $return->info = get_string('gradenoun') . ': ' . get_string('hidden', 'grades');
+            }
+
+            $return->time = grade_get_date_for_user_grade($grade, $user);
         }
     }
     return $return;
@@ -183,41 +437,85 @@ function lesson_user_complete($course, $user, $mod, $lesson) {
     require_once("$CFG->libdir/gradelib.php");
 
     $grades = grade_get_grades($course->id, 'mod', 'lesson', $lesson->id, $user->id);
-    if (!empty($grades->items[0]->grades)) {
+
+    // Display the grade and feedback.
+    if (empty($grades->items[0]->grades)) {
+        echo $OUTPUT->container(get_string("nolessonattempts", "lesson"));
+    } else {
         $grade = reset($grades->items[0]->grades);
-        echo $OUTPUT->container(get_string('grade').': '.$grade->str_long_grade);
-        if ($grade->str_feedback) {
+        if (empty($grade->grade)) {
+            // Check to see if it an ungraded / incomplete attempt.
+            $sql = "SELECT *
+                      FROM {lesson_timer}
+                     WHERE lessonid = :lessonid
+                       AND userid = :userid
+                     ORDER by starttime desc";
+            $params = array('lessonid' => $lesson->id, 'userid' => $user->id);
+
+            if ($attempt = $DB->get_record_sql($sql, $params, IGNORE_MULTIPLE)) {
+                if ($attempt->completed) {
+                    $status = get_string("completed", "lesson");
+                } else {
+                    $status = get_string("notyetcompleted", "lesson");
+                }
+            } else {
+                $status = get_string("nolessonattempts", "lesson");
+            }
+        } else {
+            if (!$grade->hidden || has_capability('moodle/grade:viewhidden', context_course::instance($course->id))) {
+                $status = get_string('gradenoun') . ': ' . $grade->str_long_grade;
+            } else {
+                $status = get_string('gradenoun') . ': ' . get_string('hidden', 'grades');
+            }
+        }
+
+        // Display the grade or lesson status if there isn't one.
+        echo $OUTPUT->container($status);
+
+        if ($grade->str_feedback &&
+            (!$grade->hidden || has_capability('moodle/grade:viewhidden', context_course::instance($course->id)))) {
             echo $OUTPUT->container(get_string('feedback').': '.$grade->str_feedback);
         }
     }
 
+    // Display the lesson progress.
+    // Attempt, pages viewed, questions answered, correct answers, time.
     $params = array ("lessonid" => $lesson->id, "userid" => $user->id);
-    if ($attempts = $DB->get_records_select("lesson_attempts", "lessonid = :lessonid AND userid = :userid", $params,
-                "retry, timeseen")) {
+    $attempts = $DB->get_records_select("lesson_attempts", "lessonid = :lessonid AND userid = :userid", $params, "retry, timeseen");
+    $branches = $DB->get_records_select("lesson_branch", "lessonid = :lessonid AND userid = :userid", $params, "retry, timeseen");
+    if (!empty($attempts) or !empty($branches)) {
         echo $OUTPUT->box_start();
         $table = new html_table();
-        $table->head = array (get_string("attemptheader", "lesson"),  get_string("numberofpagesviewedheader", "lesson"),
-            get_string("numberofcorrectanswersheader", "lesson"), get_string("time"));
+        // Table Headings.
+        $table->head = array (get_string("attemptheader", "lesson"),
+            get_string("totalpagesviewedheader", "lesson"),
+            get_string("numberofpagesviewedheader", "lesson"),
+            get_string("numberofcorrectanswersheader", "lesson"),
+            get_string("time"));
         $table->width = "100%";
-        $table->align = array ("center", "center", "center", "center");
-        $table->size = array ("*", "*", "*", "*");
+        $table->align = array ("center", "center", "center", "center", "center");
+        $table->size = array ("*", "*", "*", "*", "*");
         $table->cellpadding = 2;
         $table->cellspacing = 0;
 
         $retry = 0;
+        $nquestions = 0;
         $npages = 0;
         $ncorrect = 0;
 
+        // Filter question pages (from lesson_attempts).
         foreach ($attempts as $attempt) {
             if ($attempt->retry == $retry) {
                 $npages++;
+                $nquestions++;
                 if ($attempt->correct) {
                     $ncorrect++;
                 }
                 $timeseen = $attempt->timeseen;
             } else {
-                $table->data[] = array($retry + 1, $npages, $ncorrect, userdate($timeseen));
+                $table->data[] = array($retry + 1, $npages, $nquestions, $ncorrect, userdate($timeseen));
                 $retry++;
+                $nquestions = 1;
                 $npages = 1;
                 if ($attempt->correct) {
                     $ncorrect = 1;
@@ -226,8 +524,21 @@ function lesson_user_complete($course, $user, $mod, $lesson) {
                 }
             }
         }
-        if ($npages) {
-                $table->data[] = array($retry + 1, $npages, $ncorrect, userdate($timeseen));
+
+        // Filter content pages (from lesson_branch).
+        foreach ($branches as $branch) {
+            if ($branch->retry == $retry) {
+                $npages++;
+
+                $timeseen = $branch->timeseen;
+            } else {
+                $table->data[] = array($retry + 1, $npages, $nquestions, $ncorrect, userdate($timeseen));
+                $retry++;
+                $npages = 1;
+            }
+        }
+        if ($npages > 0) {
+                $table->data[] = array($retry + 1, $npages, $nquestions, $ncorrect, userdate($timeseen));
         }
         echo html_writer::table($table);
         echo $OUTPUT->box_end();
@@ -237,72 +548,10 @@ function lesson_user_complete($course, $user, $mod, $lesson) {
 }
 
 /**
- * Prints lesson summaries on MyMoodle Page
- *
- * Prints lesson name, due date and attempt information on
- * lessons that have a deadline that has not already passed
- * and it is available for taking.
- *
- * @global object
- * @global stdClass
- * @global object
- * @uses CONTEXT_MODULE
- * @param array $courses An array of course objects to get lesson instances from
- * @param array $htmlarray Store overview output array( course ID => 'lesson' => HTML output )
- * @return void
+ * @deprecated since Moodle 3.3, when the block_course_overview block was removed.
  */
-function lesson_print_overview($courses, &$htmlarray) {
-    global $USER, $CFG, $DB, $OUTPUT;
-
-    if (!$lessons = get_all_instances_in_courses('lesson', $courses)) {
-        return;
-    }
-
-/// Get Necessary Strings
-    $strlesson       = get_string('modulename', 'lesson');
-    $strnotattempted = get_string('nolessonattempts', 'lesson');
-    $strattempted    = get_string('lessonattempted', 'lesson');
-
-    $now = time();
-    foreach ($lessons as $lesson) {
-        if ($lesson->deadline != 0                                         // The lesson has a deadline
-            and $lesson->deadline >= $now                                  // And it is before the deadline has been met
-            and ($lesson->available == 0 or $lesson->available <= $now)) { // And the lesson is available
-
-            // Lesson name
-            if (!$lesson->visible) {
-                $class = ' class="dimmed"';
-            } else {
-                $class = '';
-            }
-            $str = $OUTPUT->box("$strlesson: <a$class href=\"$CFG->wwwroot/mod/lesson/view.php?id=$lesson->coursemodule\">".
-                             format_string($lesson->name).'</a>', 'name');
-
-            // Deadline
-            $str .= $OUTPUT->box(get_string('lessoncloseson', 'lesson', userdate($lesson->deadline)), 'info');
-
-            // Attempt information
-            if (has_capability('mod/lesson:manage', context_module::instance($lesson->coursemodule))) {
-                // Number of user attempts
-                $attempts = $DB->count_records('lesson_grades', array('lessonid' => $lesson->id));
-                $str     .= $OUTPUT->box(get_string('xattempts', 'lesson', $attempts), 'info');
-            } else {
-                // Determine if the user has attempted the lesson or not
-                if ($DB->count_records('lesson_attempts', array('lessonid'=>$lesson->id, 'userid'=>$USER->id))) {
-                    $str .= $OUTPUT->box($strattempted, 'info');
-                } else {
-                    $str .= $OUTPUT->box($strnotattempted, 'info');
-                }
-            }
-            $str = $OUTPUT->box($str, 'lesson overview');
-
-            if (empty($htmlarray[$lesson->course]['lesson'])) {
-                $htmlarray[$lesson->course]['lesson'] = $str;
-            } else {
-                $htmlarray[$lesson->course]['lesson'] .= $str;
-            }
-        }
-    }
+function lesson_print_overview() {
+    throw new coding_exception('lesson_print_overview() can not be used any more and is obsolete.');
 }
 
 /**
@@ -389,7 +638,7 @@ function lesson_update_grades($lesson, $userid=0, $nullifnone=true) {
     global $CFG, $DB;
     require_once($CFG->libdir.'/gradelib.php');
 
-    if ($lesson->grade == 0) {
+    if ($lesson->grade == 0 || $lesson->practice) {
         lesson_grade_item_update($lesson);
 
     } else if ($grades = lesson_get_user_grades($lesson, $userid)) {
@@ -422,7 +671,7 @@ function lesson_grade_item_update($lesson, $grades=null) {
         require_once($CFG->libdir.'/gradelib.php');
     }
 
-    if (array_key_exists('cmidnumber', $lesson)) { //it may not be always present
+    if (property_exists($lesson, 'cmidnumber')) { //it may not be always present
         $params = array('itemname'=>$lesson->name, 'idnumber'=>$lesson->cmidnumber);
     } else {
         $params = array('itemname'=>$lesson->name);
@@ -572,50 +821,10 @@ function lesson_process_pre_save(&$lesson) {
  * @return void
  **/
 function lesson_process_post_save(&$lesson) {
-    global $DB, $CFG;
-    require_once($CFG->dirroot.'/calendar/lib.php');
-    require_once($CFG->dirroot . '/mod/lesson/locallib.php');
-
-    if ($events = $DB->get_records('event', array('modulename'=>'lesson', 'instance'=>$lesson->id))) {
-        foreach($events as $event) {
-            $event = calendar_event::load($event->id);
-            $event->delete();
-        }
-    }
-
-    $event = new stdClass;
-    $event->description = $lesson->name;
-    $event->courseid    = $lesson->course;
-    $event->groupid     = 0;
-    $event->userid      = 0;
-    $event->modulename  = 'lesson';
-    $event->instance    = $lesson->id;
-    $event->eventtype   = 'open';
-    $event->timestart   = $lesson->available;
-
-    $event->visible     = instance_is_visible('lesson', $lesson);
-
-    $event->timeduration = ($lesson->deadline - $lesson->available);
-
-    if ($lesson->deadline and $lesson->available and $event->timeduration <= LESSON_MAX_EVENT_LENGTH) {
-        // Single event for the whole lesson.
-        $event->name = $lesson->name;
-        calendar_event::create(clone($event));
-    } else {
-        // Separate start and end events.
-        $event->timeduration  = 0;
-        if ($lesson->available) {
-            $event->name = $lesson->name.' ('.get_string('lessonopens', 'lesson').')';
-            calendar_event::create(clone($event));
-        }
-
-        if ($lesson->deadline) {
-            $event->name      = $lesson->name.' ('.get_string('lessoncloses', 'lesson').')';
-            $event->timestart = $lesson->deadline;
-            $event->eventtype = 'close';
-            calendar_event::create(clone($event));
-        }
-    }
+    // Update the events relating to this lesson.
+    lesson_update_events($lesson);
+    $completionexpected = (!empty($lesson->completionexpected)) ? $lesson->completionexpected : null;
+    \core_completion\api::update_completion_date_event($lesson->coursemodule, 'lesson', $lesson, $completionexpected);
 }
 
 
@@ -628,6 +837,10 @@ function lesson_process_post_save(&$lesson) {
 function lesson_reset_course_form_definition(&$mform) {
     $mform->addElement('header', 'lessonheader', get_string('modulenameplural', 'lesson'));
     $mform->addElement('advcheckbox', 'reset_lesson', get_string('deleteallattempts','lesson'));
+    $mform->addElement('advcheckbox', 'reset_lesson_user_overrides',
+            get_string('removealluseroverrides', 'lesson'));
+    $mform->addElement('advcheckbox', 'reset_lesson_group_overrides',
+            get_string('removeallgroupoverrides', 'lesson'));
 }
 
 /**
@@ -636,7 +849,9 @@ function lesson_reset_course_form_definition(&$mform) {
  * @return array
  */
 function lesson_reset_course_form_defaults($course) {
-    return array('reset_lesson'=>1);
+    return array('reset_lesson' => 1,
+            'reset_lesson_group_overrides' => 1,
+            'reset_lesson_user_overrides' => 1);
 }
 
 /**
@@ -693,11 +908,11 @@ function lesson_reset_userdata($data) {
                 }
                 $context = context_module::instance($cm->id);
                 $fs->delete_area_files($context->id, 'mod_lesson', 'essay_responses');
+                $fs->delete_area_files($context->id, 'mod_lesson', 'essay_answers');
             }
         }
 
         $DB->delete_records_select('lesson_timer', "lessonid IN ($lessonssql)", $params);
-        $DB->delete_records_select('lesson_high_scores', "lessonid IN ($lessonssql)", $params);
         $DB->delete_records_select('lesson_grades', "lessonid IN ($lessonssql)", $params);
         $DB->delete_records_select('lesson_attempts', "lessonid IN ($lessonssql)", $params);
         $DB->delete_records_select('lesson_branch', "lessonid IN ($lessonssql)", $params);
@@ -710,21 +925,52 @@ function lesson_reset_userdata($data) {
         $status[] = array('component'=>$componentstr, 'item'=>get_string('deleteallattempts', 'lesson'), 'error'=>false);
     }
 
+    $purgeoverrides = false;
+
+    // Remove user overrides.
+    if (!empty($data->reset_lesson_user_overrides)) {
+        $DB->delete_records_select('lesson_overrides',
+                'lessonid IN (SELECT id FROM {lesson} WHERE course = ?) AND userid IS NOT NULL', array($data->courseid));
+        $status[] = array(
+            'component' => $componentstr,
+            'item' => get_string('useroverridesdeleted', 'lesson'),
+            'error' => false);
+        $purgeoverrides = true;
+    }
+    // Remove group overrides.
+    if (!empty($data->reset_lesson_group_overrides)) {
+        $DB->delete_records_select('lesson_overrides',
+        'lessonid IN (SELECT id FROM {lesson} WHERE course = ?) AND groupid IS NOT NULL', array($data->courseid));
+        $status[] = array(
+            'component' => $componentstr,
+            'item' => get_string('groupoverridesdeleted', 'lesson'),
+            'error' => false);
+        $purgeoverrides = true;
+    }
     /// updating dates - shift may be negative too
     if ($data->timeshift) {
+        $DB->execute("UPDATE {lesson_overrides}
+                         SET available = available + ?
+                       WHERE lessonid IN (SELECT id FROM {lesson} WHERE course = ?)
+                         AND available <> 0", array($data->timeshift, $data->courseid));
+        $DB->execute("UPDATE {lesson_overrides}
+                         SET deadline = deadline + ?
+                       WHERE lessonid IN (SELECT id FROM {lesson} WHERE course = ?)
+                         AND deadline <> 0", array($data->timeshift, $data->courseid));
+
+        $purgeoverrides = true;
+
+        // Any changes to the list of dates that needs to be rolled should be same during course restore and course reset.
+        // See MDL-9367.
         shift_course_mod_dates('lesson', array('available', 'deadline'), $data->timeshift, $data->courseid);
         $status[] = array('component'=>$componentstr, 'item'=>get_string('datechanged'), 'error'=>false);
     }
 
-    return $status;
-}
+    if ($purgeoverrides) {
+        cache::make('mod_lesson', 'overrides')->purge();
+    }
 
-/**
- * Returns all other caps used in module
- * @return array
- */
-function lesson_get_extra_capabilities() {
-    return array('moodle/site:accessallgroups');
+    return $status;
 }
 
 /**
@@ -735,7 +981,7 @@ function lesson_get_extra_capabilities() {
  * @uses FEATURE_GRADE_HAS_GRADE
  * @uses FEATURE_GRADE_OUTCOMES
  * @param string $feature FEATURE_xx constant for requested feature
- * @return mixed True if module supports feature, false if not, null if doesn't know
+ * @return mixed True if module supports feature, false if not, null if doesn't know or string for the module purpose.
  */
 function lesson_supports($feature) {
     switch($feature) {
@@ -757,57 +1003,13 @@ function lesson_supports($feature) {
             return true;
         case FEATURE_SHOW_DESCRIPTION:
             return true;
+        case FEATURE_MOD_PURPOSE:
+            return MOD_PURPOSE_CONTENT;
         default:
             return null;
     }
 }
 
-/**
- * Obtains the automatic completion state for this lesson based on any conditions
- * in lesson settings.
- *
- * @param object $course Course
- * @param object $cm course-module
- * @param int $userid User ID
- * @param bool $type Type of comparison (or/and; can be used as return value if no conditions)
- * @return bool True if completed, false if not, $type if conditions not set.
- */
-function lesson_get_completion_state($course, $cm, $userid, $type) {
-    global $CFG, $DB;
-
-    // Get lesson details.
-    $lesson = $DB->get_record('lesson', array('id' => $cm->instance), '*',
-            MUST_EXIST);
-
-    $result = $type; // Default return value.
-    // If completion option is enabled, evaluate it and return true/false.
-    if ($lesson->completionendreached) {
-        $value = $DB->record_exists('lesson_timer', array(
-                'lessonid' => $lesson->id, 'userid' => $userid, 'completed' => 1));
-        if ($type == COMPLETION_AND) {
-            $result = $result && $value;
-        } else {
-            $result = $result || $value;
-        }
-    }
-    if ($lesson->completiontimespent != 0) {
-        $duration = $DB->get_field_sql(
-                        "SELECT SUM(lessontime - starttime)
-                               FROM {lesson_timer}
-                              WHERE lessonid = :lessonid
-                                AND userid = :userid",
-                        array('userid' => $userid, 'lessonid' => $lesson->id));
-        if (!$duration) {
-            $duration = 0;
-        }
-        if ($type == COMPLETION_AND) {
-            $result = $result && ($lesson->completiontimespent < $duration);
-        } else {
-            $result = $result || ($lesson->completiontimespent < $duration);
-        }
-    }
-    return $result;
-}
 /**
  * This function extends the settings navigation block for the site.
  *
@@ -817,35 +1019,31 @@ function lesson_get_completion_state($course, $cm, $userid, $type) {
  * @param settings_navigation $settings
  * @param navigation_node $lessonnode
  */
-function lesson_extend_settings_navigation($settings, $lessonnode) {
-    global $PAGE, $DB;
-
-    if (has_capability('mod/lesson:edit', $PAGE->cm->context)) {
-        $url = new moodle_url('/mod/lesson/view.php', array('id' => $PAGE->cm->id));
-        $lessonnode->add(get_string('preview', 'lesson'), $url);
-        $editnode = $lessonnode->add(get_string('edit', 'lesson'));
-        $url = new moodle_url('/mod/lesson/edit.php', array('id' => $PAGE->cm->id, 'mode' => 'collapsed'));
-        $editnode->add(get_string('collapsed', 'lesson'), $url);
-        $url = new moodle_url('/mod/lesson/edit.php', array('id' => $PAGE->cm->id, 'mode' => 'full'));
-        $editnode->add(get_string('full', 'lesson'), $url);
+function lesson_extend_settings_navigation(settings_navigation $settings, navigation_node $lessonnode) {
+    // We want to add these new nodes after the Edit settings node, and before the
+    // Locally assigned roles node. Of course, both of those are controlled by capabilities.
+    $keys = $lessonnode->get_children_key_list();
+    $beforekey = null;
+    $i = array_search('modedit', $keys);
+    if ($i === false and array_key_exists(0, $keys)) {
+        $beforekey = $keys[0];
+    } else if (array_key_exists($i + 1, $keys)) {
+        $beforekey = $keys[$i + 1];
     }
 
-    if (has_capability('mod/lesson:viewreports', $PAGE->cm->context)) {
-        $reportsnode = $lessonnode->add(get_string('reports', 'lesson'));
-        $url = new moodle_url('/mod/lesson/report.php', array('id'=>$PAGE->cm->id, 'action'=>'reportoverview'));
-        $reportsnode->add(get_string('overview', 'lesson'), $url);
-        $url = new moodle_url('/mod/lesson/report.php', array('id'=>$PAGE->cm->id, 'action'=>'reportdetail'));
-        $reportsnode->add(get_string('detailedstats', 'lesson'), $url);
+    if (has_capability('mod/lesson:manageoverrides', $settings->get_page()->cm->context)) {
+        $url = new moodle_url('/mod/lesson/overrides.php', ['cmid' => $settings->get_page()->cm->id, 'mode' => 'user']);
+        $node = navigation_node::create(get_string('overrides', 'lesson'), $url,
+                navigation_node::TYPE_SETTING, null, 'mod_lesson_useroverrides');
+        $lessonnode->add_node($node, $beforekey);
     }
 
-    if (has_capability('mod/lesson:grade', $PAGE->cm->context)) {
-        $url = new moodle_url('/mod/lesson/essay.php', array('id'=>$PAGE->cm->id));
-        $lessonnode->add(get_string('manualgrading', 'lesson'), $url);
-    }
-
-    if ($PAGE->activityrecord->highscores) {
-        $url = new moodle_url('/mod/lesson/highscores.php', array('id'=>$PAGE->cm->id));
-        $lessonnode->add(get_string('highscores', 'lesson'), $url);
+    if (has_capability('mod/lesson:viewreports', $settings->get_page()->cm->context)) {
+        $reportsnode = $lessonnode->add(
+            get_string('reports', 'lesson'),
+            new moodle_url('/mod/lesson/report.php', ['id' => $settings->get_page()->cm->id,
+                'action' => 'reportoverview'])
+        );
     }
 }
 
@@ -931,7 +1129,7 @@ function lesson_pluginfile($course, $cm, $context, $filearea, $args, $forcedownl
         }
         $fullpath = "/$context->id/mod_lesson/$filearea/$itemid/".implode('/', $args);
 
-    } else if ($filearea === 'essay_responses') {
+    } else if ($filearea === 'essay_responses' || $filearea === 'essay_answers') {
         $itemid = (int)array_shift($args);
         if (!$attempt = $DB->get_record('lesson_attempts', array('id' => $itemid))) {
             return false;
@@ -973,6 +1171,7 @@ function lesson_get_file_areas() {
     $areas['page_answers'] = get_string('pageanswers', 'mod_lesson');
     $areas['page_responses'] = get_string('pageresponses', 'mod_lesson');
     $areas['essay_responses'] = get_string('essayresponses', 'mod_lesson');
+    $areas['essay_answers'] = get_string('essayresponses', 'mod_lesson');
     return $areas;
 }
 
@@ -1076,4 +1275,468 @@ function lesson_update_media_file($lessonid, $context, $draftitemid) {
         // Set the mediafile column in the lessons table.
         $DB->set_field('lesson', 'mediafile', '', array('id' => $lessonid));
     }
+}
+
+/**
+ * Get icon mapping for font-awesome.
+ */
+function mod_lesson_get_fontawesome_icon_map() {
+    return [
+        'mod_lesson:e/copy' => 'fa-clone',
+    ];
+}
+
+/*
+ * Check if the module has any update that affects the current user since a given time.
+ *
+ * @param  cm_info $cm course module data
+ * @param  int $from the time to check updates from
+ * @param  array $filter  if we need to check only specific updates
+ * @return stdClass an object with the different type of areas indicating if they were updated or not
+ * @since Moodle 3.3
+ */
+function lesson_check_updates_since(cm_info $cm, $from, $filter = array()) {
+    global $DB, $USER;
+
+    $updates = course_check_module_updates_since($cm, $from, array(), $filter);
+
+    // Check if there are new pages or answers in the lesson.
+    $updates->pages = (object) array('updated' => false);
+    $updates->answers = (object) array('updated' => false);
+    $select = 'lessonid = ? AND (timecreated > ? OR timemodified > ?)';
+    $params = array($cm->instance, $from, $from);
+
+    $pages = $DB->get_records_select('lesson_pages', $select, $params, '', 'id');
+    if (!empty($pages)) {
+        $updates->pages->updated = true;
+        $updates->pages->itemids = array_keys($pages);
+    }
+    $answers = $DB->get_records_select('lesson_answers', $select, $params, '', 'id');
+    if (!empty($answers)) {
+        $updates->answers->updated = true;
+        $updates->answers->itemids = array_keys($answers);
+    }
+
+    // Check for new question attempts, grades, pages viewed and timers.
+    $updates->questionattempts = (object) array('updated' => false);
+    $updates->grades = (object) array('updated' => false);
+    $updates->pagesviewed = (object) array('updated' => false);
+    $updates->timers = (object) array('updated' => false);
+
+    $select = 'lessonid = ? AND userid = ? AND timeseen > ?';
+    $params = array($cm->instance, $USER->id, $from);
+
+    $questionattempts = $DB->get_records_select('lesson_attempts', $select, $params, '', 'id');
+    if (!empty($questionattempts)) {
+        $updates->questionattempts->updated = true;
+        $updates->questionattempts->itemids = array_keys($questionattempts);
+    }
+    $pagesviewed = $DB->get_records_select('lesson_branch', $select, $params, '', 'id');
+    if (!empty($pagesviewed)) {
+        $updates->pagesviewed->updated = true;
+        $updates->pagesviewed->itemids = array_keys($pagesviewed);
+    }
+
+    $select = 'lessonid = ? AND userid = ? AND completed > ?';
+    $grades = $DB->get_records_select('lesson_grades', $select, $params, '', 'id');
+    if (!empty($grades)) {
+        $updates->grades->updated = true;
+        $updates->grades->itemids = array_keys($grades);
+    }
+
+    $select = 'lessonid = ? AND userid = ? AND (starttime > ? OR lessontime > ? OR timemodifiedoffline > ?)';
+    $params = array($cm->instance, $USER->id, $from, $from, $from);
+    $timers = $DB->get_records_select('lesson_timer', $select, $params, '', 'id');
+    if (!empty($timers)) {
+        $updates->timers->updated = true;
+        $updates->timers->itemids = array_keys($timers);
+    }
+
+    // Now, teachers should see other students updates.
+    if (has_capability('mod/lesson:viewreports', $cm->context)) {
+        $select = 'lessonid = ? AND timeseen > ?';
+        $params = array($cm->instance, $from);
+
+        $insql = '';
+        $inparams = [];
+        if (groups_get_activity_groupmode($cm) == SEPARATEGROUPS) {
+            $groupusers = array_keys(groups_get_activity_shared_group_members($cm));
+            if (empty($groupusers)) {
+                return $updates;
+            }
+            list($insql, $inparams) = $DB->get_in_or_equal($groupusers);
+            $select .= ' AND userid ' . $insql;
+            $params = array_merge($params, $inparams);
+        }
+
+        $updates->userquestionattempts = (object) array('updated' => false);
+        $updates->usergrades = (object) array('updated' => false);
+        $updates->userpagesviewed = (object) array('updated' => false);
+        $updates->usertimers = (object) array('updated' => false);
+
+        $questionattempts = $DB->get_records_select('lesson_attempts', $select, $params, '', 'id');
+        if (!empty($questionattempts)) {
+            $updates->userquestionattempts->updated = true;
+            $updates->userquestionattempts->itemids = array_keys($questionattempts);
+        }
+        $pagesviewed = $DB->get_records_select('lesson_branch', $select, $params, '', 'id');
+        if (!empty($pagesviewed)) {
+            $updates->userpagesviewed->updated = true;
+            $updates->userpagesviewed->itemids = array_keys($pagesviewed);
+        }
+
+        $select = 'lessonid = ? AND completed > ?';
+        if (!empty($insql)) {
+            $select .= ' AND userid ' . $insql;
+        }
+        $grades = $DB->get_records_select('lesson_grades', $select, $params, '', 'id');
+        if (!empty($grades)) {
+            $updates->usergrades->updated = true;
+            $updates->usergrades->itemids = array_keys($grades);
+        }
+
+        $select = 'lessonid = ? AND (starttime > ? OR lessontime > ? OR timemodifiedoffline > ?)';
+        $params = array($cm->instance, $from, $from, $from);
+        if (!empty($insql)) {
+            $select .= ' AND userid ' . $insql;
+            $params = array_merge($params, $inparams);
+        }
+        $timers = $DB->get_records_select('lesson_timer', $select, $params, '', 'id');
+        if (!empty($timers)) {
+            $updates->usertimers->updated = true;
+            $updates->usertimers->itemids = array_keys($timers);
+        }
+    }
+    return $updates;
+}
+
+/**
+ * This function receives a calendar event and returns the action associated with it, or null if there is none.
+ *
+ * This is used by block_myoverview in order to display the event appropriately. If null is returned then the event
+ * is not displayed on the block.
+ *
+ * @param calendar_event $event
+ * @param \core_calendar\action_factory $factory
+ * @param int $userid User id to use for all capability checks, etc. Set to 0 for current user (default).
+ * @return \core_calendar\local\event\entities\action_interface|null
+ */
+function mod_lesson_core_calendar_provide_event_action(calendar_event $event,
+                                                       \core_calendar\action_factory $factory,
+                                                       int $userid = 0) {
+    global $DB, $CFG, $USER;
+    require_once($CFG->dirroot . '/mod/lesson/locallib.php');
+
+    if (!$userid) {
+        $userid = $USER->id;
+    }
+
+    $cm = get_fast_modinfo($event->courseid, $userid)->instances['lesson'][$event->instance];
+
+    if (!$cm->uservisible) {
+        // The module is not visible to the user for any reason.
+        return null;
+    }
+
+    $completion = new \completion_info($cm->get_course());
+
+    $completiondata = $completion->get_data($cm, false, $userid);
+
+    if ($completiondata->completionstate != COMPLETION_INCOMPLETE) {
+        return null;
+    }
+
+    $lesson = new lesson($DB->get_record('lesson', array('id' => $cm->instance), '*', MUST_EXIST));
+
+    if ($lesson->count_user_retries($userid)) {
+        // If the user has attempted the lesson then there is no further action for the user.
+        return null;
+    }
+
+    // Apply overrides.
+    $lesson->update_effective_access($userid);
+
+    if (!$lesson->is_participant($userid)) {
+        // If the user is not a participant then they have
+        // no action to take. This will filter out the events for teachers.
+        return null;
+    }
+
+    return $factory->create_instance(
+        get_string('startlesson', 'lesson'),
+        new \moodle_url('/mod/lesson/view.php', ['id' => $cm->id]),
+        1,
+        $lesson->is_accessible()
+    );
+}
+
+/**
+ * Add a get_coursemodule_info function in case any lesson type wants to add 'extra' information
+ * for the course (see resource).
+ *
+ * Given a course_module object, this function returns any "extra" information that may be needed
+ * when printing this activity in a course listing.  See get_array_of_activities() in course/lib.php.
+ *
+ * @param stdClass $coursemodule The coursemodule object (record).
+ * @return cached_cm_info An object on information that the courses
+ *                        will know about (most noticeably, an icon).
+ */
+function lesson_get_coursemodule_info($coursemodule) {
+    global $DB;
+
+    $dbparams = ['id' => $coursemodule->instance];
+    $fields = 'id, name, intro, introformat, completionendreached, completiontimespent, available, deadline';
+    if (!$lesson = $DB->get_record('lesson', $dbparams, $fields)) {
+        return false;
+    }
+
+    $result = new cached_cm_info();
+    $result->name = $lesson->name;
+
+    if ($coursemodule->showdescription) {
+        // Convert intro to html. Do not filter cached version, filters run at display time.
+        $result->content = format_module_intro('lesson', $lesson, $coursemodule->id, false);
+    }
+
+    // Populate the custom completion rules as key => value pairs, but only if the completion mode is 'automatic'.
+    if ($coursemodule->completion == COMPLETION_TRACKING_AUTOMATIC) {
+        $result->customdata['customcompletionrules']['completionendreached'] = $lesson->completionendreached;
+        $result->customdata['customcompletionrules']['completiontimespent'] = $lesson->completiontimespent;
+    }
+
+    // Populate some other values that can be used in calendar or on dashboard.
+    if ($lesson->available) {
+        $result->customdata['available'] = $lesson->available;
+    }
+    if ($lesson->deadline) {
+        $result->customdata['deadline'] = $lesson->deadline;
+    }
+
+    return $result;
+}
+
+/**
+ * Sets dynamic information about a course module
+ *
+ * This function is called from cm_info when displaying the module
+ *
+ * @param cm_info $cm
+ */
+function mod_lesson_cm_info_dynamic(cm_info $cm) {
+    global $USER;
+
+    $cache = cache::make('mod_lesson', 'overrides');
+    $override = $cache->get("{$cm->instance}_u_{$USER->id}");
+
+    if (!$override) {
+        $override = (object) [
+            'available' => null,
+            'deadline' => null,
+        ];
+    }
+
+    // No need to look for group overrides if there are user overrides for both available and deadline.
+    if (is_null($override->available) || is_null($override->deadline)) {
+        $availables = [];
+        $deadlines = [];
+        $groupings = groups_get_user_groups($cm->course, $USER->id);
+        foreach ($groupings[0] as $groupid) {
+            $groupoverride = $cache->get("{$cm->instance}_g_{$groupid}");
+            if (isset($groupoverride->available)) {
+                $availables[] = $groupoverride->available;
+            }
+            if (isset($groupoverride->deadline)) {
+                $deadlines[] = $groupoverride->deadline;
+            }
+        }
+        // If there is a user override for a setting, ignore the group override.
+        if (is_null($override->available) && count($availables)) {
+            $override->available = min($availables);
+        }
+        if (is_null($override->deadline) && count($deadlines)) {
+            if (in_array(0, $deadlines)) {
+                $override->deadline = 0;
+            } else {
+                $override->deadline = max($deadlines);
+            }
+        }
+    }
+
+    // Populate some other values that can be used in calendar or on dashboard.
+    if (!is_null($override->available)) {
+        $cm->override_customdata('available', $override->available);
+    }
+    if (!is_null($override->deadline)) {
+        $cm->override_customdata('deadline', $override->deadline);
+    }
+}
+
+/**
+ * Callback which returns human-readable strings describing the active completion custom rules for the module instance.
+ *
+ * @param cm_info|stdClass $cm object with fields ->completion and ->customdata['customcompletionrules']
+ * @return array $descriptions the array of descriptions for the custom rules.
+ */
+function mod_lesson_get_completion_active_rule_descriptions($cm) {
+    // Values will be present in cm_info, and we assume these are up to date.
+    if (empty($cm->customdata['customcompletionrules'])
+        || $cm->completion != COMPLETION_TRACKING_AUTOMATIC) {
+        return [];
+    }
+
+    $descriptions = [];
+    foreach ($cm->customdata['customcompletionrules'] as $key => $val) {
+        switch ($key) {
+            case 'completionendreached':
+                if (!empty($val)) {
+                    $descriptions[] = get_string('completionendreached_desc', 'lesson', $val);
+                }
+                break;
+            case 'completiontimespent':
+                if (!empty($val)) {
+                    $descriptions[] = get_string('completiontimespentdesc', 'lesson', format_time($val));
+                }
+                break;
+            default:
+                break;
+        }
+    }
+    return $descriptions;
+}
+
+/**
+ * This function calculates the minimum and maximum cutoff values for the timestart of
+ * the given event.
+ *
+ * It will return an array with two values, the first being the minimum cutoff value and
+ * the second being the maximum cutoff value. Either or both values can be null, which
+ * indicates there is no minimum or maximum, respectively.
+ *
+ * If a cutoff is required then the function must return an array containing the cutoff
+ * timestamp and error string to display to the user if the cutoff value is violated.
+ *
+ * A minimum and maximum cutoff return value will look like:
+ * [
+ *     [1505704373, 'The due date must be after the start date'],
+ *     [1506741172, 'The due date must be before the cutoff date']
+ * ]
+ *
+ * @param calendar_event $event The calendar event to get the time range for
+ * @param stdClass $instance The module instance to get the range from
+ * @return array
+ */
+function mod_lesson_core_calendar_get_valid_event_timestart_range(\calendar_event $event, \stdClass $instance) {
+    $mindate = null;
+    $maxdate = null;
+
+    if ($event->eventtype == LESSON_EVENT_TYPE_OPEN) {
+        // The start time of the open event can't be equal to or after the
+        // close time of the lesson activity.
+        if (!empty($instance->deadline)) {
+            $maxdate = [
+                $instance->deadline,
+                get_string('openafterclose', 'lesson')
+            ];
+        }
+    } else if ($event->eventtype == LESSON_EVENT_TYPE_CLOSE) {
+        // The start time of the close event can't be equal to or earlier than the
+        // open time of the lesson activity.
+        if (!empty($instance->available)) {
+            $mindate = [
+                $instance->available,
+                get_string('closebeforeopen', 'lesson')
+            ];
+        }
+    }
+
+    return [$mindate, $maxdate];
+}
+
+/**
+ * This function will update the lesson module according to the
+ * event that has been modified.
+ *
+ * It will set the available or deadline value of the lesson instance
+ * according to the type of event provided.
+ *
+ * @throws \moodle_exception
+ * @param \calendar_event $event
+ * @param stdClass $lesson The module instance to get the range from
+ */
+function mod_lesson_core_calendar_event_timestart_updated(\calendar_event $event, \stdClass $lesson) {
+    global $DB;
+
+    if (empty($event->instance) || $event->modulename != 'lesson') {
+        return;
+    }
+
+    if ($event->instance != $lesson->id) {
+        return;
+    }
+
+    if (!in_array($event->eventtype, [LESSON_EVENT_TYPE_OPEN, LESSON_EVENT_TYPE_CLOSE])) {
+        return;
+    }
+
+    $courseid = $event->courseid;
+    $modulename = $event->modulename;
+    $instanceid = $event->instance;
+    $modified = false;
+
+    $coursemodule = get_fast_modinfo($courseid)->instances[$modulename][$instanceid];
+    $context = context_module::instance($coursemodule->id);
+
+    // The user does not have the capability to modify this activity.
+    if (!has_capability('moodle/course:manageactivities', $context)) {
+        return;
+    }
+
+    if ($event->eventtype == LESSON_EVENT_TYPE_OPEN) {
+        // If the event is for the lesson activity opening then we should
+        // set the start time of the lesson activity to be the new start
+        // time of the event.
+        if ($lesson->available != $event->timestart) {
+            $lesson->available = $event->timestart;
+            $lesson->timemodified = time();
+            $modified = true;
+        }
+    } else if ($event->eventtype == LESSON_EVENT_TYPE_CLOSE) {
+        // If the event is for the lesson activity closing then we should
+        // set the end time of the lesson activity to be the new start
+        // time of the event.
+        if ($lesson->deadline != $event->timestart) {
+            $lesson->deadline = $event->timestart;
+            $modified = true;
+        }
+    }
+
+    if ($modified) {
+        $lesson->timemodified = time();
+        $DB->update_record('lesson', $lesson);
+        $event = \core\event\course_module_updated::create_from_cm($coursemodule, $context);
+        $event->trigger();
+    }
+}
+
+/**
+ * Callback to fetch the activity event type lang string.
+ *
+ * @param string $eventtype The event type.
+ * @return lang_string The event type lang string.
+ */
+function mod_lesson_core_calendar_get_event_action_string(string $eventtype): string {
+    $modulename = get_string('modulename', 'lesson');
+
+    switch ($eventtype) {
+        case LESSON_EVENT_TYPE_OPEN:
+            $identifier = 'lessoneventopens';
+            break;
+        case LESSON_EVENT_TYPE_CLOSE:
+            $identifier = 'lessoneventcloses';
+            break;
+        default:
+            return get_string('requiresaction', 'calendar', $modulename);
+    }
+
+    return get_string($identifier, 'lesson', $modulename);
 }

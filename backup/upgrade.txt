@@ -1,6 +1,33 @@
 This files describes API changes in /backup/*,
 information provided here is intended especially for developers.
 
+=== 4.0 ===
+
+* Backup UI labels now accept empty/whitespace-only contents.
+
+=== 3.11 ===
+
+ * New setting called "Include permission overrides" has been implemented. The default
+   settings is OFF for import, and ON for restore.
+
+=== 3.10 ===
+
+ * Local plugins can now hook into a backup and restore process of grade items by
+   using define_grade_item_plugin_structure method (See MDL-69418).
+
+=== 3.1 ===
+
+* New close() method added to loggers so they can close any open resource. Previously
+  any backup and restore operation using the file logger may be leaving unclosed files.
+* New destroy() method added to loggers, normally called from backup and restore controllers
+  own destroy() method to ensure that all references in the chained loggers are deleted
+  and any open resource within them is closed properly.
+
+=== 3.0 ===
+
+* The backup_auto_keep setting, in automated backups configuration, is now
+  renamed to backup_auto_max_kept as part of a rationalise of naming (see MDL-50602)
+
 === 2.6 ===
 
 * The backup_controller_dbops::create_temptable_from_real_table()

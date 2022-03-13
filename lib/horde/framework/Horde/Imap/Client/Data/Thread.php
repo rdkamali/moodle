@@ -1,12 +1,12 @@
 <?php
 /**
- * Copyright 2008-2014 Horde LLC (http://www.horde.org/)
+ * Copyright 2008-2017 Horde LLC (http://www.horde.org/)
  *
- * See the enclosed file COPYING for license information (LGPL). If you
+ * See the enclosed file LICENSE for license information (LGPL). If you
  * did not receive this file, see http://www.horde.org/licenses/lgpl21.
  *
  * @category  Horde
- * @copyright 2008-2014 Horde LLC
+ * @copyright 2008-2017 Horde LLC
  * @license   http://www.horde.org/licenses/lgpl21 LGPL 2.1
  * @package   Imap_Client
  */
@@ -17,7 +17,7 @@
  *
  * @author    Michael Slusarz <slusarz@horde.org>
  * @category  Horde
- * @copyright 2008-2014 Horde LLC
+ * @copyright 2008-2017 Horde LLC
  * @license   http://www.horde.org/licenses/lgpl21 LGPL 2.1
  * @package   Imap_Client
  */
@@ -84,8 +84,7 @@ class Horde_Imap_Client_Data_Thread implements Countable, Serializable
      */
     public function getThread($index)
     {
-        reset($this->_thread);
-        while (list(,$v) = each($this->_thread)) {
+        foreach ($this->_thread as $v) {
             if (isset($v[$index])) {
                 reset($v);
 
@@ -96,7 +95,8 @@ class Horde_Imap_Client_Data_Thread implements Countable, Serializable
                 $levels = $out = array();
                 $last = 0;
 
-                while (list($k2, $v2) = each($v)) {
+                while (($v2 = current($v)) !== false) {
+                    $k2 = key($v);
                     $ob2 = clone $ob;
                     $ob2->level = $v2;
                     $out[$k2] = $ob2;
@@ -106,6 +106,7 @@ class Horde_Imap_Client_Data_Thread implements Countable, Serializable
                     }
                     $levels[$v2] = $k2;
                     $last = $v2;
+                    next($v);
                 }
 
                 foreach ($levels as $v) {
@@ -117,6 +118,53 @@ class Horde_Imap_Client_Data_Thread implements Countable, Serializable
         }
 
         return array();
+    }
+
+    /**
+     * Returns array of all threads.
+     *
+     * @return array  Keys of thread arrays are indices, values are objects with the following
+     *                properties:
+     *   - base: (integer) Base ID of the thread. If null, thread is a single
+     *           message.
+     *   - last: (boolean) If true, this is the last index in the sublevel.
+     *   - level: (integer) The sublevel of the index.
+     */
+    public function getThreads()
+    {
+        $data = array();
+        foreach ($this->_thread as $v) {
+            reset($v);
+
+            $ob = new stdClass;
+            $ob->base = (count($v) > 1) ? key($v) : null;
+            $ob->last = false;
+
+            $levels = $out = array();
+            $last = 0;
+
+            while (($v2 = current($v)) !== false) {
+                $k2 = key($v);
+                $ob2 = clone $ob;
+                $ob2->level = $v2;
+                $out[$k2] = $ob2;
+
+                if (($last < $v2) && isset($levels[$v2])) {
+                    $out[$levels[$v2]]->last = true;
+                }
+                $levels[$v2] = $k2;
+                $last = $v2;
+                next($v);
+            }
+
+            foreach ($levels as $v) {
+                $out[$v]->last = true;
+            }
+
+            $data[] = $out;
+        }
+
+        return $data;
     }
 
     /* Countable methods. */
@@ -158,12 +206,11 @@ class Horde_Imap_Client_Data_Thread implements Countable, Serializable
     {
         $out = array();
 
-        reset($this->_thread);
-        while (list(,$v) = each($this->_thread)) {
-            $out = array_merge($out, array_keys($v));
+        foreach ($this->_thread as $val) {
+            $out += $val;
         }
 
-        return $out;
+        return array_keys($out);
     }
 
 }

@@ -267,7 +267,18 @@ class qformat_gift_test extends question_testcase {
         $this->assert_same_gift($expectedgift, $gift);
     }
 
-    public function test_import_multichoice() {
+    /**
+     * Test import of multichoice question in GIFT format
+     *
+     * @dataProvider numberingstyle_provider
+     *
+     * @param string $numberingstyle multichoice numbering style to set for qtype_multichoice
+     *
+     */
+    public function test_import_multichoice($numberingstyle) {
+        $this->resetAfterTest(true);
+
+        set_config('answernumbering', $numberingstyle, 'qtype_multichoice');
         $gift = "
 // multiple choice with specified feedback for right and wrong answers
 ::Q2:: What's between orange and green in the spectrum?
@@ -293,7 +304,7 @@ class qformat_gift_test extends question_testcase {
             'length' => 1,
             'single' => 1,
             'shuffleanswers' => '1',
-            'answernumbering' => 'abc',
+            'answernumbering' => $numberingstyle,
             'correctfeedback' => array(
                 'text' => '',
                 'format' => FORMAT_MOODLE,
@@ -350,6 +361,23 @@ class qformat_gift_test extends question_testcase {
         $this->assertEquals($expectedq->answer, $q->answer);
         $this->assertEquals($expectedq->feedback, $q->feedback);
         $this->assert(new question_check_specified_fields_expectation($expectedq), $q);
+    }
+
+    /**
+     * Return a list of numbering styles (see question/type/multichoice/questiontype.php
+     * for valid choices)
+     *
+     * @return array Array of 1-element arrays of qtype_multichoice numbering styles
+     */
+    public function numberingstyle_provider() {
+        return [
+            ['abc'],
+            ['ABCD'],
+            ['123'],
+            ['iii'],
+            ['IIII'],
+            ['none']
+        ];
     }
 
     public function test_import_multichoice_multi() {
@@ -448,6 +476,91 @@ class qformat_gift_test extends question_testcase {
         $this->assert(new question_check_specified_fields_expectation($expectedq), $q);
     }
 
+    public function test_import_multichoice_multi_tricky() {
+        $gift = "
+// multiple choice, multiple response with specified feedback for right and wrong answers
+::colours:: What's between orange and green in the spectrum?
+{
+    ~%100%yellow # right; good!
+    ~%-50%red # wrong
+    ~%-50%blue # wrong
+}";
+        $lines = preg_split('/[\\n\\r]/', str_replace("\r\n", "\n", $gift));
+
+        $importer = new qformat_gift();
+        $q = $importer->readquestion($lines);
+
+        $expectedq = (object) array(
+                'name' => 'colours',
+                'questiontext' => "What's between orange and green in the spectrum?",
+                'questiontextformat' => FORMAT_MOODLE,
+                'generalfeedback' => '',
+                'generalfeedbackformat' => FORMAT_MOODLE,
+                'qtype' => 'multichoice',
+                'defaultmark' => 1,
+                'penalty' => 0.3333333,
+                'length' => 1,
+                'single' => 0,
+                'shuffleanswers' => '1',
+                'answernumbering' => 'abc',
+                'correctfeedback' => array(
+                        'text' => '',
+                        'format' => FORMAT_MOODLE,
+                        'files' => array(),
+                ),
+                'partiallycorrectfeedback' => array(
+                        'text' => '',
+                        'format' => FORMAT_MOODLE,
+                        'files' => array(),
+                ),
+                'incorrectfeedback' => array(
+                        'text' => '',
+                        'format' => FORMAT_MOODLE,
+                        'files' => array(),
+                ),
+                'answer' => array(
+                        0 => array(
+                                'text' => 'yellow',
+                                'format' => FORMAT_MOODLE,
+                                'files' => array(),
+                        ),
+                        1 => array(
+                                'text' => 'red',
+                                'format' => FORMAT_MOODLE,
+                                'files' => array(),
+                        ),
+                        2 => array(
+                                'text' => 'blue',
+                                'format' => FORMAT_MOODLE,
+                                'files' => array(),
+                        ),
+                ),
+                'fraction' => array(1, -0.5, -0.5),
+                'feedback' => array(
+                        0 => array(
+                                'text' => 'right; good!',
+                                'format' => FORMAT_MOODLE,
+                                'files' => array(),
+                        ),
+                        1 => array(
+                                'text' => "wrong",
+                                'format' => FORMAT_MOODLE,
+                                'files' => array(),
+                        ),
+                        2 => array(
+                                'text' => "wrong",
+                                'format' => FORMAT_MOODLE,
+                                'files' => array(),
+                        ),
+                ),
+        );
+
+        // Repeated test for better failure messages.
+        $this->assertEquals($expectedq->answer, $q->answer);
+        $this->assertEquals($expectedq->feedback, $q->feedback);
+        $this->assert(new question_check_specified_fields_expectation($expectedq), $q);
+    }
+
     public function test_export_multichoice() {
         $qdata = (object) array(
             'id' => 666 ,
@@ -514,6 +627,72 @@ class qformat_gift_test extends question_testcase {
         $this->assert_same_gift($expectedgift, $gift);
     }
 
+    public function test_export_multichoice_multi_tricky() {
+        $qdata = (object) array(
+            'id' => 666 ,
+            'name' => 'Q8',
+            'questiontext' => "What's between orange and green in the spectrum?",
+            'questiontextformat' => FORMAT_MOODLE,
+            'generalfeedback' => '',
+            'generalfeedbackformat' => FORMAT_MOODLE,
+            'defaultmark' => 1,
+            'penalty' => 0.3333333,
+            'length' => 1,
+            'qtype' => 'multichoice',
+            'options' => (object) array(
+                'single' => 0,
+                'shuffleanswers' => '1',
+                'answernumbering' => 'abc',
+                'correctfeedback' => '',
+                'correctfeedbackformat' => FORMAT_MOODLE,
+                'partiallycorrectfeedback' => '',
+                'partiallycorrectfeedbackformat' => FORMAT_MOODLE,
+                'incorrectfeedback' => '',
+                'incorrectfeedbackformat' => FORMAT_MOODLE,
+                'answers' => array(
+                    123 => (object) array(
+                        'id' => 123,
+                        'answer' => 'yellow',
+                        'answerformat' => FORMAT_MOODLE,
+                        'fraction' => 1,
+                        'feedback' => 'right; good!',
+                        'feedbackformat' => FORMAT_MOODLE,
+                    ),
+                    124 => (object) array(
+                        'id' => 124,
+                        'answer' => 'red',
+                        'answerformat' => FORMAT_MOODLE,
+                        'fraction' => -0.5,
+                        'feedback' => "wrong, it's yellow",
+                        'feedbackformat' => FORMAT_MOODLE,
+                    ),
+                    125 => (object) array(
+                        'id' => 125,
+                        'answer' => 'blue',
+                        'answerformat' => FORMAT_MOODLE,
+                        'fraction' => -0.5,
+                        'feedback' => "wrong, it's yellow",
+                        'feedbackformat' => FORMAT_MOODLE,
+                    ),
+                ),
+            ),
+        );
+
+        $exporter = new qformat_gift();
+        $gift = $exporter->writequestion($qdata);
+
+        $expectedgift = "// question: 666  name: Q8
+::Q8::What's between orange and green in the spectrum?{
+\t~%100%yellow#right; good!
+\t~%-50%red#wrong, it's yellow
+\t~%-50%blue#wrong, it's yellow
+}
+
+";
+
+        $this->assert_same_gift($expectedgift, $gift);
+    }
+
     public function test_import_numerical() {
         $gift = "
 // math range question
@@ -550,7 +729,7 @@ class qformat_gift_test extends question_testcase {
                     'files' => array(),
                 ),
             ),
-            'tolerance' => array(2, 0),
+            'tolerance' => array(2, ''),
         );
 
         // Repeated test for better failure messages.
@@ -575,7 +754,6 @@ class qformat_gift_test extends question_testcase {
             'options' => (object) array(
                 'id' => 123,
                 'question' => 666,
-                'showunits' => 0,
                 'unitsleft' => 0,
                 'showunits' => 2,
                 'unitgradingtype' => 0,
@@ -1114,5 +1292,103 @@ FALSE#42 is the Ultimate Answer.#You gave the right answer.}";
         );
 
         $this->assert(new question_check_specified_fields_expectation($expectedq), $q);
+    }
+
+    public function test_import_question_with_tags() {
+        $gift = '
+// This question is to test importing tags: [tag:tag] [tag:other-tag].
+// And an idnumber: [id:myid].
+::Question name:: How are you? {}';
+        $lines = preg_split('/[\\n\\r]/', str_replace("\r\n", "\n", $gift));
+
+        $importer = new qformat_gift();
+        $q = $importer->readquestion($lines);
+
+        $expectedq = (object) array(
+            'name' => 'Question name',
+            'questiontext' => 'How are you?',
+            'questiontextformat' => FORMAT_MOODLE,
+            'generalfeedback' => '',
+            'generalfeedbackformat' => FORMAT_MOODLE,
+            'qtype' => 'essay',
+            'defaultmark' => 1,
+            'penalty' => 0.3333333,
+            'length' => 1,
+            'responseformat' => 'editor',
+            'responsefieldlines' => 15,
+            'attachments' => 0,
+            'graderinfo' => array(
+                'text' => '',
+                'format' => FORMAT_HTML,
+                'files' => array()),
+            'tags' => ['tag', 'other-tag'],
+            'idnumber' => 'myid',
+        );
+
+        $this->assert(new question_check_specified_fields_expectation($expectedq), $q);
+    }
+
+    /**
+     * Data provider for test_extract_idnumber_and_tags_from_comment.
+     *
+     * @return array the test cases.
+     */
+    public function extract_idnumber_and_tags_from_comment_testcases() {
+        return [
+            'blank comment' => ['', [], ''],
+            'nothing in comment' => ['', [], '// A basic comment.'],
+            'idnumber only' => ['frog', [], '// A comment with [id:frog] <-- an idnumber.'],
+            'tags only' => ['', ['frog', 'toad'], '// Look tags: [tag:frog] [tag:toad].'],
+            'everything' => ['four', ['add', 'basic'], '// [tag:add] [tag:basic] [id:four]'],
+            'everything mixed up' => ['four', ['basic', 'add'],
+                    "// [tag:  basic] Here is  \n// a [id:   four   ] que[tag:add   ]stion."],
+            'split over line' => ['', [], "// Ceci n\'est pas une [tag:\n\\ frog]."],
+            'escape ] idnumber' => ['i]d', [], '// [id:i\]d].'],
+            'escape ] tag' => ['', ['t]ag'], '// [tag:t\]ag].'],
+        ];
+    }
+
+    /**
+     * Test extract_idnumber_and_tags_from_comment.
+     *
+     * @dataProvider extract_idnumber_and_tags_from_comment_testcases
+     * @param string $expectedidnumber the expected idnumber.
+     * @param array $expectedtags the expected tags.
+     * @param string $comment the comment to parse.
+     */
+    public function test_extract_idnumber_and_tags_from_comment(
+            string $expectedidnumber, array $expectedtags, string $comment) {
+        $importer = new qformat_gift();
+
+        list($idnumber, $tags) = $importer->extract_idnumber_and_tags_from_comment($comment);
+        $this->assertSame($expectedidnumber, $idnumber);
+        $this->assertSame($expectedtags, $tags);
+    }
+
+    public function test_export_question_with_tags_and_idnumber() {
+        $this->resetAfterTest();
+
+        // Create a question with tags.
+        $generator = $this->getDataGenerator()->get_plugin_generator('core_question');
+        $category = $generator->create_question_category();
+        $question = $generator->create_question('truefalse', null,
+                ['category' => $category->id, 'idnumber' => 'myid']);
+        core_tag_tag::set_item_tags('core_question', 'question', $question->id,
+                context::instance_by_id($category->contextid), ['tag1', 'tag2'], 0);
+
+        // Export it.
+        $questiondata = question_bank::load_question_data($question->id);
+        $exporter = new qformat_gift();
+        $exporter->course = get_course(SITEID);
+        $gift = $exporter->writequestion($questiondata);
+
+        // Verify.
+        $expectedgift = "// question: {$question->id}  name: True/false question
+// [id:myid] [tag:tag1] [tag:tag2]
+::True/false question::[html]The answer is true.{TRUE#This is the wrong answer.#This is the right answer.####You should have selected true.}
+
+";
+
+        $this->assert_same_gift($expectedgift, $gift);
     }
 }

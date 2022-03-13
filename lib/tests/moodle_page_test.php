@@ -37,7 +37,7 @@ class core_moodle_page_testcase extends advanced_testcase {
      */
     protected $testpage;
 
-    public function setUp() {
+    public function setUp(): void {
         parent::setUp();
         $this->resetAfterTest();
         $this->testpage = new testable_moodle_page();
@@ -87,18 +87,18 @@ class core_moodle_page_testcase extends advanced_testcase {
         // Setup fixture.
         $this->testpage->force_theme(theme_config::DEFAULT_THEME);
         $course = $this->getDataGenerator()->create_course();
-        // Set expectation.
-        $this->setExpectedException('coding_exception');
+
         // Exercise SUT.
+        $this->expectException(coding_exception::class);
         $this->testpage->set_course($course);
     }
 
     public function test_cannot_set_category_once_theme_set() {
         // Setup fixture.
         $this->testpage->force_theme(theme_config::DEFAULT_THEME);
-        // Set expectation.
-        $this->setExpectedException('coding_exception');
+
         // Exercise SUT.
+        $this->expectException(coding_exception::class);
         $this->testpage->set_category_by_id(123);
     }
 
@@ -107,9 +107,9 @@ class core_moodle_page_testcase extends advanced_testcase {
         $course = $this->getDataGenerator()->create_course();
         $this->testpage->set_context(context_system::instance()); // Avoid trying to set the context.
         $this->testpage->set_course($course);
-        // Set expectation.
-        $this->setExpectedException('coding_exception');
+
         // Exercise SUT.
+        $this->expectException(coding_exception::class);
         $this->testpage->set_category_by_id(123);
     }
 
@@ -140,9 +140,8 @@ class core_moodle_page_testcase extends advanced_testcase {
     }
 
     public function test_set_state_cannot_skip_one() {
-        // Set expectation.
-        $this->setExpectedException('coding_exception');
         // Exercise SUT.
+        $this->expectException(coding_exception::class);
         $this->testpage->set_state(moodle_page::STATE_IN_BODY);
     }
 
@@ -304,6 +303,14 @@ class core_moodle_page_testcase extends advanced_testcase {
         $this->testpage->set_heading('a heading');
         // Validated.
         $this->assertSame('a heading', $this->testpage->heading);
+
+        // By default formatting is applied and tags are removed.
+        $this->testpage->set_heading('a heading <a href="#">edit</a><p>');
+        $this->assertSame('a heading edit', $this->testpage->heading);
+
+        // Without formatting the tags are preserved but cleaned.
+        $this->testpage->set_heading('a heading <a href="#">edit</a><p>', false);
+        $this->assertSame('a heading <a href="#">edit</a><p></p>', $this->testpage->heading);
     }
 
     public function test_set_title() {
@@ -386,9 +393,8 @@ class core_moodle_page_testcase extends advanced_testcase {
         $course = $this->getDataGenerator()->create_course();
         $forum = $this->getDataGenerator()->create_module('forum', array('course'=>$course->id));
         $cm = get_coursemodule_from_id('forum', $forum->cmid);
-        // Set expectation.
-        $this->setExpectedException('coding_exception');
         // Exercise SUT.
+        $this->expectException(coding_exception::class);
         $this->testpage->set_activity_record($forum);
     }
 
@@ -434,10 +440,9 @@ class core_moodle_page_testcase extends advanced_testcase {
         $forum = $this->getDataGenerator()->create_module('forum', array('course'=>$course->id));
         $cm = get_coursemodule_from_id('forum', $forum->cmid);
         $this->testpage->set_cm($cm);
-        // Set expectation.
-        $this->setExpectedException('coding_exception');
         // Exercise SUT.
         $forum->course = 13;
+        $this->expectException(coding_exception::class);
         $this->testpage->set_activity_record($forum);
     }
 
@@ -447,10 +452,9 @@ class core_moodle_page_testcase extends advanced_testcase {
         $forum = $this->getDataGenerator()->create_module('forum', array('course'=>$course->id));
         $cm = get_coursemodule_from_id('forum', $forum->cmid);
         $this->testpage->set_cm($cm);
-        // Set expectation.
-        $this->setExpectedException('coding_exception');
         // Exercise SUT.
         $forum->id = 13;
+        $this->expectException(coding_exception::class);
         $this->testpage->set_activity_record($forum);
     }
 
@@ -485,10 +489,9 @@ class core_moodle_page_testcase extends advanced_testcase {
         $course = $this->getDataGenerator()->create_course();
         $forum = $this->getDataGenerator()->create_module('forum', array('course'=>$course->id));
         $cm = get_coursemodule_from_id('forum', $forum->cmid);
-        // Set expectation.
-        $this->setExpectedException('coding_exception');
         // Exercise SUT.
         $cm->course = 13;
+        $this->expectException(coding_exception::class);
         $this->testpage->set_cm($cm, $course);
     }
 
@@ -653,6 +656,112 @@ class core_moodle_page_testcase extends advanced_testcase {
 
         $footer = $OUTPUT->footer();
         $this->assertEmpty($footer, 'cli output does not have a footer.');
+    }
+
+    /**
+     * Validate the theme value depending on the user theme and cohorts.
+     *
+     * @dataProvider get_user_theme_provider
+     */
+    public function test_cohort_get_user_theme($usertheme, $sitetheme, $cohortthemes, $expected) {
+        global $DB, $PAGE, $USER;
+
+        $this->resetAfterTest();
+
+        // Enable cohort themes.
+        set_config('allowuserthemes', 1);
+        set_config('allowcohortthemes', 1);
+
+        $systemctx = context_system::instance();
+
+        set_config('theme', $sitetheme);
+        // Create user.
+        $user = $this->getDataGenerator()->create_user(array('theme' => $usertheme));
+
+        // Create cohorts and add user as member.
+        $cohorts = array();
+        foreach ($cohortthemes as $cohorttheme) {
+            $cohort = $this->getDataGenerator()->create_cohort(array('contextid' => $systemctx->id, 'name' => 'Cohort',
+                'idnumber' => '', 'description' => '', 'theme' => $cohorttheme));
+            $cohorts[] = $cohort;
+            cohort_add_member($cohort->id, $user->id);
+        }
+
+        // Get the theme and compare to the expected.
+        $this->setUser($user);
+
+        // Initialise user theme.
+        $USER = get_complete_user_data('id', $user->id);
+
+        // Initialise site theme.
+        $PAGE->reset_theme_and_output();
+        $PAGE->initialise_theme_and_output();
+        $result = $PAGE->theme->name;
+        $this->assertEquals($expected, $result);
+    }
+
+    /**
+     * Some user cases for validating the expected theme depending on the cohorts, site and user values.
+     *
+     * The result is an array of:
+     *     'User case description' => [
+     *      'usertheme' => '', // User theme.
+     *      'sitetheme' => '', // Site theme.
+     *      'cohorts' => [],   // Cohort themes.
+     *      'expected' => '',  // Expected value returned by cohort_get_user_cohort_theme.
+     *    ]
+     *
+     * @return array
+     */
+    public function get_user_theme_provider() {
+        return [
+            'User not a member of any cohort' => [
+                'usertheme' => '',
+                'sitetheme' => 'boost',
+                'cohorts' => [],
+                'expected' => 'boost',
+            ],
+            'User member of one cohort which has a theme set' => [
+                'usertheme' => '',
+                'sitetheme' => 'boost',
+                'cohorts' => [
+                    'classic',
+                ],
+                'expected' => 'classic',
+            ],
+            'User member of one cohort which has a theme set, and one without a theme' => [
+                'usertheme' => '',
+                'sitetheme' => 'boost',
+                'cohorts' => [
+                    'classic',
+                    '',
+                ],
+                'expected' => 'classic',
+            ],
+            'User member of one cohort which has a theme set, and one with a different theme' => [
+                'usertheme' => '',
+                'sitetheme' => 'boost',
+                'cohorts' => [
+                    'classic',
+                    'someother',
+                ],
+                'expected' => 'boost',
+            ],
+            'User with a theme but not a member of any cohort' => [
+                'usertheme' => 'classic',
+                'sitetheme' => 'boost',
+                'cohorts' => [],
+                'expected' => 'classic',
+            ],
+            'User with a theme and member of one cohort which has a theme set' => [
+                'usertheme' => 'classic',
+                'sitetheme' => 'boost',
+                'cohorts' => [
+                    'boost',
+                ],
+                'expected' => 'classic',
+            ],
+        ];
     }
 }
 

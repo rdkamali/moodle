@@ -231,7 +231,6 @@ abstract class grade_object {
             $result[$instance->id] = $instance;
         }
         $rs->close();
-
         return $result;
     }
 
@@ -239,9 +238,10 @@ abstract class grade_object {
      * Updates this object in the Database, based on its object variables. ID must be set.
      *
      * @param string $source from where was the object updated (mod/forum, manual, etc.)
+     * @param bool $isbulkupdate If bulk grade update is happening.
      * @return bool success
      */
-    public function update($source=null) {
+    public function update($source = null, $isbulkupdate = false) {
         global $USER, $CFG, $DB;
 
         if (empty($this->id)) {
@@ -253,6 +253,7 @@ abstract class grade_object {
 
         $DB->update_record($this->table, $data);
 
+        $historyid = null;
         if (empty($CFG->disablegradehistory)) {
             unset($data->timecreated);
             $data->action       = GRADE_HISTORY_UPDATE;
@@ -260,10 +261,13 @@ abstract class grade_object {
             $data->source       = $source;
             $data->timemodified = time();
             $data->loggeduser   = $USER->id;
-            $DB->insert_record($this->table.'_history', $data);
+            $historyid = $DB->insert_record($this->table.'_history', $data);
         }
 
-        $this->notify_changed(false);
+        $this->notify_changed(false, $isbulkupdate);
+
+        $this->update_feedback_files($historyid);
+
         return true;
     }
 
@@ -294,9 +298,12 @@ abstract class grade_object {
                 $data->loggeduser   = $USER->id;
                 $DB->insert_record($this->table.'_history', $data);
             }
-            $this->notify_changed(true);
-            return true;
 
+            $this->notify_changed(true);
+
+            $this->delete_feedback_files();
+
+            return true;
         } else {
             return false;
         }
@@ -328,9 +335,10 @@ abstract class grade_object {
      * in object properties.
      *
      * @param string $source From where was the object inserted (mod/forum, manual, etc.)
+     * @param string $isbulkupdate If bulk grade update is happening.
      * @return int The new grade object ID if successful, false otherwise
      */
-    public function insert($source=null) {
+    public function insert($source = null, $isbulkupdate = false) {
         global $USER, $CFG, $DB;
 
         if (!empty($this->id)) {
@@ -347,6 +355,7 @@ abstract class grade_object {
 
         $data = $this->get_record_data();
 
+        $historyid = null;
         if (empty($CFG->disablegradehistory)) {
             unset($data->timecreated);
             $data->action       = GRADE_HISTORY_INSERT;
@@ -354,10 +363,13 @@ abstract class grade_object {
             $data->source       = $source;
             $data->timemodified = time();
             $data->loggeduser   = $USER->id;
-            $DB->insert_record($this->table.'_history', $data);
+            $historyid = $DB->insert_record($this->table.'_history', $data);
         }
 
-        $this->notify_changed(false);
+        $this->notify_changed(false, $isbulkupdate);
+
+        $this->add_feedback_files($historyid);
+
         return $this->id;
     }
 
@@ -410,6 +422,28 @@ abstract class grade_object {
      * @param bool $deleted
      */
     protected function notify_changed($deleted) {
+    }
+
+    /**
+     * Handles adding feedback files in the gradebook.
+     *
+     * @param int|null $historyid
+     */
+    protected function add_feedback_files(int $historyid = null) {
+    }
+
+    /**
+     * Handles updating feedback files in the gradebook.
+     *
+     * @param int|null $historyid
+     */
+    protected function update_feedback_files(int $historyid = null) {
+    }
+
+    /**
+     * Handles deleting feedback files in the gradebook.
+     */
+    protected function delete_feedback_files() {
     }
 
     /**

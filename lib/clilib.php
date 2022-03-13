@@ -27,6 +27,26 @@
 // NOTE: no MOODLE_INTERNAL test here, sometimes we use this before requiring Moodle libs!
 
 /**
+ * Write a text to the given stream
+ *
+ * @param string $text text to be written
+ * @param resource $stream output stream to be written to, defaults to STDOUT
+ */
+function cli_write($text, $stream=STDOUT) {
+    fwrite($stream, $text);
+}
+
+/**
+ * Write a text followed by an end of line symbol to the given stream
+ *
+ * @param string $text text to be written
+ * @param resource $stream output stream to be written to, defaults to STDOUT
+ */
+function cli_writeln($text, $stream=STDOUT) {
+    cli_write($text.PHP_EOL, $stream);
+}
+
+/**
  * Get input from user
  * @param string $prompt text prompt, should include possible options
  * @param string $default default value when enter pressed
@@ -35,8 +55,8 @@
  * @return string entered text
  */
 function cli_input($prompt, $default='', array $options=null, $casesensitiveoptions=false) {
-    echo $prompt;
-    echo "\n: ";
+    cli_writeln($prompt);
+    cli_write(': ');
     $input = fread(STDIN, 2048);
     $input = trim($input);
     if ($input === '') {
@@ -47,7 +67,7 @@ function cli_input($prompt, $default='', array $options=null, $casesensitiveopti
             $input = strtolower($input);
         }
         if (!in_array($input, $options)) {
-            echo "Incorrect value, please retry.\n"; // TODO: localize, mark as needed in install
+            cli_writeln(get_string('cliincorrectvalueretry', 'admin'));
             return cli_input($prompt, $default, $options, $casesensitiveoptions);
         }
     }
@@ -85,6 +105,13 @@ function cli_get_params(array $longoptions, array $shortmapping=null) {
             if (count($parts) == 1) {
                 $key   = reset($parts);
                 $value = true;
+
+                if (substr($key, 0, 3) === 'no-' && !array_key_exists($key, $longoptions)
+                        && array_key_exists(substr($key, 3), $longoptions)) {
+                    // Support flipping the boolean value.
+                    $value = !$value;
+                    $key = substr($key, 3);
+                }
             } else {
                 $key = array_shift($parts);
                 $value = implode('=', $parts);
@@ -126,16 +153,31 @@ function cli_get_params(array $longoptions, array $shortmapping=null) {
 }
 
 /**
+ * This sets the cli process title suffix
+ *
+ * An example is appending current Task API info so a sysadmin can immediately
+ * see what task a cron process is running at any given moment.
+ *
+ * @param string $suffix process suffix
+ */
+function cli_set_process_title_suffix(string $suffix) {
+    if (CLI_SCRIPT && function_exists('cli_set_process_title') && isset($_SERVER['argv'])) {
+        $command = join(' ', $_SERVER['argv']);
+        @cli_set_process_title("php $command ($suffix)");
+    }
+}
+
+/**
  * Print or return section separator string
  * @param bool $return false means print, true return as string
  * @return mixed void or string
  */
 function cli_separator($return=false) {
-    $separator = str_repeat('-', 79)."\n";
+    $separator = str_repeat('-', 79).PHP_EOL;
     if ($return) {
         return $separator;
     } else {
-        echo $separator;
+        cli_write($separator);
     }
 }
 
@@ -146,11 +188,11 @@ function cli_separator($return=false) {
  * @return mixed void or string
  */
 function cli_heading($string, $return=false) {
-    $string = "== $string ==\n";
+    $string = "== $string ==".PHP_EOL;
     if ($return) {
         return $string;
     } else {
-        echo $string;
+        cli_write($string);
     }
 }
 
@@ -160,19 +202,119 @@ function cli_heading($string, $return=false) {
  * @return void
  */
 function cli_problem($text) {
-    fwrite(STDERR, $text."\n");
+    cli_writeln($text, STDERR);
 }
 
 /**
- * Write to standard out and error with exit in error.
+ * Write to standard error output and exit with the given code
  *
  * @param string $text
  * @param int $errorcode
  * @return void (does not return)
  */
 function cli_error($text, $errorcode=1) {
-    fwrite(STDERR, $text);
-    fwrite(STDERR, "\n");
+    cli_writeln($text.PHP_EOL, STDERR);
     die($errorcode);
 }
 
+/**
+ * Print an ASCII version of the Moodle logo.
+ *
+ * @param int $padding left padding of the logo
+ * @param bool $return should we print directly (false) or return the string (true)
+ * @return mixed void or string
+ */
+function cli_logo($padding=2, $return=false) {
+
+    $lines = array(
+        '                               .-..-.       ',
+        ' _____                         | || |       ',
+        '/____/-.---_  .---.  .---.  .-.| || | .---. ',
+        '| |  _   _  |/  _  \\/  _  \\/  _  || |/  __ \\',
+        '* | | | | | || |_| || |_| || |_| || || |___/',
+        '  |_| |_| |_|\\_____/\\_____/\\_____||_|\\_____)',
+    );
+
+    $logo = '';
+
+    foreach ($lines as $line) {
+        $logo .= str_repeat(' ', $padding);
+        $logo .= $line;
+        $logo .= PHP_EOL;
+    }
+
+    if ($return) {
+        return $logo;
+    } else {
+        cli_write($logo);
+    }
+}
+
+/**
+ * Substitute cursor, colour, and bell placeholders in a CLI output to ANSI escape characters when ANSI is available.
+ *
+ * @param string $message
+ * @return string
+ */
+function cli_ansi_format(string $message): string {
+    global $CFG;
+
+    $replacements = [
+        "<newline>" => "\n",
+        "<bell>" => "\007",
+
+        // Cursor movement: https://www.tldp.org/HOWTO/Bash-Prompt-HOWTO/x361.html.
+        "<cursor:save>"     => "\033[s",
+        "<cursor:restore>"  => "\033[u",
+        "<cursor:up>"       => "\033[1A",
+        "<cursor:down>"     => "\033[1B",
+        "<cursor:forward>"  => "\033[1C",
+        "<cursor:back>"     => "\033[1D",
+    ];
+
+    $colours = [
+        'normal'        => '0;0',
+        'black'         => '0;30',
+        'darkGray'      => '1;30',
+        'red'           => '0;31',
+        'lightRed'      => '1;31',
+        'green'         => '0;32',
+        'lightGreen'    => '1;32',
+        'brown'         => '0;33',
+        'yellow'        => '1;33',
+        'lightYellow'   => '0;93',
+        'blue'          => '0;34',
+        'lightBlue'     => '1;34',
+        'purple'        => '0;35',
+        'lightPurple'   => '1;35',
+        'cyan'          => '0;36',
+        'lightCyan'     => '1;36',
+        'lightGray'     => '0;37',
+        'white'         => '1;37',
+    ];
+    $bgcolours = [
+        'black'         => '40',
+        'red'           => '41',
+        'green'         => '42',
+        'yellow'        => '43',
+        'blue'          => '44',
+        'magenta'       => '45',
+        'cyan'          => '46',
+        'white'         => '47',
+    ];
+
+    foreach ($colours as $colour => $code) {
+        $replacements["<colour:{$colour}>"] = "\033[{$code}m";
+    }
+    foreach ($bgcolours as $colour => $code) {
+        $replacements["<bgcolour:{$colour}>"] = "\033[{$code}m";
+    }
+
+    // Windows don't support ANSI code by default, but does if ANSICON is available.
+    $isansicon = getenv('ANSICON');
+    if (($CFG->ostype === 'WINDOWS') && empty($isansicon)) {
+        return str_replace(array_keys($replacements), '', $message);
+    }
+
+    return str_replace(array_keys($replacements), array_values($replacements), $message);
+}

@@ -79,13 +79,18 @@ if ($ADMIN->fulltree) {
         $student = get_archetype_roles('student');
         $student = reset($student);
         $settings->add(new admin_setting_configselect('enrol_self/roleid',
-            get_string('defaultrole', 'enrol_self'), get_string('defaultrole_desc', 'enrol_self'), $student->id, $options));
+            get_string('defaultrole', 'enrol_self'),
+            get_string('defaultrole_desc', 'enrol_self'),
+            $student->id ?? null,
+            $options));
     }
 
     $settings->add(new admin_setting_configduration('enrol_self/enrolperiod',
         get_string('enrolperiod', 'enrol_self'), get_string('enrolperiod_desc', 'enrol_self'), 0));
 
-    $options = array(0 => get_string('no'), 1 => get_string('expirynotifyenroller', 'core_enrol'), 2 => get_string('expirynotifyall', 'core_enrol'));
+    $options = array(0 => get_string('no'),
+                     1 => get_string('expirynotifyenroller', 'enrol_self'),
+                     2 => get_string('expirynotifyall', 'enrol_self'));
     $settings->add(new admin_setting_configselect('enrol_self/expirynotify',
         get_string('expirynotify', 'core_enrol'), get_string('expirynotify_help', 'core_enrol'), 0, $options));
 
@@ -111,6 +116,9 @@ if ($ADMIN->fulltree) {
     $settings->add(new admin_setting_configtext('enrol_self/maxenrolled',
         get_string('maxenrolled', 'enrol_self'), get_string('maxenrolled_help', 'enrol_self'), 0, PARAM_INT));
 
-    $settings->add(new admin_setting_configcheckbox('enrol_self/sendcoursewelcomemessage',
-        get_string('sendcoursewelcomemessage', 'enrol_self'), get_string('sendcoursewelcomemessage_help', 'enrol_self'), 1));
+    $settings->add(new admin_setting_configselect('enrol_self/sendcoursewelcomemessage',
+            get_string('sendcoursewelcomemessage', 'enrol_self'),
+            get_string('sendcoursewelcomemessage_help', 'enrol_self'),
+            ENROL_SEND_EMAIL_FROM_COURSE_CONTACT,
+            enrol_send_welcome_email_options()));
 }

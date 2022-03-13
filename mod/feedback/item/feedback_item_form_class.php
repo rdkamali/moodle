@@ -38,7 +38,7 @@ abstract class feedback_item_form extends moodleform {
 
         $mform =& $this->_form;
 
-        if ($common['items']) {
+        if (array_filter(array_keys($common['items']))) {
             $mform->addElement('select',
                                 'dependitem',
                                 get_string('dependitem', 'feedback').'&nbsp;',
@@ -49,6 +49,7 @@ abstract class feedback_item_form extends moodleform {
                                 'dependvalue',
                                 get_string('dependvalue', 'feedback'),
                                 array('size'=>FEEDBACK_ITEM_LABEL_TEXTBOX_SIZE, 'maxlength'=>255));
+            $mform->hideIf('dependvalue', 'dependitem', 'eq', '0');
         } else {
             $mform->addElement('hidden', 'dependitem', 0);
             $mform->addElement('hidden', 'dependvalue', '');
@@ -76,7 +77,7 @@ abstract class feedback_item_form extends moodleform {
         $mform->setType('template', PARAM_INT);
 
         $mform->setType('name', PARAM_RAW);
-        $mform->setType('label', PARAM_ALPHANUM);
+        $mform->setType('label', PARAM_NOTAGS);
 
         $mform->addElement('hidden', 'typ', $this->type);
         $mform->setType('typ', PARAM_ALPHA);
@@ -101,11 +102,26 @@ abstract class feedback_item_form extends moodleform {
             $mform->setType('clone_item', PARAM_INT);
             $buttonarray[] = &$mform->createElement('submit',
                                                     'save_item',
-                                                    get_string('save_item', 'feedback'));
+                                                    get_string('savechanges'));
         }
         $buttonarray[] = &$mform->createElement('cancel');
         $mform->addGroup($buttonarray, 'buttonar', '&nbsp;', array(' '), false);
 
+    }
+
+    /**
+     * Return submitted data if properly submitted or returns NULL if validation fails or
+     * if there is no submitted data.
+     *
+     * @return object submitted data; NULL if not valid or not submitted or cancelled
+     */
+    public function get_data() {
+        if ($item = parent::get_data()) {
+            if (!isset($item->dependvalue)) {
+                $item->dependvalue = '';
+            }
+        }
+        return $item;
     }
 }
 

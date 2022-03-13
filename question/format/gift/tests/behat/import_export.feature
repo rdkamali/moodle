@@ -15,11 +15,12 @@ Feature: Test importing questions from GIFT format.
       | user    | course | role           |
       | teacher | C1     | editingteacher |
     And I log in as "teacher"
-    And I follow "Course 1"
+    And I am on "Course 1" course homepage
 
   @javascript @_file_upload
   Scenario: import some GIFT questions
-    When I navigate to "Import" node in "Course administration > Question bank"
+    When I navigate to "Question bank" in current page administration
+    And I select "Import" from the "Question bank tertiary navigation" singleselect
     And I set the field "id_format_gift" to "1"
     And I upload "question/format/gift/tests/fixtures/questions.gift.txt" file to "Import" filemanager
     And I press "id_submitbutton"
@@ -30,7 +31,22 @@ Feature: Test importing questions from GIFT format.
     Then I should see "colours"
 
     # Now export again.
-    And I navigate to "Export" node in "Course administration > Question bank"
+    And I am on "Course 1" course homepage
+    And I navigate to "Question bank" in current page administration
+    And I select "Export" from the "Question bank tertiary navigation" singleselect
     And I set the field "id_format_gift" to "1"
     And I press "Export questions to file"
-    And following "click here" should download between "1550" and "1650" bytes
+    And following "click here" should download between "1500" and "1800" bytes
+
+  @javascript @_file_upload
+  Scenario: import a GIFT file which specifies the category
+    When I navigate to "Question bank" in current page administration
+    And I select "Import" from the "Question bank tertiary navigation" singleselect
+    And I set the field "id_format_gift" to "1"
+    And I upload "question/format/gift/tests/fixtures/questions_in_category.gift.txt" file to "Import" filemanager
+    And I press "id_submitbutton"
+    Then I should see "Parsing questions from import file."
+    And I should see "Importing 4 questions from file"
+    And I should see "Match the activity to the description."
+    When I press "Continue"
+    Then I should see "Moodle activities"

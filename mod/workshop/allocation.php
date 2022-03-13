@@ -26,9 +26,9 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-require_once(dirname(dirname(dirname(__FILE__))).'/config.php');
-require_once(dirname(__FILE__).'/locallib.php');
-require_once(dirname(__FILE__).'/allocation/lib.php');
+require(__DIR__.'/../../config.php');
+require_once(__DIR__.'/locallib.php');
+require_once(__DIR__.'/allocation/lib.php');
 
 $cmid       = required_param('cmid', PARAM_INT);                    // course module
 $method     = optional_param('method', 'manual', PARAM_ALPHA);      // method to use
@@ -38,7 +38,8 @@ $course     = $DB->get_record('course', array('id' => $cm->course), '*', MUST_EX
 $workshop   = $DB->get_record('workshop', array('id' => $cm->instance), '*', MUST_EXIST);
 $workshop   = new workshop($workshop, $cm, $course);
 
-$PAGE->set_url($workshop->allocation_url($method));
+$url = $workshop->allocation_url($method);
+$PAGE->set_url($url);
 
 require_login($course, false, $cm);
 $context = $PAGE->context;
@@ -46,7 +47,11 @@ require_capability('mod/workshop:allocate', $context);
 
 $PAGE->set_title($workshop->name);
 $PAGE->set_heading($course->fullname);
-$PAGE->navbar->add(get_string('allocation', 'workshop'));
+$PAGE->navbar->add(get_string('allocation', 'workshop'), $workshop->allocation_url($method));
+$PAGE->activityheader->set_attrs([
+    'hidecompletion' => true,
+    'description' => ''
+]);
 
 $allocator  = $workshop->allocator_instance($method);
 $initresult = $allocator->init();
@@ -54,25 +59,11 @@ $initresult = $allocator->init();
 //
 // Output starts here
 //
+$actionbar = new \mod_workshop\output\actionbar($url, $workshop);
+
 $output = $PAGE->get_renderer('mod_workshop');
 echo $output->header();
-echo $OUTPUT->heading(format_string($workshop->name));
-
-$allocators = workshop::installed_allocators();
-if (!empty($allocators)) {
-    $tabs       = array();
-    $row        = array();
-    $inactive   = array();
-    $activated  = array();
-    foreach ($allocators as $methodid => $methodname) {
-        $row[] = new tabobject($methodid, $workshop->allocation_url($methodid)->out(), $methodname);
-        if ($methodid == $method) {
-            $currenttab = $methodid;
-        }
-    }
-}
-$tabs[] = $row;
-print_tabs($tabs, $currenttab, $inactive, $activated);
+echo $output->render_allocation_menu($actionbar);
 
 if (is_null($initresult->get_status()) or $initresult->get_status() == workshop_allocation_result::STATUS_VOID) {
     echo $output->container_start('allocator-ui');

@@ -42,7 +42,7 @@ $forcedownload = optional_param('forcedownload', 0, PARAM_BOOL);
 // relative path must start with '/', because of backup/restore!!!
 if (!$relativepath) {
     print_error('invalidargorconf');
-} else if ($relativepath{0} != '/') {
+} else if ($relativepath[0] != '/') {
     print_error('pathdoesnotstartslash');
 }
 
@@ -68,7 +68,7 @@ if ($course->id != SITEID) {
     require_login($course, true, null, false);
 
 } else if ($CFG->forcelogin) {
-    if (!empty($CFG->sitepolicy)
+    if (empty($CFG->sitepolicyhandler) and !empty($CFG->sitepolicy)
         and ($CFG->sitepolicy == $CFG->wwwroot.'/file.php/'.$relativepath
              or $CFG->sitepolicy == $CFG->wwwroot.'/file.php?file=/'.$relativepath)) {
         //do not require login for policy file

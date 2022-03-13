@@ -69,18 +69,22 @@ define('BADGE_CRITERIA_TYPE_COURSESET', 5);
 define('BADGE_CRITERIA_TYPE_PROFILE', 6);
 
 /*
- * Criteria type constant to class name mapping
+ * Badge completion criteria type
+ * Criteria type constant, primarily for storing criteria type in the database.
  */
-global $BADGE_CRITERIA_TYPES;
-$BADGE_CRITERIA_TYPES = array(
-    BADGE_CRITERIA_TYPE_OVERALL   => 'overall',
-    BADGE_CRITERIA_TYPE_ACTIVITY  => 'activity',
-    BADGE_CRITERIA_TYPE_MANUAL    => 'manual',
-    BADGE_CRITERIA_TYPE_SOCIAL    => 'social',
-    BADGE_CRITERIA_TYPE_COURSE    => 'course',
-    BADGE_CRITERIA_TYPE_COURSESET => 'courseset',
-    BADGE_CRITERIA_TYPE_PROFILE   => 'profile'
-);
+define('BADGE_CRITERIA_TYPE_BADGE', 7);
+
+/*
+ * Cohort criteria type
+ * Criteria type constant, primarily for storing criteria type in the database.
+ */
+define('BADGE_CRITERIA_TYPE_COHORT', 8);
+
+/*
+ * Competency criteria type
+ * Criteria type constant, primarily for storing criteria type in the database.
+ */
+define('BADGE_CRITERIA_TYPE_COMPETENCY', 9);
 
 /**
  * Award criteria abstract definition
@@ -147,13 +151,17 @@ abstract class award_criteria {
      * @return award_criteria
      */
     public static function build($params) {
-        global $CFG, $BADGE_CRITERIA_TYPES;
+        global $CFG;
 
-        if (!isset($params['criteriatype']) || !isset($BADGE_CRITERIA_TYPES[$params['criteriatype']])) {
+        require_once($CFG->libdir . '/badgeslib.php');
+
+        $types = badges_list_criteria(false);
+
+        if (!isset($params['criteriatype']) || !isset($types[$params['criteriatype']])) {
             print_error('error:invalidcriteriatype', 'badges');
         }
 
-        $class = 'award_criteria_' . $BADGE_CRITERIA_TYPES[$params['criteriatype']];
+        $class = 'award_criteria_' . $types[$params['criteriatype']];
         require_once($CFG->dirroot . '/badges/criteria/' . $class . '.php');
 
         return new $class($params);
@@ -196,7 +204,8 @@ abstract class award_criteria {
             $mform->addGroup($parameter, 'param_' . $prefix . $param['id'], '', array(' '), false);
         } else {
             $parameter[] =& $mform->createElement('advcheckbox', $prefix . $param['id'], '', $param['name'], null, array(0, $param['id']));
-            $parameter[] =& $mform->createElement('static', 'break_start_' . $param['id'], null, '<div style="margin-left: 3em;">');
+            $parameter[] =& $mform->createElement('static', 'break_start_' . $param['id'], null,
+                '<div class="ml-3 mt-1 w-100 align-items-center">');
 
             if (in_array('grade', $this->optional_params)) {
                 $parameter[] =& $mform->createElement('static', 'mgrade_' . $param['id'], null, get_string('mingrade', 'badges'));
@@ -332,7 +341,7 @@ abstract class award_criteria {
      *
      */
     public function delete() {
-        global $DB;
+        global $DB, $PAGE;
 
         // Remove any records if it has already been met.
         $DB->delete_records('badge_criteria_met', array('critid' => $this->id));
@@ -342,6 +351,13 @@ abstract class award_criteria {
 
         // Finally remove criterion itself.
         $DB->delete_records('badge_criteria', array('id' => $this->id));
+
+        // Trigger event, badge criteria deleted.
+        $eventparams = array('objectid' => $this->id,
+            'context' => $PAGE->context,
+            'other' => array('badgeid' => $this->badgeid));
+        $event = \core\event\badge_criteria_deleted::create($eventparams);
+        $event->trigger();
     }
 
     /**
@@ -350,7 +366,7 @@ abstract class award_criteria {
      * @param array $params Values from the form or any other array.
      */
     public function save($params = array()) {
-        global $DB;
+        global $DB, $PAGE;
 
         // Figure out criteria description.
         // If it is coming from the form editor, it is an array(text, format).
@@ -376,7 +392,9 @@ abstract class award_criteria {
         $params = array_filter($params);
         // Find out which param matches optional and required ones.
         $match = array_merge($this->optional_params, array($this->required_param));
-        $regex = implode('|', array_map(create_function('$a', 'return $a . "_";'), $match));
+        $regex = implode('|', array_map(function($a) {
+            return $a . "_";
+        }, $match));
         $requiredkeys = preg_grep('/^(' . $regex . ').*$/', array_keys($params));
 
         if ($this->id !== 0) {
@@ -385,6 +403,13 @@ abstract class award_criteria {
             // Update criteria before doing anything with parameters.
             $fordb->id = $cid;
             $DB->update_record('badge_criteria', $fordb, true);
+
+            // Trigger event: badge_criteria_updated.
+            $eventparams = array('objectid' => $this->id,
+                'context' => $PAGE->context,
+                'other' => array('badgeid' => $this->badgeid));
+            $event = \core\event\badge_criteria_updated::create($eventparams);
+            $event->trigger();
 
             $existing = $DB->get_fieldset_select('badge_criteria_param', 'name', 'critid = ?', array($cid));
             $todelete = array_diff($existing, $requiredkeys);
@@ -429,6 +454,12 @@ abstract class award_criteria {
                     $DB->insert_record('badge_criteria_param', $newp, false, true);
                 }
             }
+            // Trigger event: badge_criteria_created.
+            $eventparams = array('objectid' => $this->id,
+                'context' => $PAGE->context,
+                'other' => array('badgeid' => $this->badgeid));
+            $event = \core\event\badge_criteria_created::create($eventparams);
+            $event->trigger();
         }
         $t->allow_commit();
     }
@@ -456,5 +487,14 @@ abstract class award_criteria {
                 }
             }
         }
+    }
+
+    /**
+     * Allow some specific criteria types to be disabled based on config.
+     *
+     * @return boolean
+     */
+    public static function is_enabled() {
+        return true;
     }
 }

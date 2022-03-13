@@ -36,7 +36,7 @@ class core_outputrequirementslib_testcase extends advanced_testcase {
         $page = new moodle_page();
         $page->requires->string_for_js('course', 'moodle', 1);
         $page->requires->string_for_js('course', 'moodle', 1);
-        $this->setExpectedException('coding_exception');
+        $this->expectException('coding_exception');
         $page->requires->string_for_js('course', 'moodle', 2);
 
         // Note: we can not switch languages in phpunit yet,
@@ -52,7 +52,7 @@ class core_outputrequirementslib_testcase extends advanced_testcase {
     public function test_one_time_output_repeat_output_throws() {
         $page = new moodle_page();
         $page->requires->set_one_time_item_created('test_item');
-        $this->setExpectedException('coding_exception');
+        $this->expectException('coding_exception');
         $page->requires->set_one_time_item_created('test_item');
     }
 
@@ -63,4 +63,75 @@ class core_outputrequirementslib_testcase extends advanced_testcase {
         $this->assertTrue($secondpage->requires->should_create_one_time_item_now('test_item'));
     }
 
+    /**
+     * Test for the jquery_plugin method.
+     *
+     * Test to make sure that backslashes are not generated with either slasharguments set to on or off.
+     */
+    public function test_jquery_plugin() {
+        global $CFG, $PAGE;
+
+        $this->resetAfterTest();
+
+        // With slasharguments on.
+        $CFG->slasharguments = 1;
+
+        $page = new moodle_page();
+        $requirements = $page->requires;
+        // Assert successful method call.
+        $this->assertTrue($requirements->jquery_plugin('jquery'));
+        $this->assertTrue($requirements->jquery_plugin('ui'));
+
+        // Get the code containing the required jquery plugins.
+        $renderer = $PAGE->get_renderer('core', null, RENDERER_TARGET_MAINTENANCE);
+        $requirecode = $requirements->get_top_of_body_code($renderer);
+        // Make sure that the generated code does not contain backslashes.
+        $this->assertFalse(strpos($requirecode, '\\'), "Output contains backslashes: " . $requirecode);
+
+        // With slasharguments off.
+        $CFG->slasharguments = 0;
+
+        $page = new moodle_page();
+        $requirements = $page->requires;
+        // Assert successful method call.
+        $this->assertTrue($requirements->jquery_plugin('jquery'));
+        $this->assertTrue($requirements->jquery_plugin('ui'));
+
+        // Get the code containing the required jquery plugins.
+        $requirecode = $requirements->get_top_of_body_code($renderer);
+        // Make sure that the generated code does not contain backslashes.
+        $this->assertFalse(strpos($requirecode, '\\'), "Output contains backslashes: " . $requirecode);
+    }
+
+    /**
+     * Test AMD modules loading.
+     */
+    public function test_js_call_amd() {
+
+        $page = new moodle_page();
+
+        // Load an AMD module without a function call.
+        $page->requires->js_call_amd('theme_foobar/lightbox');
+
+        // Load an AMD module and call its function without parameters.
+        $page->requires->js_call_amd('theme_foobar/demo_one', 'init');
+
+        // Load an AMD module and call its function with some parameters.
+        $page->requires->js_call_amd('theme_foobar/demo_two', 'init', [
+            'foo',
+            'keyWillIgnored' => 'baz',
+            [42, 'xyz'],
+        ]);
+
+        $html = $page->requires->get_end_code();
+
+        $modname = 'theme_foobar/lightbox';
+        $this->assertStringContainsString("M.util.js_pending('{$modname}'); require(['{$modname}'], function(amd) {M.util.js_complete('{$modname}');});", $html);
+
+        $modname = 'theme_foobar/demo_one';
+        $this->assertStringContainsString("M.util.js_pending('{$modname}'); require(['{$modname}'], function(amd) {amd.init(); M.util.js_complete('{$modname}');});", $html);
+
+        $modname = 'theme_foobar/demo_two';
+        $this->assertStringContainsString("M.util.js_pending('{$modname}'); require(['{$modname}'], function(amd) {amd.init(\"foo\", \"baz\", [42,\"xyz\"]); M.util.js_complete('{$modname}');});", $html);
+    }
 }

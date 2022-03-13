@@ -90,13 +90,13 @@ class block_settings extends block_base {
     }
 
     function get_required_javascript() {
+        $adminnode = $this->page->settingsnav->find('siteadministration', navigation_node::TYPE_SITE_ADMIN);
         parent::get_required_javascript();
         $arguments = array(
-            'id' => $this->instance->id,
-            'instance' => $this->instance->id,
-            'candock' => $this->instance_can_be_docked()
+            'instanceid' => $this->instance->id,
+            'adminnodeid' => $adminnode ? $adminnode->id : null
         );
-        $this->page->requires->yui_module('moodle-block_navigation-navigation', 'M.block_navigation.init_add_tree', array($arguments));
+        $this->page->requires->js_call_amd('block_settings/settingsblock', 'init', $arguments);
     }
 
     /**
@@ -158,5 +158,21 @@ class block_settings extends block_base {
      */
     public function get_aria_role() {
         return 'navigation';
+    }
+
+    /**
+     * Return the plugin config settings for external functions.
+     *
+     * @return stdClass the configs for both the block instance and plugin
+     * @since Moodle 3.8
+     */
+    public function get_config_for_external() {
+        // Return all settings for all users since it is safe (no private keys, etc..).
+        $configs = !empty($this->config) ? $this->config : new stdClass();
+
+        return (object) [
+            'instance' => $configs,
+            'plugin' => new stdClass(),
+        ];
     }
 }

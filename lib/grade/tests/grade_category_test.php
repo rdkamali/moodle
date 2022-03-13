@@ -48,7 +48,9 @@ class core_grade_category_testcase extends grade_base_testcase {
         $this->sub_test_grade_category_get_grade_item();
         $this->sub_test_grade_category_load_parent_category();
         $this->sub_test_grade_category_get_parent_category();
-        $this->sub_test_grade_category_get_name();
+        $this->sub_test_grade_category_get_name_escaped();
+        $this->sub_test_grade_category_get_name_unescaped();
+        $this->sub_test_grade_category_generate_grades_aggregationweight();
         $this->sub_test_grade_category_set_parent();
         $this->sub_test_grade_category_get_final();
         $this->sub_test_grade_category_get_sortorder();
@@ -62,6 +64,7 @@ class core_grade_category_testcase extends grade_base_testcase {
         $this->sub_test_grade_category_is_hidden();
         $this->sub_test_grade_category_set_hidden();
         $this->sub_test_grade_category_can_control_visibility();
+        $this->sub_test_grade_category_total_visibility();
 
         // This won't work until MDL-11837 is complete.
         // $this->sub_test_grade_category_generate_grades();
@@ -236,6 +239,68 @@ class core_grade_category_testcase extends grade_base_testcase {
         $grade_category->load_grade_item();
 
         $this->assertEquals(1, $grade_category->grade_item->needsupdate);
+    }
+
+    /**
+     * Tests the setting of the grade_grades aggregationweight column.
+     * Currently, this is only a regression test for MDL-51715.
+     * This must be run before sub_test_grade_category_set_parent(), which alters
+     * the fixture.
+     */
+    protected function sub_test_grade_category_generate_grades_aggregationweight() {
+        global $DB;
+
+        // Start of regression test for MDL-51715.
+        // grade_categories [1] and [2] are child categories of [0]
+        // Ensure that grades have been generated with fixture data.
+        $childcat1 = new grade_category($this->grade_categories[1]);
+        $childcat1itemid = $childcat1->load_grade_item()->id;
+        $childcat1->generate_grades();
+        $childcat2 = new grade_category($this->grade_categories[2]);
+        $childcat2itemid = $childcat2->load_grade_item()->id;
+        $childcat2->generate_grades();
+        $parentcat = new grade_category($this->grade_categories[0]);
+        $parentcat->generate_grades();
+
+        // Drop low and and re-generate to produce 'dropped' aggregation status.
+        $parentcat->droplow = 1;
+        $parentcat->generate_grades();
+
+        $this->assertTrue($DB->record_exists_select(
+                                     'grade_grades',
+                                     "aggregationstatus='dropped' and itemid in (?,?)",
+                                     array($childcat1itemid, $childcat2itemid)));
+        $this->assertFalse($DB->record_exists_select(
+                                     'grade_grades',
+                                     "aggregationstatus='dropped' and aggregationweight > 0.00"),
+                           "aggregationweight should be 0.00 if aggregationstatus=='dropped'");
+
+        // Reset grade data to be consistent with fixture data.
+        $parentcat->droplow = 0;
+        $parentcat->generate_grades();
+
+        // Blank out the final grade for one of the child categories and re-generate
+        // to produce 'novalue' aggregationstatus.  Direct DB update is testing shortcut.
+        $DB->set_field('grade_grades', 'finalgrade', null, array('itemid'=>$childcat1itemid));
+        $parentcat->generate_grades();
+
+        $this->assertFalse($DB->record_exists_select(
+                                     'grade_grades',
+                                     "aggregationstatus='dropped' and itemid in (?,?)",
+                                     array($childcat1itemid, $childcat2itemid)));
+        $this->assertTrue($DB->record_exists_select(
+                                     'grade_grades',
+                                     "aggregationstatus='novalue' and itemid = ?",
+                                     array($childcat1itemid)));
+        $this->assertFalse($DB->record_exists_select(
+                                     'grade_grades',
+                                     "aggregationstatus='novalue' and aggregationweight > 0.00"),
+                           "aggregationweight should be 0.00 if aggregationstatus=='novalue'");
+
+        // Re-generate to be consistent with fixture data.
+        $childcat1->generate_grades();
+        $parentcat->generate_grades();
+        // End of regression test for MDL-51715.
     }
 
     /**
@@ -628,10 +693,24 @@ class core_grade_category_testcase extends grade_base_testcase {
         $this->assertEquals($this->grade_categories[0]->id, $parent_category->id);
     }
 
-    protected function sub_test_grade_category_get_name() {
+    /**
+     * Tests the getter of the category fullname with escaped HTML.
+     */
+    protected function sub_test_grade_category_get_name_escaped() {
         $category = new grade_category($this->grade_categories[0]);
         $this->assertTrue(method_exists($category, 'get_name'));
-        $this->assertEquals($this->grade_categories[0]->fullname, $category->get_name());
+        $this->assertEquals(format_string($this->grade_categories[0]->fullname, true, ['escape' => true]),
+            $category->get_name(true));
+    }
+
+    /**
+     * Tests the getter of the category fullname with unescaped HTML.
+     */
+    protected function sub_test_grade_category_get_name_unescaped() {
+        $category = new grade_category($this->grade_categories[0]);
+        $this->assertTrue(method_exists($category, 'get_name'));
+        $this->assertEquals(format_string($this->grade_categories[0]->fullname, true, ['escape' => false]),
+            $category->get_name(false));
     }
 
     protected function sub_test_grade_category_set_parent() {
@@ -721,7 +800,7 @@ class core_grade_category_testcase extends grade_base_testcase {
     protected function sub_test_grade_category_set_hidden() {
         $category = new grade_category($this->grade_categories[0]);
         $this->assertTrue(method_exists($category, 'set_hidden'));
-        $category->set_hidden(1);
+        $category->set_hidden(1, true);
         $category->load_grade_item();
         $this->assertEquals(true, $category->grade_item->is_hidden());
     }
@@ -794,5 +873,44 @@ class core_grade_category_testcase extends grade_base_testcase {
         $this->assertFalse(grade_category::aggregation_uses_extracredit(GRADE_AGGREGATE_MEDIAN));
         $this->assertFalse(grade_category::aggregation_uses_extracredit(GRADE_AGGREGATE_MIN));
         $this->assertFalse(grade_category::aggregation_uses_extracredit(GRADE_AGGREGATE_MODE));
+    }
+
+    /**
+     * Test for category total visibility.
+     */
+    protected function sub_test_grade_category_total_visibility() {
+        // 15 is a manual grade item in grade_categories[5].
+        $category = new grade_category($this->grade_categories[5], true);
+        $gradeitem = new grade_item($this->grade_items[15], true);
+
+        // Hide grade category.
+        $category->set_hidden(true, true);
+        $this->assertTrue($category->is_hidden());
+        // Category total is hidden.
+        $categorytotal = $category->get_grade_item();
+        $this->assertTrue($categorytotal->is_hidden());
+        // Manual grade is hidden.
+        $gradeitem->update_from_db();
+        $this->assertTrue($gradeitem->is_hidden());
+
+        // Unhide manual grade item.
+        $gradeitem->set_hidden(false);
+        $this->assertFalse($gradeitem->is_hidden());
+        // Category is unhidden.
+        $category->update_from_db();
+        $this->assertFalse($category->is_hidden());
+        // Category total remain hidden.
+        $categorytotal = $category->get_grade_item();
+        $this->assertTrue($categorytotal->is_hidden());
+
+        // Edit manual grade item.
+        $this->assertFalse($gradeitem->is_locked());
+        $gradeitem->set_locked(true);
+        $gradeitem->update_from_db();
+        $this->assertTrue($gradeitem->is_locked());
+        // Category total should still be hidden.
+        $category->update_from_db();
+        $categorytotal = $category->get_grade_item();
+        $this->assertTrue($categorytotal->is_hidden());
     }
 }

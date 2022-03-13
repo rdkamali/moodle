@@ -41,7 +41,7 @@ navigation_node::override_active_url(new moodle_url('/grade/edit/tree/index.php'
     array('id'=>$courseid)));
 
 if (!$course = $DB->get_record('course', array('id' => $courseid))) {
-    print_error('nocourseid');
+    print_error('invalidcourseid');
 }
 
 require_login($course);
@@ -109,14 +109,20 @@ $mform = new edit_item_form(null, array('current'=>$item, 'gpr'=>$gpr));
 if ($mform->is_cancelled()) {
     redirect($returnurl);
 
-} else if ($data = $mform->get_data(false)) {
-    // If unset, give the aggregationcoef a default based on parent aggregation method
+} else if ($data = $mform->get_data()) {
+
+    // This is a new item, and the category chosen is different than the default category.
+    if (empty($grade_item->id) && isset($data->parentcategory) && $parent_category->id != $data->parentcategory) {
+        $parent_category = grade_category::fetch(array('id' => $data->parentcategory));
+    }
+
+    // If unset, give the aggregation values a default based on parent aggregation method.
+    $defaults = grade_category::get_default_aggregation_coefficient_values($parent_category->aggregation);
     if (!isset($data->aggregationcoef) || $data->aggregationcoef == '') {
-        if ($parent_category->aggregation == GRADE_AGGREGATE_WEIGHTED_MEAN) {
-            $data->aggregationcoef = 1;
-        } else {
-            $data->aggregationcoef = 0;
-        }
+        $data->aggregationcoef = $defaults['aggregationcoef'];
+    }
+    if (!isset($data->weightoverride)) {
+        $data->weightoverride = $defaults['weightoverride'];
     }
 
     if (!isset($data->gradepass) || $data->gradepass == '') {
@@ -127,8 +133,11 @@ if ($mform->is_cancelled()) {
         $data->grademin = 0;
     }
 
-    $hidden      = empty($data->hidden) ? 0: $data->hidden;
-    $hiddenuntil = empty($data->hiddenuntil) ? 0: $data->hiddenuntil;
+    $hide = empty($data->hiddenuntil) ? 0 : $data->hiddenuntil;
+    if (!$hide) {
+        $hide = empty($data->hidden) ? 0 : $data->hidden;
+    }
+
     unset($data->hidden);
     unset($data->hiddenuntil);
 
@@ -145,39 +154,47 @@ if ($mform->is_cancelled()) {
     }
     if (isset($data->aggregationcoef2) && $parent_category->aggregation == GRADE_AGGREGATE_SUM) {
         $data->aggregationcoef2 = $data->aggregationcoef2 / 100.0;
+    } else {
+        $data->aggregationcoef2 = $defaults['aggregationcoef2'];
     }
 
-    $grade_item = new grade_item(array('id'=>$id, 'courseid'=>$courseid));
-    grade_item::set_properties($grade_item, $data);
-    $grade_item->outcomeid = null;
+    $gradeitem = new grade_item(array('id' => $id, 'courseid' => $courseid));
+    $oldmin = $gradeitem->grademin;
+    $oldmax = $gradeitem->grademax;
+    grade_item::set_properties($gradeitem, $data);
+    $gradeitem->outcomeid = null;
 
     // Handle null decimals value
     if (!property_exists($data, 'decimals') or $data->decimals < 0) {
-        $grade_item->decimals = null;
+        $gradeitem->decimals = null;
     }
 
-    if (empty($grade_item->id)) {
-        $grade_item->itemtype = 'manual'; // all new items to be manual only
-        $grade_item->insert();
+    if (empty($gradeitem->id)) {
+        $gradeitem->itemtype = 'manual'; // All new items to be manual only.
+        $gradeitem->insert();
 
         // set parent if needed
         if (isset($data->parentcategory)) {
-            $grade_item->set_parent($data->parentcategory, 'gradebook');
+            $gradeitem->set_parent($data->parentcategory, false);
         }
 
     } else {
-        $grade_item->update();
+        $gradeitem->update();
+
+        if (!empty($data->rescalegrades) && $data->rescalegrades == 'yes') {
+            $newmin = $gradeitem->grademin;
+            $newmax = $gradeitem->grademax;
+            $gradeitem->rescale_grades_keep_percentage($oldmin, $oldmax, $newmin, $newmax, 'gradebook');
+        }
     }
 
-    // update hiding flag
-    if ($hiddenuntil) {
-        $grade_item->set_hidden($hiddenuntil, false);
-    } else {
-        $grade_item->set_hidden($hidden, false);
+    if ($item->cancontrolvisibility) {
+        // Update hiding flag.
+        $gradeitem->set_hidden($hide, true);
     }
 
-    $grade_item->set_locktime($locktime); // locktime first - it might be removed when unlocking
-    $grade_item->set_locked($locked, false, true);
+    $gradeitem->set_locktime($locktime); // Locktime first - it might be removed when unlocking.
+    $gradeitem->set_locked($locked, false, true);
 
     redirect($returnurl);
 }

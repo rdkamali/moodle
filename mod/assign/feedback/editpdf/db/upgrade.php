@@ -30,48 +30,67 @@ defined('MOODLE_INTERNAL') || die();
  * @return bool
  */
 function xmldb_assignfeedback_editpdf_upgrade($oldversion) {
-    global $CFG;
+    global $CFG, $DB;
 
-    if ($oldversion < 2013110800) {
+    $dbman = $DB->get_manager();
 
-        // Check that no stamps where uploaded.
-        $fs = get_file_storage();
-        $stamps = $fs->get_area_files(context_system::instance()->id, 'assignfeedback_editpdf',
-            'stamps', 0, "filename", false);
+    // Automatically generated Moodle v3.6.0 release upgrade line.
+    // Put any upgrade step following this.
 
-        // Add default stamps.
-        if (empty($stamps)) {
-            // List of default stamps.
-            $defaultstamps = array('smile.png', 'sad.png', 'tick.png', 'cross.png');
+    if ($oldversion < 2019010800) {
+        // Define table assignfeedback_editpdf_rot to be created.
+        $table = new xmldb_table('assignfeedback_editpdf_rot');
 
-            // Stamp file object.
-            $filerecord = new stdClass;
-            $filerecord->component = 'assignfeedback_editpdf';
-            $filerecord->contextid = context_system::instance()->id;
-            $filerecord->userid    = get_admin()->id;
-            $filerecord->filearea  = 'stamps';
-            $filerecord->filepath  = '/';
-            $filerecord->itemid    = 0;
+        // Adding fields to table assignfeedback_editpdf_rot.
+        $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+        $table->add_field('gradeid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $table->add_field('pageno', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $table->add_field('pathnamehash', XMLDB_TYPE_TEXT, null, null, XMLDB_NOTNULL, null, null);
+        $table->add_field('isrotated', XMLDB_TYPE_INTEGER, '1', null, XMLDB_NOTNULL, null, '0');
+        $table->add_field('degree', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
 
-            // Add all default stamps.
-            foreach ($defaultstamps as $stamp) {
-                $filerecord->filename = $stamp;
-                $fs->create_file_from_pathname($filerecord,
-                    $CFG->dirroot . '/mod/assign/feedback/editpdf/pix/' . $filerecord->filename);
-            }
+        // Adding keys to table assignfeedback_editpdf_rot.
+        $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+        $table->add_key('gradeid', XMLDB_KEY_FOREIGN, ['gradeid'], 'assign_grades', ['id']);
+
+        // Adding indexes to table assignfeedback_editpdf_rot.
+        $table->add_index('gradeid_pageno', XMLDB_INDEX_UNIQUE, ['gradeid', 'pageno']);
+
+        // Conditionally launch create table for assignfeedback_editpdf_rot.
+        if (!$dbman->table_exists($table)) {
+            $dbman->create_table($table);
         }
 
-        upgrade_plugin_savepoint(true, 2013110800, 'assignfeedback', 'editpdf');
+        // Editpdf savepoint reached.
+        upgrade_plugin_savepoint(true, 2019010800, 'assignfeedback', 'editpdf');
     }
 
-    // Moodle v2.6.0 release upgrade line.
+    // Automatically generated Moodle v3.7.0 release upgrade line.
     // Put any upgrade step following this.
 
-    // Moodle v2.7.0 release upgrade line.
+    // Automatically generated Moodle v3.8.0 release upgrade line.
     // Put any upgrade step following this.
 
-    // Moodle v2.8.0 release upgrade line.
+    // Automatically generated Moodle v3.9.0 release upgrade line.
     // Put any upgrade step following this.
+
+    if ($oldversion < 2021060400) {
+        // Remove submissions from the processing queue that have been processed.
+        $sql = 'DELETE
+                  FROM {assignfeedback_editpdf_queue}
+                 WHERE EXISTS (SELECT 1
+                                 FROM {assign_submission} s,
+                                      {assign_grades} g
+                                WHERE s.id = submissionid
+                                  AND s.assignment = g.assignment
+                                  AND s.userid = g.userid
+                                  AND s.attemptnumber = g.attemptnumber)';
+
+        $DB->execute($sql);
+
+        // Editpdf savepoint reached.
+        upgrade_plugin_savepoint(true, 2021060400, 'assignfeedback', 'editpdf');
+    }
 
     return true;
 }

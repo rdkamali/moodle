@@ -22,6 +22,8 @@
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+use \mod_assign\output\assign_submission_status;
+
 defined('MOODLE_INTERNAL') || die();
 
 /**
@@ -271,7 +273,7 @@ class assign_submission_plugin_submission implements renderable {
  */
 class assign_feedback_status implements renderable {
 
-    /** @var stding $gradefordisplay the student grade rendered into a format suitable for display */
+    /** @var string $gradefordisplay the student grade rendered into a format suitable for display */
     public $gradefordisplay = '';
     /** @var mixed the graded date (may be null) */
     public $gradeddate = 0;
@@ -287,6 +289,8 @@ class assign_feedback_status implements renderable {
     public $returnaction = '';
     /** @var array returnparams */
     public $returnparams = array();
+    /** @var bool canviewfullnames */
+    public $canviewfullnames = false;
 
     /**
      * Constructor
@@ -298,6 +302,7 @@ class assign_feedback_status implements renderable {
      * @param int $coursemoduleid
      * @param string $returnaction The action required to return to this page
      * @param array $returnparams The list of params required to return to this page
+     * @param bool $canviewfullnames
      */
     public function __construct($gradefordisplay,
                                 $gradeddate,
@@ -306,7 +311,8 @@ class assign_feedback_status implements renderable {
                                 $grade,
                                 $coursemoduleid,
                                 $returnaction,
-                                $returnparams) {
+                                $returnparams,
+                                $canviewfullnames) {
         $this->gradefordisplay = $gradefordisplay;
         $this->gradeddate = $gradeddate;
         $this->grader = $grader;
@@ -315,168 +321,18 @@ class assign_feedback_status implements renderable {
         $this->coursemoduleid = $coursemoduleid;
         $this->returnaction = $returnaction;
         $this->returnparams = $returnparams;
+        $this->canviewfullnames = $canviewfullnames;
     }
 }
 
 /**
  * Renderable submission status
  * @package   mod_assign
- * @copyright 2012 NetSpot {@link http://www.netspot.com.au}
+ * @copyright 2016 Damyon Wiese
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class assign_submission_status implements renderable {
-    /** @var int STUDENT_VIEW */
-    const STUDENT_VIEW     = 10;
-    /** @var int GRADER_VIEW */
-    const GRADER_VIEW      = 20;
-
-    /** @var int allowsubmissionsfromdate */
-    public $allowsubmissionsfromdate = 0;
-    /** @var bool alwaysshowdescription */
-    public $alwaysshowdescription = false;
-    /** @var stdClass the submission info (may be null) */
-    public $submission = null;
-    /** @var boolean teamsubmissionenabled - true or false */
-    public $teamsubmissionenabled = false;
-    /** @var stdClass teamsubmission the team submission info (may be null) */
-    public $teamsubmission = null;
-    /** @var stdClass submissiongroup the submission group info (may be null) */
-    public $submissiongroup = null;
-    /** @var array submissiongroupmemberswhoneedtosubmit list of users who still need to submit */
-    public $submissiongroupmemberswhoneedtosubmit = array();
-    /** @var bool submissionsenabled */
-    public $submissionsenabled = false;
-    /** @var bool locked */
-    public $locked = false;
-    /** @var bool graded */
-    public $graded = false;
-    /** @var int duedate */
-    public $duedate = 0;
-    /** @var int cutoffdate */
-    public $cutoffdate = 0;
-    /** @var array submissionplugins - the list of submission plugins */
-    public $submissionplugins = array();
-    /** @var string returnaction */
-    public $returnaction = '';
-    /** @var string returnparams */
-    public $returnparams = array();
-    /** @var int courseid */
-    public $courseid = 0;
-    /** @var int coursemoduleid */
-    public $coursemoduleid = 0;
-    /** @var int the view (STUDENT_VIEW OR GRADER_VIEW) */
-    public $view = self::STUDENT_VIEW;
-    /** @var bool canviewfullnames */
-    public $canviewfullnames = false;
-    /** @var bool canedit */
-    public $canedit = false;
-    /** @var bool cansubmit */
-    public $cansubmit = false;
-    /** @var int extensionduedate */
-    public $extensionduedate = 0;
-    /** @var context context */
-    public $context = 0;
-    /** @var bool blindmarking - Should we hide student identities from graders? */
-    public $blindmarking = false;
-    /** @var string gradingcontrollerpreview */
-    public $gradingcontrollerpreview = '';
-    /** @var string attemptreopenmethod */
-    public $attemptreopenmethod = 'none';
-    /** @var int maxattempts */
-    public $maxattempts = -1;
-    /** @var string gradingstatus */
-    public $gradingstatus = '';
-
-
-    /**
-     * Constructor
-     *
-     * @param int $allowsubmissionsfromdate
-     * @param bool $alwaysshowdescription
-     * @param stdClass $submission
-     * @param bool $teamsubmissionenabled
-     * @param stdClass $teamsubmission
-     * @param int $submissiongroup
-     * @param array $submissiongroupmemberswhoneedtosubmit
-     * @param bool $submissionsenabled
-     * @param bool $locked
-     * @param bool $graded
-     * @param int $duedate
-     * @param int $cutoffdate
-     * @param array $submissionplugins
-     * @param string $returnaction
-     * @param array $returnparams
-     * @param int $coursemoduleid
-     * @param int $courseid
-     * @param string $view
-     * @param bool $canedit
-     * @param bool $cansubmit
-     * @param bool $canviewfullnames
-     * @param int $extensionduedate - Any extension to the due date granted for this user
-     * @param context $context - Any extension to the due date granted for this user
-     * @param bool $blindmarking - Should we hide student identities from graders?
-     * @param string $gradingcontrollerpreview
-     * @param string $attemptreopenmethod - The method of reopening student attempts.
-     * @param int $maxattempts - How many attempts can a student make?
-     * @param string $gradingstatus - The submission status (ie. Graded, Not Released etc).
-     */
-    public function __construct($allowsubmissionsfromdate,
-                                $alwaysshowdescription,
-                                $submission,
-                                $teamsubmissionenabled,
-                                $teamsubmission,
-                                $submissiongroup,
-                                $submissiongroupmemberswhoneedtosubmit,
-                                $submissionsenabled,
-                                $locked,
-                                $graded,
-                                $duedate,
-                                $cutoffdate,
-                                $submissionplugins,
-                                $returnaction,
-                                $returnparams,
-                                $coursemoduleid,
-                                $courseid,
-                                $view,
-                                $canedit,
-                                $cansubmit,
-                                $canviewfullnames,
-                                $extensionduedate,
-                                $context,
-                                $blindmarking,
-                                $gradingcontrollerpreview,
-                                $attemptreopenmethod,
-                                $maxattempts,
-                                $gradingstatus) {
-        $this->allowsubmissionsfromdate = $allowsubmissionsfromdate;
-        $this->alwaysshowdescription = $alwaysshowdescription;
-        $this->submission = $submission;
-        $this->teamsubmissionenabled = $teamsubmissionenabled;
-        $this->teamsubmission = $teamsubmission;
-        $this->submissiongroup = $submissiongroup;
-        $this->submissiongroupmemberswhoneedtosubmit = $submissiongroupmemberswhoneedtosubmit;
-        $this->submissionsenabled = $submissionsenabled;
-        $this->locked = $locked;
-        $this->graded = $graded;
-        $this->duedate = $duedate;
-        $this->cutoffdate = $cutoffdate;
-        $this->submissionplugins = $submissionplugins;
-        $this->returnaction = $returnaction;
-        $this->returnparams = $returnparams;
-        $this->coursemoduleid = $coursemoduleid;
-        $this->courseid = $courseid;
-        $this->view = $view;
-        $this->canedit = $canedit;
-        $this->cansubmit = $cansubmit;
-        $this->canviewfullnames = $canviewfullnames;
-        $this->extensionduedate = $extensionduedate;
-        $this->context = $context;
-        $this->blindmarking = $blindmarking;
-        $this->gradingcontrollerpreview = $gradingcontrollerpreview;
-        $this->attemptreopenmethod = $attemptreopenmethod;
-        $this->maxattempts = $maxattempts;
-        $this->gradingstatus = $gradingstatus;
-    }
+class assign_submission_status_compact extends assign_submission_status implements renderable {
+    // Compact view of the submission status. Not in a table etc.
 }
 
 /**
@@ -547,51 +403,82 @@ class assign_attempt_history implements renderable {
 }
 
 /**
- * Renderable header
- * @package   mod_assign
- * @copyright 2012 NetSpot {@link http://www.netspot.com.au}
+ * Used to output the attempt history chooser for a particular assignment.
+ *
+ * @package mod_assign
+ * @copyright 2016 Damyon Wiese
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class assign_header implements renderable {
-    /** @var stdClass the assign record  */
-    public $assign = null;
-    /** @var mixed context|null the context record  */
-    public $context = null;
-    /** @var bool $showintro - show or hide the intro */
-    public $showintro = false;
-    /** @var int coursemoduleid - The course module id */
+class assign_attempt_history_chooser implements renderable, templatable {
+
+    /** @var array submissions - The list of previous attempts */
+    public $submissions = array();
+    /** @var array grades - The grades for the previous attempts */
+    public $grades = array();
+    /** @var int coursemoduleid - The cmid for the assignment */
     public $coursemoduleid = 0;
-    /** @var string $subpage optional subpage (extra level in the breadcrumbs) */
-    public $subpage = '';
-    /** @var string $preface optional preface (text to show before the heading) */
-    public $preface = '';
-    /** @var string $postfix optional postfix (text to show after the intro) */
-    public $postfix = '';
+    /** @var int userid - The current userid */
+    public $userid = 0;
 
     /**
      * Constructor
      *
-     * @param stdClass $assign  - the assign database record
-     * @param mixed $context context|null the course module context
-     * @param bool $showintro  - show or hide the intro
-     * @param int $coursemoduleid  - the course module id
-     * @param string $subpage  - an optional sub page in the navigation
-     * @param string $preface  - an optional preface to show before the heading
+     * @param array $submissions
+     * @param array $grades
+     * @param int $coursemoduleid
+     * @param int $userid
      */
-    public function __construct(stdClass $assign,
-                                $context,
-                                $showintro,
+    public function __construct($submissions,
+                                $grades,
                                 $coursemoduleid,
-                                $subpage='',
-                                $preface='',
-                                $postfix='') {
-        $this->assign = $assign;
-        $this->context = $context;
-        $this->showintro = $showintro;
+                                $userid) {
+        $this->submissions = $submissions;
+        $this->grades = $grades;
         $this->coursemoduleid = $coursemoduleid;
-        $this->subpage = $subpage;
-        $this->preface = $preface;
-        $this->postfix = $postfix;
+        $this->userid = $userid;
+    }
+
+    /**
+     * Function to export the renderer data in a format that is suitable for a
+     * mustache template.
+     *
+     * @param renderer_base $output Used to do a final render of any components that need to be rendered for export.
+     * @return stdClass|array
+     */
+    public function export_for_template(renderer_base $output) {
+        // Show newest to oldest.
+        $export = (object) $this;
+        $export->submissions = array_reverse($export->submissions);
+        $export->submissioncount = count($export->submissions);
+
+        foreach ($export->submissions as $i => $submission) {
+            $grade = null;
+            foreach ($export->grades as $onegrade) {
+                if ($onegrade->attemptnumber == $submission->attemptnumber) {
+                    $submission->grade = $onegrade;
+                    break;
+                }
+            }
+            if (!$submission) {
+                $submission = new stdClass();
+            }
+
+            $editbtn = '';
+
+            if ($submission->timemodified) {
+                $submissionsummary = userdate($submission->timemodified);
+            } else {
+                $submissionsummary = get_string('nosubmission', 'assign');
+            }
+
+            $attemptsummaryparams = array('attemptnumber' => $submission->attemptnumber + 1,
+                                          'submissionsummary' => $submissionsummary);
+            $submission->attemptsummary = get_string('attemptheading', 'assign', $attemptsummaryparams);
+            $submission->statussummary = get_string('submissionstatus_' . $submission->status, 'assign');
+
+        }
+
+        return $export;
     }
 }
 
@@ -638,10 +525,31 @@ class assign_grading_summary implements renderable {
     public $duedate = 0;
     /** @var int cutoffdate - The assignment cut off date (if one is set) */
     public $cutoffdate = 0;
+    /** @var int timelimit - The assignment time limit (if one is set) */
+    public $timelimit = 0;
     /** @var int coursemoduleid - The assignment course module id */
     public $coursemoduleid = 0;
     /** @var boolean teamsubmission - Are team submissions enabled for this assignment */
     public $teamsubmission = false;
+    /** @var boolean warnofungroupedusers - Do we need to warn people that there are users without groups */
+    public $warnofungroupedusers = false;
+    /** @var boolean relativedatesmode - Is the course a relative dates mode course or not */
+    public $courserelativedatesmode = false;
+    /** @var int coursestartdate - start date of the course as a unix timestamp*/
+    public $coursestartdate;
+    /** @var boolean cangrade - Can the current user grade students? */
+    public $cangrade = false;
+    /** @var boolean isvisible - Is the assignment's context module visible to students? */
+    public $isvisible = true;
+    /** @var cm_info $cm - The course module object. */
+    public $cm = null;
+
+    /** @var string no warning needed about group submissions */
+    const WARN_GROUPS_NO = false;
+    /** @var string warn about group submissions, as groups are required */
+    const WARN_GROUPS_REQUIRED = 'warnrequired';
+    /** @var string warn about group submissions, as some will submit as 'Default group' */
+    const WARN_GROUPS_OPTIONAL = 'warnoptional';
 
     /**
      * constructor
@@ -653,9 +561,16 @@ class assign_grading_summary implements renderable {
      * @param int $submissionssubmittedcount
      * @param int $cutoffdate
      * @param int $duedate
+     * @param int $timelimit
      * @param int $coursemoduleid
      * @param int $submissionsneedgradingcount
      * @param bool $teamsubmission
+     * @param string $warnofungroupedusers
+     * @param bool $courserelativedatesmode true if the course is using relative dates, false otherwise.
+     * @param int $coursestartdate unix timestamp representation of the course start date.
+     * @param bool $cangrade
+     * @param bool $isvisible
+     * @param cm_info|null $cm The course module object.
      */
     public function __construct($participantcount,
                                 $submissiondraftsenabled,
@@ -664,9 +579,16 @@ class assign_grading_summary implements renderable {
                                 $submissionssubmittedcount,
                                 $cutoffdate,
                                 $duedate,
+                                $timelimit,
                                 $coursemoduleid,
                                 $submissionsneedgradingcount,
-                                $teamsubmission) {
+                                $teamsubmission,
+                                $warnofungroupedusers,
+                                $courserelativedatesmode,
+                                $coursestartdate,
+                                $cangrade = true,
+                                $isvisible = true,
+                                cm_info $cm = null) {
         $this->participantcount = $participantcount;
         $this->submissiondraftsenabled = $submissiondraftsenabled;
         $this->submissiondraftscount = $submissiondraftscount;
@@ -674,9 +596,16 @@ class assign_grading_summary implements renderable {
         $this->submissionssubmittedcount = $submissionssubmittedcount;
         $this->duedate = $duedate;
         $this->cutoffdate = $cutoffdate;
+        $this->timelimit = $timelimit;
         $this->coursemoduleid = $coursemoduleid;
         $this->submissionsneedgradingcount = $submissionsneedgradingcount;
         $this->teamsubmission = $teamsubmission;
+        $this->warnofungroupedusers = $warnofungroupedusers;
+        $this->courserelativedatesmode = $courserelativedatesmode;
+        $this->coursestartdate = $coursestartdate;
+        $this->cangrade = $cangrade;
+        $this->isvisible = $isvisible;
+        $this->cm = $cm;
     }
 }
 
@@ -715,14 +644,16 @@ class assign_course_index_summary implements renderable {
      * @param string $submissioninfo - A string with either the number of submitted assignments, or the
      *                                 status of the current users submission depending on capabilities.
      * @param string $gradeinfo - The current users grade if they have been graded and it is not hidden.
+     * @param bool cangrade - Does this user have grade capability?
      */
-    public function add_assign_info($cmid, $cmname, $sectionname, $timedue, $submissioninfo, $gradeinfo) {
-        $this->assignments[] = array('cmid'=>$cmid,
-                               'cmname'=>$cmname,
-                               'sectionname'=>$sectionname,
-                               'timedue'=>$timedue,
-                               'submissioninfo'=>$submissioninfo,
-                               'gradeinfo'=>$gradeinfo);
+    public function add_assign_info($cmid, $cmname, $sectionname, $timedue, $submissioninfo, $gradeinfo, $cangrade = false) {
+        $this->assignments[] = ['cmid' => $cmid,
+                               'cmname' => $cmname,
+                               'sectionname' => $sectionname,
+                               'timedue' => $timedue,
+                               'submissioninfo' => $submissioninfo,
+                               'gradeinfo' => $gradeinfo,
+                               'cangrade' => $cangrade];
     }
 
 
@@ -755,11 +686,16 @@ class assign_files implements renderable {
      * @param int $sid
      * @param string $filearea
      * @param string $component
+     * @param stdClass $course
+     * @param stdClass $cm
      */
-    public function __construct(context $context, $sid, $filearea, $component) {
+    public function __construct(context $context, $sid, $filearea, $component, $course = null, $cm = null) {
         global $CFG;
+        if (empty($course) || empty($cm)) {
+            list($context, $course, $cm) = get_context_info_array($context->id);
+        }
+
         $this->context = $context;
-        list($context, $course, $cm) = get_context_info_array($context->id);
         $this->cm = $cm;
         $this->course = $course;
         $fs = get_file_storage();
@@ -774,7 +710,7 @@ class assign_files implements renderable {
 
         if (!empty($CFG->enableportfolios)) {
             require_once($CFG->libdir . '/portfoliolib.php');
-            if (count($files) >= 1 &&
+            if (count($files) >= 1 && !empty($sid) &&
                     has_capability('mod/assign:exportownsubmission', $this->context)) {
                 $button = new portfolio_add_button();
                 $callbackparams = array('cmid' => $this->cm->id,
@@ -803,12 +739,20 @@ class assign_files implements renderable {
      */
     public function preprocess($dir, $filearea, $component) {
         global $CFG;
+
         foreach ($dir['subdirs'] as $subdir) {
             $this->preprocess($subdir, $filearea, $component);
         }
         foreach ($dir['files'] as $file) {
             $file->portfoliobutton = '';
+
+            $file->timemodified = userdate(
+                $file->get_timemodified(),
+                get_string('strftimedatetime', 'langconfig')
+            );
+
             if (!empty($CFG->enableportfolios)) {
+                require_once($CFG->libdir . '/portfoliolib.php');
                 $button = new portfolio_add_button();
                 if (has_capability('mod/assign:exportownsubmission', $this->context)) {
                     $portfolioparams = array('cmid' => $this->cm->id, 'fileid' => $file->get_id());
@@ -831,7 +775,9 @@ class assign_files implements renderable {
                     $file->get_filename();
             $url = file_encode_url("$CFG->wwwroot/pluginfile.php", $path, true);
             $filename = $file->get_filename();
-            $file->fileurl = html_writer::link($url, $filename);
+            $file->fileurl = html_writer::link($url, $filename, [
+                    'target' => '_blank',
+                ]);
         }
     }
 }

@@ -226,11 +226,13 @@ abstract class sql_generator {
             $tablename = $table->getName();
         }
 
-        // get all tables in moodle database
-        $tables = $this->mdb->get_tables();
-        $exists = in_array($tablename, $tables);
+        if ($this->temptables->is_temptable($tablename)) {
+            return true;
+        }
 
-        return $exists;
+        // Get all tables in moodle database.
+        $tables = $this->mdb->get_tables();
+        return isset($tables[$tablename]);
     }
 
     /**
@@ -651,7 +653,7 @@ abstract class sql_generator {
     }
 
     /**
-     * Given one correct xmldb_table and the new name, returns the SQL statements
+     * Given one correct xmldb_table, returns the SQL statements
      * to drop it (inside one array). Works also for temporary tables.
      *
      * @param xmldb_table $xmldb_table The table to drop.
@@ -670,6 +672,17 @@ abstract class sql_generator {
         $results = array_merge($results, $extra_sentences);
 
         return $results;
+    }
+
+    /**
+     * Performs any clean up that needs to be done after a table is dropped.
+     *
+     * @param xmldb_table $table
+     */
+    public function cleanup_after_drop(xmldb_table $table): void {
+        if ($this->temptables->is_temptable($table->getName())) {
+            $this->temptables->delete_temptable($table->getName());
+        }
     }
 
     /**
@@ -1072,8 +1085,11 @@ abstract class sql_generator {
         // along all the request life, but never to return cached results
         // We need this because sql statements are created before executing
         // them, hence names doesn't exist "physically" yet in DB, so we need
-        // to known which ones have been used
-        static $used_names = array();
+        // to known which ones have been used.
+        // We track all the keys used, and the previous counters to make subsequent creates faster.
+        // This may happen a lot with things like bulk backups or restores.
+        static $usednames = array();
+        static $previouscounters = array();
 
         // Use standard naming. See http://docs.moodle.org/en/XMLDB_key_and_index_naming
         $tablearr = explode ('_', $tablename);
@@ -1092,17 +1108,26 @@ abstract class sql_generator {
         $maxlengthwithoutsuffix = $this->names_max_length - strlen($suffix) - ($suffix ? 1 : 0);
         $namewithsuffix = substr($name, 0, $maxlengthwithoutsuffix) . ($suffix ? ('_' . $suffix) : '');
 
-        // If the calculated name is in the cache, or if we detect it by introspecting the DB let's modify if
-        $counter = 1;
-        while (in_array($namewithsuffix, $used_names) || $this->isNameInUse($namewithsuffix, $suffix, $tablename)) {
+        if (isset($previouscounters[$name])) {
+            // If we have a counter stored, we will need to modify the key to the next counter location.
+            $counter = $previouscounters[$name] + 1;
+            $namewithsuffix = substr($name, 0, $maxlengthwithoutsuffix - strlen($counter)) .
+                    $counter . ($suffix ? ('_' . $suffix) : '');
+        } else {
+            $counter = 1;
+        }
+
+        // If the calculated name is in the cache, or if we detect it by introspecting the DB let's modify it.
+        while (isset($usednames[$namewithsuffix]) || $this->isNameInUse($namewithsuffix, $suffix, $tablename)) {
             // Now iterate until not used name is found, incrementing the counter
             $counter++;
             $namewithsuffix = substr($name, 0, $maxlengthwithoutsuffix - strlen($counter)) .
                     $counter . ($suffix ? ('_' . $suffix) : '');
         }
 
-        // Add the name to the cache
-        $used_names[] = $namewithsuffix;
+        // Add the name to the cache. Using key look with isset because it is much faster than in_array.
+        $usednames[$namewithsuffix] = true;
+        $previouscounters[$name] = $counter;
 
         // Quote it if necessary (reserved words)
         $namewithsuffix = $this->getEncQuoted($namewithsuffix);
@@ -1115,7 +1140,7 @@ abstract class sql_generator {
      * if it's a reserved word
      *
      * @param string|array $input String to quote.
-     * @return string Quoted string.
+     * @return string|array Quoted string.
      */
     public function getEncQuoted($input) {
 
@@ -1212,7 +1237,7 @@ abstract class sql_generator {
         }
 
         // Now call the standard $DB->sql_concat() DML function
-        return call_user_func_array(array($this->mdb, 'sql_concat'), $elements);
+        return call_user_func_array(array($this->mdb, 'sql_concat'), array_values($elements));
     }
 
     /**
@@ -1393,5 +1418,45 @@ abstract class sql_generator {
         $s = str_replace("\0","\\\0", $s);
         $s = str_replace("'",  "\\'", $s);
         return $s;
+    }
+
+    /**
+     * Get the fields from an index definition that might be null.
+     * @param xmldb_table $xmldb_table the table
+     * @param xmldb_index $xmldb_index the index
+     * @return array list of fields in the index definition that might be null.
+     */
+    public function get_nullable_fields_in_index($xmldb_table, $xmldb_index) {
+        global $DB;
+
+        // If we don't have the field info passed in, we need to query it from the DB.
+        $fieldsfromdb = null;
+
+        $nullablefields = [];
+        foreach ($xmldb_index->getFields() as $fieldname) {
+            if ($field = $xmldb_table->getField($fieldname)) {
+                // We have the field details in the table definition.
+                if ($field->getNotNull() !== XMLDB_NOTNULL) {
+                    $nullablefields[] = $fieldname;
+                }
+
+            } else {
+                // We don't have the table definition loaded. Need to
+                // inspect the database.
+                if ($fieldsfromdb === null) {
+                    $fieldsfromdb = $DB->get_columns($xmldb_table->getName(), false);
+                }
+                if (!isset($fieldsfromdb[$fieldname])) {
+                    throw new coding_exception('Unknown field ' . $fieldname .
+                            ' in index ' . $xmldb_index->getName());
+                }
+
+                if (!$fieldsfromdb[$fieldname]->not_null) {
+                    $nullablefields[] = $fieldname;
+                }
+            }
+        }
+
+        return $nullablefields;
     }
 }

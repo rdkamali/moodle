@@ -57,8 +57,12 @@ $mform->set_data($data);
     $PAGE->navbar->add($strimportquestions);
     $PAGE->set_title($strimportquestions);
     $PAGE->set_heading($course->fullname);
+    $PAGE->activityheader->set_attrs([
+        'hidecompletion' => true,
+        'description' => ''
+    ]);
+    $PAGE->add_body_class('limitedwidth');
     echo $OUTPUT->header();
-    echo $OUTPUT->heading(format_string($lesson->name), 2);
     echo $OUTPUT->heading_with_help($strimportquestions, 'importquestions', 'lesson', '', '', 3);
 
 if ($data = $mform->get_data()) {
@@ -66,9 +70,7 @@ if ($data = $mform->get_data()) {
     require_sesskey();
 
     $realfilename = $mform->get_new_filename('questionfile');
-    //TODO: Leave all imported questions in Questionimport for now.
-    $importfile = "{$CFG->tempdir}/questionimport/{$realfilename}";
-    make_temp_directory('questionimport');
+    $importfile = make_request_directory() . "/{$realfilename}";
     if (!$result = $mform->save_file('questionfile', $importfile, true)) {
         throw new moodle_exception('uploadproblem');
     }

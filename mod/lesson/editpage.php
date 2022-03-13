@@ -32,8 +32,11 @@ $pageid = required_param('pageid', PARAM_INT);
 $id     = required_param('id', PARAM_INT);         // Course Module ID
 $qtype  = optional_param('qtype', 0, PARAM_INT);
 $edit   = optional_param('edit', false, PARAM_BOOL);
-$returnto = optional_param('returnto', null, PARAM_URL);
-if (empty($returnto)) {
+$returnto = optional_param('returnto', null, PARAM_LOCALURL);
+
+if (!empty($returnto)) {
+    $returnto = new moodle_url($returnto);
+} else {
     $returnto = new moodle_url('/mod/lesson/edit.php', array('id' => $id));
     $returnto->set_anchor('lesson-' . $pageid);
 }
@@ -49,6 +52,8 @@ require_capability('mod/lesson:edit', $context);
 
 $PAGE->set_url('/mod/lesson/editpage.php', array('pageid'=>$pageid, 'id'=>$id, 'qtype'=>$qtype));
 $PAGE->set_pagelayout('admin');
+$PAGE->set_secondary_active_tab('modulepage');
+$PAGE->add_body_class('limitedwidth');
 
 if ($edit) {
     $editpage = lesson_page::load($pageid, $lesson);
@@ -112,8 +117,7 @@ if ($edit) {
         $answereditor = 'answer_editor['.$answerscount.']';
         if (is_array($data->$answereditor)) {
             $answerdata = $data->$answereditor;
-            if ($answerdata['format'] != FORMAT_MOODLE) {
-                $answerdata = $data->$answereditor;
+            if ($mform->get_answer_format() === LESSON_ANSWER_HTML) {
                 $answerdraftid = file_get_submitted_draft_itemid($answereditor);
                 $answertext = file_prepare_draft_area($answerdraftid, $PAGE->cm->context->id,
                         'mod_lesson', 'page_answers', $answer->id, $editoroptions, $answerdata['text']);
@@ -126,7 +130,7 @@ if ($edit) {
         $responseeditor = 'response_editor['.$answerscount.']';
         if (is_array($data->$responseeditor)) {
             $responsedata = $data->$responseeditor;
-            if ($responsedata['format'] != FORMAT_MOODLE) {
+            if ($mform->get_response_format() === LESSON_ANSWER_HTML) {
                 $responsedraftid = file_get_submitted_draft_itemid($responseeditor);
                 $responsetext = file_prepare_draft_area($responsedraftid, $PAGE->cm->context->id,
                         'mod_lesson', 'page_responses', $answer->id, $editoroptions, $responsedata['text']);
@@ -138,6 +142,8 @@ if ($edit) {
         }
         $answerscount++;
     }
+    // Let the lesson pages make updates if required.
+    $data = $editpage->update_form_data($data);
 
     $mform->set_data($data);
     $PAGE->navbar->add(get_string('edit'), new moodle_url('/mod/lesson/edit.php', array('id'=>$id)));

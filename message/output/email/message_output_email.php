@@ -37,7 +37,7 @@ class message_output_email extends message_output {
      * @param object $eventdata the event data submitted by the message sender plus $eventdata->savedmessageid
      */
     function send_message($eventdata) {
-        global $CFG;
+        global $CFG, $DB;
 
         // skip any messaging suspended and deleted users
         if ($eventdata->userto->auth === 'nologin' or $eventdata->userto->suspended or $eventdata->userto->deleted) {
@@ -90,8 +90,25 @@ class message_output_email extends message_output {
             }
         }
 
-        $result = email_to_user($recipient, $eventdata->userfrom, $eventdata->subject, $eventdata->fullmessage,
-                                $eventdata->fullmessagehtml, $attachment, $attachname, true, $replyto, $replytoname);
+        // We email messages from private conversations straight away, but for group we add them to a table to be sent later.
+        $emailuser = true;
+        if (!$eventdata->notification) {
+            if ($eventdata->conversationtype == \core_message\api::MESSAGE_CONVERSATION_TYPE_GROUP) {
+                $emailuser = false;
+            }
+        }
+
+        if ($emailuser) {
+            $result = email_to_user($recipient, $eventdata->userfrom, $eventdata->subject, $eventdata->fullmessage,
+                $eventdata->fullmessagehtml, $attachment, $attachname, true, $replyto, $replytoname);
+        } else {
+            $messagetosend = new stdClass();
+            $messagetosend->useridfrom = $eventdata->userfrom->id;
+            $messagetosend->useridto = $recipient->id;
+            $messagetosend->conversationid = $eventdata->convid;
+            $messagetosend->messageid = $eventdata->savedmessageid;
+            $result = $DB->insert_record('message_email_messages', $messagetosend, false);
+        }
 
         // Remove an attachment file if any.
         if (!empty($attachment) && file_exists($attachment)) {
@@ -108,20 +125,47 @@ class message_output_email extends message_output {
      */
     function config_form($preferences){
         global $USER, $OUTPUT, $CFG;
+        $string = '';
 
-        if (empty($CFG->messagingallowemailoverride)) {
-            return null;
+        $choices = array();
+        $choices['0'] = get_string('textformat');
+        $choices['1'] = get_string('htmlformat');
+        $current = $preferences->mailformat;
+        $string .= $OUTPUT->container(html_writer::label(get_string('emailformat'), 'mailformat'));
+        $string .= $OUTPUT->container(html_writer::select($choices, 'mailformat', $current, false, array('id' => 'mailformat')));
+        $string .= html_writer::empty_tag('input', array('type' => 'hidden', 'name' => 'userid', 'value' => $USER->id));
+
+        if (!empty($CFG->allowusermailcharset)) {
+            $choices = array();
+            $charsets = get_list_of_charsets();
+            if (!empty($CFG->sitemailcharset)) {
+                $choices['0'] = get_string('site').' ('.$CFG->sitemailcharset.')';
+            } else {
+                $choices['0'] = get_string('site').' (UTF-8)';
+            }
+            $choices = array_merge($choices, $charsets);
+            $current = $preferences->mailcharset;
+            $string .= $OUTPUT->container(html_writer::label(get_string('emailcharset'), 'mailcharset'));
+            $string .= $OUTPUT->container(
+                html_writer::select($choices, 'preference_mailcharset', $current, false, array('id' => 'mailcharset'))
+            );
         }
 
-        $inputattributes = array('size'=>'30', 'name'=>'email_email', 'value'=>$preferences->email_email);
-        $string = get_string('email','message_email') . ': ' . html_writer::empty_tag('input', $inputattributes);
+        if (!empty($CFG->messagingallowemailoverride)) {
+            $inputattributes = array('size' => '30', 'name' => 'email_email', 'value' => $preferences->email_email,
+                    'id' => 'email_email');
+            $string .= html_writer::label(get_string('email', 'message_email'), 'email_email');
+            $string .= $OUTPUT->container(html_writer::empty_tag('input', $inputattributes));
 
-        if (empty($preferences->email_email) && !empty($preferences->userdefaultemail)) {
-            $string .= get_string('ifemailleftempty', 'message_email', $preferences->userdefaultemail);
-        }
+            if (empty($preferences->email_email) && !empty($preferences->userdefaultemail)) {
+                $string .= $OUTPUT->container(get_string('ifemailleftempty', 'message_email', $preferences->userdefaultemail));
+            }
 
-        if (!empty($preferences->email_email) && !validate_email($preferences->email_email)) {
-            $string .= $OUTPUT->container(get_string('invalidemail'), 'error');
+            if (!empty($preferences->email_email) && !validate_email($preferences->email_email)) {
+                $string .= $OUTPUT->container(get_string('invalidemail'), 'error');
+            }
+
+            $string .= '<br/>';
         }
 
         return $string;
@@ -134,8 +178,23 @@ class message_output_email extends message_output {
      * @param array $preferences preferences array
      */
     function process_form($form, &$preferences){
+        global $CFG;
+
         if (isset($form->email_email)) {
-            $preferences['message_processor_email_email'] = $form->email_email;
+            $preferences['message_processor_email_email'] = clean_param($form->email_email, PARAM_EMAIL);
+        }
+        if (isset($form->preference_mailcharset)) {
+            $preferences['mailcharset'] = $form->preference_mailcharset;
+            if (!array_key_exists($preferences['mailcharset'], get_list_of_charsets())) {
+                $preferences['mailcharset'] = '0';
+            }
+        }
+        if (isset($form->mailformat) && isset($form->userid)) {
+            require_once($CFG->dirroot.'/user/lib.php');
+
+            $user = core_user::get_user($form->userid, '*', MUST_EXIST);
+            $user->mailformat = clean_param($form->mailformat, PARAM_INT);
+            user_update_user($user, false, false);
         }
     }
 
@@ -145,7 +204,7 @@ class message_output_email extends message_output {
      * @return int The default settings
      */
     public function get_default_messaging_settings() {
-        return MESSAGE_PERMITTED + MESSAGE_DEFAULT_LOGGEDIN + MESSAGE_DEFAULT_LOGGEDOFF;
+        return MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED;
     }
 
     /**

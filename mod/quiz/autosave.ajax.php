@@ -24,7 +24,7 @@
 
 define('AJAX_SCRIPT', true);
 
-require_once(dirname(__FILE__) . '/../../config.php');
+require_once(__DIR__ . '/../../config.php');
 require_once($CFG->dirroot . '/mod/quiz/locallib.php');
 
 // Remember the current time as the time any responses were submitted
@@ -35,9 +35,10 @@ require_sesskey();
 // Get submitted parameters.
 $attemptid = required_param('attempt',  PARAM_INT);
 $thispage  = optional_param('thispage', 0, PARAM_INT);
+$cmid      = optional_param('cmid', null, PARAM_INT);
 
 $transaction = $DB->start_delegated_transaction();
-$attemptobj = quiz_attempt::create($attemptid);
+$attemptobj = quiz_create_attempt_handling_errors($attemptid, $cmid);
 
 // Check login.
 require_login($attemptobj->get_course(), false, $attemptobj->get_cm());
@@ -60,4 +61,15 @@ if ($attemptobj->is_finished()) {
 
 $attemptobj->process_auto_save($timenow);
 $transaction->allow_commit();
-echo 'OK';
+
+// Calculate time remaining.
+$timeleft = $attemptobj->get_time_left_display($timenow);
+
+// Build response, only returning timeleft if quiz in-progress
+// has a time limit.
+$r = new stdClass();
+$r->status = "OK";
+if ($timeleft !== false) {
+    $r->timeleft = $timeleft;
+}
+echo json_encode($r);

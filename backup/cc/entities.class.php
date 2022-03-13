@@ -76,7 +76,7 @@ class entities {
         cc2moodle::log_action('Load the XML resource file: '.$path_to_file);
 
         if (!$resource->load($path_to_file)) {
-            cc2moodle::log_action('Cannot load the XML resource file: ' . $path_to_file, true);
+            cc2moodle::log_action('Cannot load the XML resource file: ' . $path_to_file, false);
         }
 
         return $resource;
@@ -198,7 +198,7 @@ class entities {
     }
 
     public function move_files($files, $destination_folder) {
-        global $CFG;
+        global $CFG, $OUTPUT;
 
         if (!empty($files)) {
 
@@ -220,7 +220,7 @@ class entities {
                 }
 
                 if (!$copy_success) {
-                    notify('WARNING: Cannot copy the file ' . $source . ' to ' . $destination);
+                    echo $OUTPUT->notification('WARNING: Cannot copy the file ' . $source . ' to ' . $destination);
                     cc2moodle::log_action('Cannot copy the file ' . $source . ' to ' . $destination, false);
                 }
             }

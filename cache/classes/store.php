@@ -81,15 +81,11 @@ interface cache_store_interface {
     public static function initialise_test_instance(cache_definition $definition);
 
     /**
-     * Initialises a test instance for unit tests.
+     * Generates the appropriate configuration required for unit testing.
      *
-     * This differs from initialise_test_instance in that it doesn't rely on interacting with the config table.
-     *
-     * @since 2.8
-     * @param cache_definition $definition
-     * @return cache_store|false
+     * @return array Array of unit test configuration data to be used by initialise().
      */
-    public static function initialise_unit_test_instance(cache_definition $definition);
+    public static function unit_test_configuration();
 }
 
 /**
@@ -126,6 +122,14 @@ abstract class cache_store implements cache_store_interface {
      */
     const IS_SEARCHABLE = 8;
 
+    /**
+     * The cache store dereferences objects.
+     *
+     * When set, loaders will assume that all data coming from this store has already had all references
+     * resolved.  So even for complex object structures it will not try to remove references again.
+     */
+    const DEREFERENCES_OBJECTS = 16;
+
     // Constants for the modes of a cache store
 
     /**
@@ -140,6 +144,15 @@ abstract class cache_store implements cache_store_interface {
      * Request caches. Static caches really.
      */
     const MODE_REQUEST = 4;
+    /**
+     * Static caches.
+     */
+    const STATIC_ACCEL = '** static accel. **';
+
+    /**
+     * Returned from get_last_io_bytes if this cache store doesn't support counting bytes read/sent.
+     */
+    const IO_BYTES_NOT_SUPPORTED = -1;
 
     /**
      * Constructs an instance of the cache store.
@@ -256,12 +269,12 @@ abstract class cache_store implements cache_store_interface {
     abstract public function purge();
 
     /**
-     * Performs any necessary clean up when the store instance is being deleted.
-     *
      * @deprecated since 2.5
+     * @see \cache_store::instance_deleted()
      */
     public function cleanup() {
-        debugging('This function has been renamed to instance_deleted. Please update your calls.', DEBUG_DEVELOPER);
+        throw new coding_exception('cache_store::cleanup() can not be used anymore.' .
+            ' Please use cache_store::instance_deleted() instead.');
     }
 
     /**
@@ -335,6 +348,15 @@ abstract class cache_store implements cache_store_interface {
     }
 
     /**
+     * Returns true if the store automatically dereferences objects.
+     *
+     * @return bool
+     */
+    public function supports_dereferencing_objects() {
+        return $this::get_supported_features() & self::DEREFERENCES_OBJECTS;
+    }
+
+    /**
      * Creates a clone of this store instance ready to be initialised.
      *
      * This method is used so that a cache store needs only be constructed once.
@@ -353,20 +375,6 @@ abstract class cache_store implements cache_store_interface {
     }
 
     /**
-     * Initialises a test instance for unit tests.
-     *
-     * This differs from initialise_test_instance in that it doesn't rely on interacting with the config table.
-     * By default however it calls initialise_test_instance to support backwards compatibility.
-     *
-     * @since 2.8
-     * @param cache_definition $definition
-     * @return cache_store|false
-     */
-    public static function initialise_unit_test_instance(cache_definition $definition) {
-        return static::initialise_test_instance($definition);
-    }
-
-    /**
      * Can be overridden to return any warnings this store instance should make to the admin.
      *
      * This should be used to notify things like configuration conflicts etc.
@@ -379,6 +387,123 @@ abstract class cache_store implements cache_store_interface {
     }
 
     /**
+     * Estimates the storage size used within this cache if the given value is stored with the
+     * given key.
+     *
+     * This function is not exactly accurate; it does not necessarily take into account all the
+     * overheads involved. It is only intended to give a good idea of the relative size of
+     * different caches.
+     *
+     * The default implementation serializes both key and value and sums the lengths (as a rough
+     * estimate which is probably good enough for everything unless the cache offers compression).
+     *
+     * @param mixed $key Key
+     * @param mixed $value Value
+     * @return int Size in bytes
+     */
+    public function estimate_stored_size($key, $value): int {
+        return strlen(serialize($key)) + strlen(serialize($value));
+    }
+
+    /**
+     * Gets the amount of memory/storage currently used by this cache store if known.
+     *
+     * This value should be obtained quickly from the store itself, if available.
+     *
+     * This is the total memory usage of the entire store, not for ther specific cache in question.
+     *
+     * Where not supported (default), will always return null.
+     *
+     * @return int|null Amount of memory used in bytes or null
+     */
+    public function store_total_size(): ?int {
+        return null;
+    }
+
+    /**
+     * Gets the amount of memory used by this specific cache within the store, if known.
+     *
+     * This function may be slow and should not be called in normal usage, only for administration
+     * pages. The value is usually an estimate, and may not be available at all.
+     *
+     * When estimating, a number of sample items will be used for the estimate. If set to 50
+     * (default), then this function will retrieve 50 random items and use that to estimate the
+     * total size.
+     *
+     * The return value has the following fields:
+     * - supported (true if any other values are completed)
+     * - items (number of items)
+     * - mean (mean size of one item in bytes)
+     * - sd (standard deviation of item size in bytes, based on sample)
+     * - margin (95% confidence margin for mean - will be 0 if exactly computed)
+     *
+     * @param int $samplekeys Number of samples to use
+     * @return stdClass Object with information about the store size
+     */
+    public function cache_size_details(int $samplekeys = 50): stdClass {
+        $result = (object)[
+            'supported' => false,
+            'items' => 0,
+            'mean' => 0,
+            'sd' => 0,
+            'margin' => 0
+        ];
+
+        // If this cache isn't searchable, we don't know the answer.
+        if (!$this->is_searchable()) {
+            return $result;
+        }
+        $result->supported = true;
+
+        // Get all the keys for the cache.
+        $keys = $this->find_all();
+        $result->items = count($keys);
+
+        // Don't do anything else if there are no items.
+        if ($result->items === 0) {
+            return $result;
+        }
+
+        // Select N random keys.
+        $exact = false;
+        if ($result->items <= $samplekeys) {
+            $samples = $keys;
+            $exact = true;
+        } else {
+            $indexes = array_rand($keys, $samplekeys);
+            $samples = [];
+            foreach ($indexes as $index) {
+                $samples[] = $keys[$index];
+            }
+        }
+
+        // Get the random items from cache and estimate the size of each.
+        $sizes = [];
+        foreach ($samples as $samplekey) {
+            $value = $this->get($samplekey);
+            $sizes[] = $this->estimate_stored_size($samplekey, $value);
+        }
+        $number = count($sizes);
+
+        // Calculate the mean and standard deviation.
+        $result->mean = array_sum($sizes) / $number;
+        $squarediff = 0;
+        foreach ($sizes as $size) {
+            $squarediff += ($size - $result->mean) ** 2;
+        }
+        $squarediff /= $number;
+        $result->sd = sqrt($squarediff);
+
+        // If it's not exact, also calculate the confidence interval.
+        if (!$exact) {
+            // 95% confidence has a Z value of 1.96.
+            $result->margin = (1.96 * $result->sd) / sqrt($number);
+        }
+
+        return $result;
+    }
+
+    /**
      * Returns true if this cache store instance is both suitable for testing, and ready for testing.
      *
      * Cache stores that support being used as the default store for unit and acceptance testing should
@@ -388,5 +513,24 @@ abstract class cache_store implements cache_store_interface {
      */
     public static function ready_to_be_used_for_testing() {
         return false;
+    }
+
+    /**
+     * Gets the number of bytes read from or written to cache as a result of the last action.
+     *
+     * This includes calls to the functions get(), get_many(), set(), and set_many(). The number
+     * is reset by calling any of these functions.
+     *
+     * This should be the actual number of bytes of the value read from or written to cache,
+     * giving an impression of the network or other load. It will not be exactly the same amount
+     * as netowrk traffic because of protocol overhead, key text, etc.
+     *
+     * If not supported, returns IO_BYTES_NOT_SUPPORTED.
+     *
+     * @return int Bytes read (or 0 if none/not supported)
+     * @since Moodle 4.0
+     */
+    public function get_last_io_bytes(): int {
+        return self::IO_BYTES_NOT_SUPPORTED;
     }
 }

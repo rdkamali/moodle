@@ -2,7 +2,7 @@
 Feature: Grade letters can be overridden
   In order to test the grade letters functionality
   As a teacher I override site defaults
-  and alter the grade letters
+  and alter the grade letters/edit/letter/index.php
 
   Background:
     Given the following "courses" exist:
@@ -10,15 +10,14 @@ Feature: Grade letters can be overridden
       | Course 1 | C1        |
     And the following "users" exist:
       | username | firstname | lastname | email            | idnumber |
-      | teacher1 | Teacher   | 1        | teacher1@asd.com | t1       |
+      | teacher1 | Teacher   | 1        | teacher1@example.com | t1       |
     And the following "course enrolments" exist:
       | user     | course | role           |
       | teacher1 | C1     | editingteacher |
     And I log in as "teacher1"
-    And I follow "Course 1"
-    And I follow "Grades"
-    And I follow "Letters"
-    And I follow "Edit grade letters"
+    And I am on "Course 1" course homepage
+    And I navigate to "More > Grade letters" in the course gradebook
+    And I click on "Edit" "button"
 
   Scenario Outline: Grade letters can be completely overridden
     When I set the following fields to these values:
@@ -63,12 +62,53 @@ Feature: Grade letters can be overridden
       | <high6> | <low6> | <letter6> |
 
     Examples:
-    | l1 | b1    | l2 | b2    | l3 | b3    | l4 | b4    | l5 | b5    | l6 | b6    | l7 | b7 | l8 | b8   | l9 | b9 | high1    | low1     | letter1 | high2   | low2    | letter2 | high3    | low3    | letter3 | high4    | low4    | letter4 | high5    | low5    | letter5 | high6    | low6    | letter6 |
-    | Z  | 95    | Y  | 85    | X  | 75    | W  | 65    | V  | 55    | U  | 45    |    |    |    |      |    |    | 100.00 % | 95.00 %  | Z       | 94.99 % | 85.00 % | Y       | 84.99 %  | 75.00 % | X       | 74.99 %  | 65.00 % | W       | 64.99 %  | 55.00 % | V       | 54.99 %  | 45.00 % | U       |
-    | 5  | 100   | 4  | 80    | 3  | 60    | 2  | 40    | 1  | 20    | 0  | 0     |    |    |    |      |    |    | 100.00 % | 100.00 % | 5       | 99.99 % | 80.00 % | 4       | 79.99 %  | 60.00 % | 3       | 59.99 %  | 40.00 % | 2       | 39.99 %  | 20.00 % | 1       | 19.99 %  | 0.00 %  | 0       |
-    | A  | 95.25 | B  | 76.75 | C  | 50.01 | D  | 40    | F  | 0.01  | F- | 0     |    |    |    |      |    |    | 100.00 % | 95.25 %  | A       | 95.24 % | 76.75 % | B       | 76.74 %  | 50.01 % | C       | 50.00 %  | 40.00 % | D       | 39.99 %  | 0.01 %  | F       | 0.00 %   | 0.00 %  | F-      |
-    |    |       |    |       |    |       | A  | 95.25 | B  | 76.75 | C  | 50.01 | D  | 40 | F  | 0.01 | F- | 0  | 100.00 % | 95.25 %  | A       | 95.24 % | 76.75 % | B       | 76.74 %  | 50.01 % | C       | 50.00 %  | 40.00 % | D       | 39.99 %  | 0.01 %  | F       | 0.00 %   | 0.00 %  | F-      |
-    |    |       | A  | 95.25 | B  | 76.75 | C  | 50.01 |    |       |    |       | D  | 40 | F  | 0.01 | F- | 0  | 100.00 % | 95.25 %  | A       | 95.24 % | 76.75 % | B       | 76.74 %  | 50.01 % | C       | 50.00 %  | 40.00 % | D       | 39.99 %  | 0.01 %  | F       | 0.00 %   | 0.00 %  | F-      |
+      | l1 | b1    | l2 | b2    | l3 | b3    | l4 | b4    | l5 | b5    | l6 | b6    | l7 | b7 | l8 | b8   | l9 | b9 | high1    | low1     | letter1 | high2   | low2    | letter2 | high3    | low3    | letter3 | high4    | low4    | letter4 | high5    | low5    | letter5 | high6    | low6    | letter6 |
+      | Z  | 95    | Y  | 85    | X  | 75    | W  | 65    | V  | 55    | U  | 45    |    |    |    |      |    |    | 100.00 % | 95.00 %  | Z       | 94.99 % | 85.00 % | Y       | 84.99 %  | 75.00 % | X       | 74.99 %  | 65.00 % | W       | 64.99 %  | 55.00 % | V       | 54.99 %  | 45.00 % | U       |
+      | 5  | 100   | 4  | 80    | 3  | 60    | 2  | 40    | 1  | 20    | 0  | 0     |    |    |    |      |    |    | 100.00 % | 100.00 % | 5       | 99.99 % | 80.00 % | 4       | 79.99 %  | 60.00 % | 3       | 59.99 %  | 40.00 % | 2       | 39.99 %  | 20.00 % | 1       | 19.99 %  | 0.00 %  | 0       |
+      | A  | 95.25 | B  | 76.75 | C  | 50.01 | D  | 40    | F  | 0.01  | F- | 0     |    |    |    |      |    |    | 100.00 % | 95.25 %  | A       | 95.24 % | 76.75 % | B       | 76.74 %  | 50.01 % | C       | 50.00 %  | 40.00 % | D       | 39.99 %  | 0.01 %  | F       | 0.00 %   | 0.00 %  | F-      |
+      |    |       |    |       |    |       | A  | 95.25 | B  | 76.75 | C  | 50.01 | D  | 40 | F  | 0.01 | F- | 0  | 100.00 % | 95.25 %  | A       | 95.24 % | 76.75 % | B       | 76.74 %  | 50.01 % | C       | 50.00 %  | 40.00 % | D       | 39.99 %  | 0.01 %  | F       | 0.00 %   | 0.00 %  | F-      |
+      |    |       | A  | 95.25 | B  | 76.75 | C  | 50.01 |    |       |    |       | D  | 40 | F  | 0.01 | F- | 0  | 100.00 % | 95.25 %  | A       | 95.24 % | 76.75 % | B       | 76.74 %  | 50.01 % | C       | 50.00 %  | 40.00 % | D       | 39.99 %  | 0.01 %  | F       | 0.00 %   | 0.00 %  | F-      |
+
+  Scenario Outline: Define grade letters with custom decimal separator
+    Given the following "language customisations" exist:
+      | component       | stringid | value        |
+      | core_langconfig | decsep   | <decsep>     |
+    When I set the following fields to these values:
+      | override               | 1    |
+      | Grade letter 1         | <l1> |
+      | gradeboundary1         | <b1> |
+      | Grade letter 2         | <l2> |
+      | gradeboundary2         | <b2> |
+      | Grade letter 3         | <l3> |
+      | gradeboundary3         | <b3> |
+      | Grade letter 4         |      |
+      | gradeboundary4         |      |
+      | Grade letter 5         |      |
+      | gradeboundary5         |      |
+      | Grade letter 6         |      |
+      | gradeboundary6         |      |
+      | Grade letter 7         |      |
+      | gradeboundary7         |      |
+      | Grade letter 8         |      |
+      | gradeboundary8         |      |
+      | Grade letter 9         |      |
+      | gradeboundary9         |      |
+      | Grade letter 10        |      |
+      | gradeboundary10        |      |
+      | Grade letter 11        |      |
+      | gradeboundary11        |      |
+    And I press "Save changes"
+    Then I should see "The default grade letters are currently overridden."
+    And the following should exist in the "grade-letters-view" table:
+      | Highest | Lowest | Letter |
+      | <high1> | <low1> | <l1>   |
+      | <high2> | <low2> | <l2>   |
+      | <high3> | <low3> | <l3>   |
+
+    Examples:
+      | decsep | l1 | b1    | l2 | b2    | l3 | b3   | high1    | low1    | high2   | low2    | high3   | low3   |
+      | .      | A  | 88.88 | B  | 50.00 | C  | 0.00 | 100.00 % | 88.88 % | 88.87 % | 50.00 % | 49.99 % | 0.00 % |
+      | #      | A  | 88#88 | B  | 50#00 | C  | 0#00 | 100#00 % | 88#88 % | 88#87 % | 50#00 % | 49#99 % | 0#00 % |
 
   Scenario: I delete a grade letter
     Given I set the following fields to these values:
@@ -111,7 +151,7 @@ Feature: Grade letters can be overridden
       | 49.99 %  | 40.00 %  | D      |
       | 39.99 %  | 20.00 %  | E      |
       | 19.99 %  | 0.00 %   | F      |
-    When I follow "Edit grade letters"
+    When I click on "Edit" "button"
     And I set the following fields to these values:
       | override               | 1  |
       | Grade letter 1         | A  |
@@ -178,7 +218,7 @@ Feature: Grade letters can be overridden
       | 59.99 %  | 50.00 %  | C      |
       | 49.99 %  | 40.00 %  | D      |
       | 39.99 %  | 0.00 %   | F      |
-    When I follow "Edit grade letters"
+    When I click on "Edit" "button"
     And I set the following fields to these values:
       | override               | 1  |
       | Grade letter 1         | α  |

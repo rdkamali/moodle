@@ -93,9 +93,9 @@ class tool_uploadcourse_course {
     protected $updatemode;
 
     /** @var array fields allowed as course data. */
-    static protected $validfields = array('fullname', 'shortname', 'idnumber', 'category', 'visible', 'startdate',
+    static protected $validfields = array('fullname', 'shortname', 'idnumber', 'category', 'visible', 'startdate', 'enddate',
         'summary', 'format', 'theme', 'lang', 'newsitems', 'showgrades', 'showreports', 'legacyfiles', 'maxbytes',
-        'groupmode', 'groupmodeforce', 'groupmodeforce', 'enablecompletion');
+        'groupmode', 'groupmodeforce', 'enablecompletion', 'downloadcontent');
 
     /** @var array fields required on course creation. */
     static protected $mandatoryfields = array('fullname', 'category');
@@ -285,6 +285,15 @@ class tool_uploadcourse_course {
     }
 
     /**
+     * Return array of valid fields for default values
+     *
+     * @return array
+     */
+    protected function get_valid_fields() {
+        return array_merge(self::$validfields, \tool_uploadcourse_helper::get_custom_course_field_names());
+    }
+
+    /**
      * Assemble the course data based on defaults.
      *
      * This returns the final data to be passed to create_course().
@@ -293,7 +302,7 @@ class tool_uploadcourse_course {
      * @return array
      */
     protected function get_final_create_data($data) {
-        foreach (self::$validfields as $field) {
+        foreach ($this->get_valid_fields() as $field) {
             if (!isset($data[$field]) && isset($this->defaults[$field])) {
                 $data[$field] = $this->defaults[$field];
             }
@@ -316,9 +325,9 @@ class tool_uploadcourse_course {
         global $DB;
         $newdata = array();
         $existingdata = $DB->get_record('course', array('shortname' => $this->shortname));
-        foreach (self::$validfields as $field) {
+        foreach ($this->get_valid_fields() as $field) {
             if ($missingonly) {
-                if (!is_null($existingdata->$field) and $existingdata->$field !== '') {
+                if (isset($existingdata->$field) and $existingdata->$field !== '') {
                     continue;
                 }
             }
@@ -347,7 +356,7 @@ class tool_uploadcourse_course {
     /**
      * Get the directory of the object to restore.
      *
-     * @return string|false|null subdirectory in $CFG->tempdir/backup/..., false when an error occured
+     * @return string|false|null subdirectory in $CFG->backuptempdir/..., false when an error occured
      *                           and null when there is simply nothing.
      */
     protected function get_restore_content_dir() {
@@ -403,13 +412,20 @@ class tool_uploadcourse_course {
      * @return bool false is any error occured.
      */
     public function prepare() {
-        global $DB, $SITE;
+        global $DB, $SITE, $CFG;
+
         $this->prepared = true;
 
         // Validate the shortname.
         if (!empty($this->shortname) || is_numeric($this->shortname)) {
             if ($this->shortname !== clean_param($this->shortname, PARAM_TEXT)) {
                 $this->error('invalidshortname', new lang_string('invalidshortname', 'tool_uploadcourse'));
+                return false;
+            }
+
+            // Ensure we don't overflow the maximum length of the shortname field.
+            if (core_text::strlen($this->shortname) > 255) {
+                $this->error('invalidshortnametoolong', new lang_string('invalidshortnametoolong', 'tool_uploadcourse', 255));
                 return false;
             }
         }
@@ -476,6 +492,12 @@ class tool_uploadcourse_course {
             foreach ($errors as $key => $message) {
                 $this->error($key, $message);
             }
+            return false;
+        }
+
+        // Ensure we don't overflow the maximum length of the fullname field.
+        if (!empty($coursedata['fullname']) && core_text::strlen($coursedata['fullname']) > 254) {
+            $this->error('invalidfullnametoolong', new lang_string('invalidfullnametoolong', 'tool_uploadcourse', 254));
             return false;
         }
 
@@ -582,6 +604,33 @@ class tool_uploadcourse_course {
             }
         }
 
+        // Course start date.
+        if (!empty($coursedata['startdate'])) {
+            $coursedata['startdate'] = strtotime($coursedata['startdate']);
+        }
+
+        // Course end date.
+        if (!empty($coursedata['enddate'])) {
+            $coursedata['enddate'] = strtotime($coursedata['enddate']);
+        }
+
+        // If lang is specified, check the user is allowed to set that field.
+        if (!empty($coursedata['lang'])) {
+            if ($exists) {
+                $courseid = $DB->get_field('course', 'id', ['shortname' => $this->shortname]);
+                if (!has_capability('moodle/course:setforcedlanguage', context_course::instance($courseid))) {
+                    $this->error('cannotforcelang', new lang_string('cannotforcelang', 'tool_uploadcourse'));
+                    return false;
+                }
+            } else {
+                $catcontext = context_coursecat::instance($coursedata['category']);
+                if (!guess_if_creator_will_have_course_capability('moodle/course:setforcedlanguage', $catcontext)) {
+                    $this->error('cannotforcelang', new lang_string('cannotforcelang', 'tool_uploadcourse'));
+                    return false;
+                }
+            }
+        }
+
         // Ultimate check mode vs. existence.
         switch ($mode) {
             case tool_uploadcourse_processor::MODE_CREATE_NEW:
@@ -631,9 +680,20 @@ class tool_uploadcourse_course {
             $this->do = self::DO_CREATE;
         }
 
-        // Course start date.
-        if (!empty($coursedata['startdate'])) {
-            $coursedata['startdate'] = strtotime($coursedata['startdate']);
+        // Validate course start and end dates.
+        if ($exists) {
+            // We also check existing start and end dates if we are updating an existing course.
+            $existingdata = $DB->get_record('course', array('shortname' => $this->shortname));
+            if (empty($coursedata['startdate'])) {
+                $coursedata['startdate'] = $existingdata->startdate;
+            }
+            if (empty($coursedata['enddate'])) {
+                $coursedata['enddate'] = $existingdata->enddate;
+            }
+        }
+        if ($errorcode = course_validate_dates($coursedata)) {
+            $this->error($errorcode, new lang_string($errorcode, 'error'));
+            return false;
         }
 
         // Add role renaming.
@@ -649,15 +709,106 @@ class tool_uploadcourse_course {
             $coursedata[$rolekey] = $rolename;
         }
 
+        // Custom fields. If the course already exists and mode isn't set to force creation, we can use its context.
+        if ($exists && $mode !== tool_uploadcourse_processor::MODE_CREATE_ALL) {
+            $context = context_course::instance($coursedata['id']);
+        } else {
+            // The category ID is taken from the defaults if it exists, otherwise from course data.
+            $context = context_coursecat::instance($this->defaults['category'] ?? $coursedata['category']);
+        }
+        $customfielddata = tool_uploadcourse_helper::get_custom_course_field_data($this->rawdata, $this->defaults, $context,
+            $errors);
+        if (!empty($errors)) {
+            foreach ($errors as $key => $message) {
+                $this->error($key, $message);
+            }
+
+            return false;
+        }
+
+        foreach ($customfielddata as $name => $value) {
+            $coursedata[$name] = $value;
+        }
+
         // Some validation.
         if (!empty($coursedata['format']) && !in_array($coursedata['format'], tool_uploadcourse_helper::get_course_formats())) {
             $this->error('invalidcourseformat', new lang_string('invalidcourseformat', 'tool_uploadcourse'));
             return false;
         }
 
+        // Add data for course format options.
+        if (isset($coursedata['format']) || $exists) {
+            if (isset($coursedata['format'])) {
+                $courseformat = course_get_format((object)['format' => $coursedata['format']]);
+            } else {
+                $courseformat = course_get_format($existingdata);
+            }
+            $coursedata += $courseformat->validate_course_format_options($this->rawdata);
+        }
+
+        // Special case, 'numsections' is not a course format option any more but still should apply from the template course,
+        // if any, and otherwise from defaults.
+        if (!$exists || !array_key_exists('numsections', $coursedata)) {
+            if (isset($this->rawdata['numsections']) && is_numeric($this->rawdata['numsections'])) {
+                $coursedata['numsections'] = (int)$this->rawdata['numsections'];
+            } else if (isset($this->options['templatecourse'])) {
+                $numsections = tool_uploadcourse_helper::get_coursesection_count($this->options['templatecourse']);
+                if ($numsections != 0) {
+                    $coursedata['numsections'] = $numsections;
+                } else {
+                    $coursedata['numsections'] = get_config('moodlecourse', 'numsections');
+                }
+            } else {
+                $coursedata['numsections'] = get_config('moodlecourse', 'numsections');
+            }
+        }
+
+        // Visibility can only be 0 or 1.
+        if (!empty($coursedata['visible']) AND !($coursedata['visible'] == 0 OR $coursedata['visible'] == 1)) {
+            $this->error('invalidvisibilitymode', new lang_string('invalidvisibilitymode', 'tool_uploadcourse'));
+            return false;
+        }
+
+        // Ensure that user is allowed to configure course content download and the field contains a valid value.
+        if (isset($coursedata['downloadcontent'])) {
+            if (!$CFG->downloadcoursecontentallowed ||
+                    !has_capability('moodle/course:configuredownloadcontent', $context)) {
+
+                $this->error('downloadcontentnotallowed', new lang_string('downloadcontentnotallowed', 'tool_uploadcourse'));
+                return false;
+            }
+
+            $downloadcontentvalues = [
+                DOWNLOAD_COURSE_CONTENT_DISABLED,
+                DOWNLOAD_COURSE_CONTENT_ENABLED,
+                DOWNLOAD_COURSE_CONTENT_SITE_DEFAULT,
+            ];
+            if (!in_array($coursedata['downloadcontent'], $downloadcontentvalues)) {
+                $this->error('invaliddownloadcontent', new lang_string('invaliddownloadcontent', 'tool_uploadcourse'));
+                return false;
+            }
+        }
+
         // Saving data.
         $this->data = $coursedata;
+
+        // Get enrolment data. Where the course already exists, we can also perform validation.
         $this->enrolmentdata = tool_uploadcourse_helper::get_enrolment_data($this->rawdata);
+        if ($exists) {
+            $errors = $this->validate_enrolment_data($coursedata['id'], $this->enrolmentdata);
+
+            if (!empty($errors)) {
+                foreach ($errors as $key => $message) {
+                    $this->error($key, $message);
+                }
+
+                return false;
+            }
+        }
+
+        if (isset($this->rawdata['tags']) && strval($this->rawdata['tags']) !== '') {
+            $this->data['tags'] = preg_split('/\s*,\s*/', trim($this->rawdata['tags']), -1, PREG_SPLIT_NO_EMPTY);
+        }
 
         // Restore data.
         // TODO Speed up things by not really extracting the backup just yet, but checking that
@@ -736,7 +887,6 @@ class tool_uploadcourse_course {
                 $this->error('errorwhilerestoringcourse', new lang_string('errorwhilerestoringthecourse', 'tool_uploadcourse'));
             }
             $rc->destroy();
-            unset($rc); // File logging is a mess, we can only try to rely on gc to close handles.
         }
 
         // Proceed with enrolment data.
@@ -753,6 +903,71 @@ class tool_uploadcourse_course {
         // Mark context as dirty.
         $context = context_course::instance($course->id);
         $context->mark_dirty();
+    }
+
+    /**
+     * Validate passed enrolment data against an existing course
+     *
+     * @param int $courseid
+     * @param array[] $enrolmentdata
+     * @return lang_string[] Errors keyed on error code
+     */
+    protected function validate_enrolment_data(int $courseid, array $enrolmentdata): array {
+        // Nothing to validate.
+        if (empty($enrolmentdata)) {
+            return [];
+        }
+
+        $errors = [];
+
+        $enrolmentplugins = tool_uploadcourse_helper::get_enrolment_plugins();
+        $instances = enrol_get_instances($courseid, false);
+
+        foreach ($enrolmentdata as $method => $options) {
+            $plugin = $enrolmentplugins[$method];
+
+            // Find matching instances by enrolment method.
+            $methodinstances = array_filter($instances, static function(stdClass $instance) use ($method) {
+                return (strcmp($instance->enrol, $method) == 0);
+            });
+
+            if (!empty($options['delete'])) {
+                // Ensure user is able to delete the instances.
+                foreach ($methodinstances as $methodinstance) {
+                    if (!$plugin->can_delete_instance($methodinstance)) {
+                        $errors['errorcannotdeleteenrolment'] = new lang_string('errorcannotdeleteenrolment', 'tool_uploadcourse',
+                            $plugin->get_instance_name($methodinstance));
+
+                        break;
+                    }
+                }
+            } else if (!empty($options['disable'])) {
+                // Ensure user is able to toggle instance statuses.
+                foreach ($methodinstances as $methodinstance) {
+                    if (!$plugin->can_hide_show_instance($methodinstance)) {
+                        $errors['errorcannotdisableenrolment'] =
+                            new lang_string('errorcannotdisableenrolment', 'tool_uploadcourse',
+                                $plugin->get_instance_name($methodinstance));
+
+                        break;
+                    }
+                }
+            } else {
+                // Ensure user is able to create/update instance.
+                $methodinstance = empty($methodinstances) ? null : reset($methodinstances);
+                if ((empty($methodinstance) && !$plugin->can_add_instance($courseid)) ||
+                        (!empty($methodinstance) && !$plugin->can_edit_instance($methodinstance))) {
+
+                    $errors['errorcannotcreateorupdateenrolment'] =
+                        new lang_string('errorcannotcreateorupdateenrolment', 'tool_uploadcourse',
+                            $plugin->get_instance_name($methodinstance));
+
+                    break;
+                }
+            }
+        }
+
+        return $errors;
     }
 
     /**
@@ -786,36 +1001,53 @@ class tool_uploadcourse_course {
             unset($method['delete']);
             unset($method['disable']);
 
-            if (!empty($instance) && $todelete) {
+            if ($todelete) {
                 // Remove the enrolment method.
-                foreach ($instances as $instance) {
-                    if ($instance->enrol == $enrolmethod) {
-                        $plugin = $enrolmentplugins[$instance->enrol];
+                if ($instance) {
+                    $plugin = $enrolmentplugins[$instance->enrol];
+
+                    // Ensure user is able to delete the instance.
+                    if ($plugin->can_delete_instance($instance)) {
                         $plugin->delete_instance($instance);
-                        break;
-                    }
-                }
-            } else if (!empty($instance) && $todisable) {
-                // Disable the enrolment.
-                foreach ($instances as $instance) {
-                    if ($instance->enrol == $enrolmethod) {
-                        $plugin = $enrolmentplugins[$instance->enrol];
-                        $plugin->update_status($instance, ENROL_INSTANCE_DISABLED);
-                        $enrol_updated = true;
-                        break;
+                    } else {
+                        $this->error('errorcannotdeleteenrolment',
+                            new lang_string('errorcannotdeleteenrolment', 'tool_uploadcourse',
+                                $plugin->get_instance_name($instance)));
                     }
                 }
             } else {
-                $plugin = null;
-                if (empty($instance)) {
-                    $plugin = $enrolmentplugins[$enrolmethod];
-                    $instance = new stdClass();
-                    $instance->id = $plugin->add_default_instance($course);
+                // Create/update enrolment.
+                $plugin = $enrolmentplugins[$enrolmethod];
+
+                $status = ($todisable) ? ENROL_INSTANCE_DISABLED : ENROL_INSTANCE_ENABLED;
+
+                // Create a new instance if necessary.
+                if (empty($instance) && $plugin->can_add_instance($course->id)) {
+                    $instanceid = $plugin->add_default_instance($course);
+                    $instance = $DB->get_record('enrol', ['id' => $instanceid]);
                     $instance->roleid = $plugin->get_config('roleid');
-                    $instance->status = ENROL_INSTANCE_ENABLED;
-                } else {
-                    $plugin = $enrolmentplugins[$instance->enrol];
-                    $plugin->update_status($instance, ENROL_INSTANCE_ENABLED);
+                    // On creation the user can decide the status.
+                    $plugin->update_status($instance, $status);
+                }
+
+                // Check if the we need to update the instance status.
+                if ($instance && $status != $instance->status) {
+                    if ($plugin->can_hide_show_instance($instance)) {
+                        $plugin->update_status($instance, $status);
+                    } else {
+                        $this->error('errorcannotdisableenrolment',
+                            new lang_string('errorcannotdisableenrolment', 'tool_uploadcourse',
+                                $plugin->get_instance_name($instance)));
+                        break;
+                    }
+                }
+
+                if (empty($instance) || !$plugin->can_edit_instance($instance)) {
+                    $this->error('errorcannotcreateorupdateenrolment',
+                        new lang_string('errorcannotcreateorupdateenrolment', 'tool_uploadcourse',
+                            $plugin->get_instance_name($instance)));
+
+                    break;
                 }
 
                 // Now update values.
@@ -893,6 +1125,11 @@ class tool_uploadcourse_course {
             $course->startdate = $DB->get_field_select('course', 'startdate', 'id = :id', array('id' => $course->id));
         }
         $resetdata->reset_start_date_old = $course->startdate;
+
+        if (empty($course->enddate)) {
+            $course->enddate = $DB->get_field_select('course', 'enddate', 'id = :id', array('id' => $course->id));
+        }
+        $resetdata->reset_end_date_old = $course->enddate;
 
         // Add roles.
         $roles = tool_uploadcourse_helper::get_role_ids();

@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Belarusian PHPMailer language file: refer to English translation for definitive list
  * @package PHPMailer
@@ -23,3 +24,4 @@ $PHPMAILER_LANG['signing']              = 'Памылка подпісу пав�
 $PHPMAILER_LANG['smtp_connect_failed']  = 'Памылка сувязі з SMTP-серверам.';
 $PHPMAILER_LANG['smtp_error']           = 'Памылка SMTP: ';
 $PHPMAILER_LANG['variable_set']         = 'Нельга ўстанавіць або перамяніць значэнне пераменнай: ';
+//$PHPMAILER_LANG['extension_missing']    = 'Extension missing: ';

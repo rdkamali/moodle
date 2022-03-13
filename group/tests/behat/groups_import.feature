@@ -8,19 +8,19 @@ Feature: Importing of groups and groupings
     Given the following "courses" exist:
       | fullname | shortname | category |
       | Course 1 | C1 | 0 |
+      | Course 2 | C2 | 0 |
     And the following "users" exist:
       | username | firstname | lastname | email |
-      | teacher1 | Teacher | 1 | teacher1@asd.com |
+      | teacher1 | Teacher | 1 | teacher1@example.com |
     And the following "course enrolments" exist:
       | user | course | role |
       | teacher1 | C1 | editingteacher |
+      | teacher1 | C2 | editingteacher |
 
   @javascript
   Scenario: Import groups and groupings as teacher
     Given I log in as "teacher1"
-    And I follow "Course 1"
-    And I expand "Users" node
-    And I follow "Groups"
+    And I am on the "Course 1" "groups" page
     And I press "Import groups"
     When I upload "group/tests/fixtures/groups_import.csv" file to "Import" filemanager
     And I press "Import groups"
@@ -30,7 +30,18 @@ Feature: Importing of groups and groupings
     And I should see "group-id-1-duplicate"
     And I should see "group-noid-1"
     And I should see "group-noid-2"
-    And I follow "Groupings"
+    # Group messaging should have been enabled for group-id-1.
+    And I set the field "groups" to "group-id-1"
+    And I press "Edit group settings"
+    And I should see "Yes" in the "Group messaging" "select"
+    And I press "Cancel"
+     # Group messaging should not have been enabled for group-id-2.
+    And I set the field "groups" to "group-id-2"
+    And I press "Edit group settings"
+    And I should see "No" in the "Group messaging" "select"
+    And I press "Cancel"
+    # Check groupings
+    And I select "Groupings" from the "jump" singleselect
     And I should see "Grouping-1"
     And I should see "Grouping-2"
     And I should see "Grouping-3"
@@ -43,9 +54,7 @@ Feature: Importing of groups and groupings
   @javascript
   Scenario: Import groups with idnumber when the user has proper permissions for the idnumber field
     Given I log in as "teacher1"
-    And I follow "Course 1"
-    And I expand "Users" node
-    And I follow "Groups"
+    And I am on the "Course 1" "groups" page
     And I press "Import groups"
     When I upload "group/tests/fixtures/groups_import.csv" file to "Import" filemanager
     And I press "Import groups"
@@ -80,16 +89,12 @@ Feature: Importing of groups and groupings
   @javascript
   Scenario: Import groups with idnumber when the user does not have proper permissions for the idnumber field
     Given I log in as "admin"
-    And I follow "Course 1"
-    And I expand "Users" node
-    And I follow "Permissions"
+    And I am on the "Course 1" "permissions" page
     And I override the system permissions of "Teacher" role with:
       | moodle/course:changeidnumber | Prevent |
     And I log out
     And I log in as "teacher1"
-    And I follow "Course 1"
-    And I expand "Users" node
-    And I follow "Groups"
+    And I am on the "Course 1" "groups" page
     And I press "Import groups"
     When I upload "group/tests/fixtures/groups_import.csv" file to "Import" filemanager
     And I press "Import groups"
@@ -114,3 +119,30 @@ Feature: Importing of groups and groupings
     And I press "Edit group settings"
     And the field "id_idnumber" matches value ""
     And I press "Cancel"
+
+  @javascript
+  Scenario: Import groups into multiple courses as a teacher
+    Given I log in as "teacher1"
+    And I am on the "Course 1" "groups" page
+    And I press "Import groups"
+    When I upload "group/tests/fixtures/groups_import_multicourse.csv" file to "Import" filemanager
+    And I press "Import groups"
+    Then I should see "Group group7 added successfully"
+    And I should see "Unknown course named \"C-non-existing\""
+    And I should see "Group group8 added successfully"
+    And I should not see "group-will-not-be-created"
+    And I should see "Group group9 added successfully"
+    And I should see "Group group10 added successfully"
+    And I press "Continue"
+    And I should see "group10"
+    And I should see "group7"
+    And I should see "group8"
+    And I should not see "group9"
+    And I should not see "group-will-not-be-created"
+    And I am on the "Course 2" "groups" page
+    And I should see "group9"
+    And I should not see "group-will-not-be-created"
+    And I should not see "group7"
+    And I should not see "group8"
+    And I should not see "group10"
+    And I log out

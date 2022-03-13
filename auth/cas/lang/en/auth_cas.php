@@ -22,9 +22,12 @@
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-$string['accesCAS'] = 'CAS users';
-$string['accesNOCAS'] = 'other users';
+$string['auth_cas_auth_name'] = 'Authentication method name';
+$string['auth_cas_auth_name_description'] = 'Provide a name for the CAS authentication method that is familiar to your users.';
+$string['auth_cas_auth_logo'] = 'Authentication method logo';
+$string['auth_cas_auth_logo_description'] = 'Provide a logo for the CAS authentication method that is familiar to your users.';
 $string['auth_cas_auth_user_create'] = 'Create users externally';
+$string['auth_cas_auth_service'] = 'CAS';
 $string['auth_cas_baseuri'] = 'URI of the server (nothing if no baseUri)<br />For example, if the CAS server responds to host.domaine.fr/CAS/ then<br />cas_baseuri = CAS/';
 $string['auth_cas_baseuri_key'] = 'Base URI';
 $string['auth_cas_broken_password'] = 'You cannot proceed without changing your password, however there is no available page for changing it. Please contact your Moodle Administrator.';
@@ -37,6 +40,15 @@ $string['auth_cas_certificate_path'] = 'Path of the CA chain file (PEM Format) t
 $string['auth_cas_certificate_path_key'] = 'Certificate path';
 $string['auth_cas_create_user'] = 'Turn this on if you want to insert CAS-authenticated users in Moodle database. If not then only users who already exist in the Moodle database can log in.';
 $string['auth_cas_create_user_key'] = 'Create user';
+$string['auth_cas_curl_ssl_version'] = 'The SSL version (2 or 3) to use. By default PHP will try to determine this itself, although in some cases this must be set manually.';
+$string['auth_cas_curl_ssl_version_default'] = 'Default';
+$string['auth_cas_curl_ssl_version_key'] = 'cURL SSL Version';
+$string['auth_cas_curl_ssl_version_SSLv2'] = 'SSLv2';
+$string['auth_cas_curl_ssl_version_SSLv3'] = 'SSLv3';
+$string['auth_cas_curl_ssl_version_TLSv1x'] = 'TLSv1.x';
+$string['auth_cas_curl_ssl_version_TLSv10'] = 'TLSv1.0';
+$string['auth_cas_curl_ssl_version_TLSv11'] = 'TLSv1.1';
+$string['auth_cas_curl_ssl_version_TLSv12'] = 'TLSv1.2';
 $string['auth_casdescription'] = 'This method uses a CAS server (Central Authentication Service) to authenticate users in a Single Sign On environment (SSO). You can also use a simple LDAP authentication. If the given username and password are valid according to CAS, Moodle creates a new user entry in its database, taking user attributes from LDAP if required. On following logins only the username and password are checked.';
 $string['auth_cas_enabled'] = 'Turn this on if you want to use CAS authentication.';
 $string['auth_cas_hostname'] = 'Hostname of the CAS server <br />eg: host.domain.fr';
@@ -64,3 +76,5 @@ $string['auth_cas_version'] = 'CAS protocol version to use';
 $string['CASform'] = 'Authentication choice';
 $string['noldapserver'] = 'No LDAP server configured for CAS! Syncing disabled.';
 $string['pluginname'] = 'CAS server (SSO)';
+$string['synctask'] = 'CAS users sync job';
+$string['privacy:metadata'] = 'The CAS server (SSO) authentication plugin does not store any personal data.';

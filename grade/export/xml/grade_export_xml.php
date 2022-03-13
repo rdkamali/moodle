@@ -24,6 +24,30 @@ class grade_export_xml extends grade_export {
     public $updatedgradesonly = false; // default to export ALL grades
 
     /**
+     * Ensure we produce correctly formed XML content by encoding idnumbers appropriately
+     *
+     * @param string $idnumber
+     * @return string
+     */
+    private static function xml_export_idnumber(string $idnumber): string {
+        return htmlspecialchars($idnumber, ENT_QUOTES | ENT_XML1);
+    }
+
+    /**
+     * Handle form processing for export. Note we need to handle the case where there are no 'itemids[]' being included in the
+     * form, because each is disabled for selection due to having empty idnumber
+     *
+     * @param stdClass $formdata
+     */
+    public function process_form($formdata) {
+        if (!isset($formdata->itemids)) {
+            $formdata->itemids = self::EXPORT_SELECT_NONE;
+        }
+
+        parent::process_form($formdata);
+    }
+
+    /**
      * To be implemented by child classes
      * @param boolean $feedback
      * @param boolean $publish Whether to output directly, or send as a file
@@ -68,7 +92,6 @@ class grade_export_xml extends grade_export {
             foreach ($userdata->grades as $itemid => $grade) {
                 $grade_item = $this->grade_items[$itemid];
                 $grade->grade_item =& $grade_item;
-                $gradestr = $this->format_grade($grade, $this->displaytype); // no formating for now
 
                 // MDL-11669, skip exported grades or bad grades (if setting says so)
                 if ($export_tracking) {
@@ -85,12 +108,26 @@ class grade_export_xml extends grade_export {
                 }
 
                 // only need id number
-                fwrite($handle,  "\t\t<assignment>{$grade_item->idnumber}</assignment>\n");
+                $gradeitemidnumber = self::xml_export_idnumber($grade_item->idnumber);
+                fwrite($handle, "\t\t<assignment>{$gradeitemidnumber}</assignment>\n");
                 // this column should be customizable to use either student id, idnumber, uesrname or email.
-                fwrite($handle,  "\t\t<student>{$user->idnumber}</student>\n");
-                fwrite($handle,  "\t\t<score>$gradestr</score>\n");
+                $useridnumber = self::xml_export_idnumber($user->idnumber);
+                fwrite($handle, "\t\t<student>{$useridnumber}</student>\n");
+                // Format and display the grade in the selected display type (real, letter, percentage).
+                if (is_array($this->displaytype)) {
+                    // Grades display type came from the return of export_bulk_export_data() on grade publishing.
+                    foreach ($this->displaytype as $gradedisplayconst) {
+                        $gradestr = $this->format_grade($grade, $gradedisplayconst);
+                        fwrite($handle,  "\t\t<score>$gradestr</score>\n");
+                    }
+                } else {
+                    // Grade display type submitted directly from the grade export form.
+                    $gradestr = $this->format_grade($grade, $this->displaytype);
+                    fwrite($handle,  "\t\t<score>$gradestr</score>\n");
+                }
+
                 if ($this->export_feedback) {
-                    $feedbackstr = $this->format_feedback($userdata->feedbacks[$itemid]);
+                    $feedbackstr = $this->format_feedback($userdata->feedbacks[$itemid], $grade);
                     fwrite($handle,  "\t\t<feedback>$feedbackstr</feedback>\n");
                 }
                 fwrite($handle,  "\t</result>\n");

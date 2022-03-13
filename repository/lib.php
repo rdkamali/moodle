@@ -30,6 +30,8 @@ require_once($CFG->libdir . '/formslib.php');
 define('FILE_EXTERNAL',  1);
 define('FILE_INTERNAL',  2);
 define('FILE_REFERENCE', 4);
+define('FILE_CONTROLLED_LINK', 8);
+
 define('RENAME_SUFFIX', '_2');
 
 /**
@@ -486,7 +488,7 @@ class repository_type implements cacheable_object {
  * This is the base class of the repository class.
  *
  * To create repository plugin, see: {@link http://docs.moodle.org/dev/Repository_plugins}
- * See an example: {@link repository_boxnet}
+ * See an example: repository_dropbox
  *
  * @package   core_repository
  * @copyright 2009 Dongsheng Cai {@link http://dongsheng.org}
@@ -888,7 +890,9 @@ abstract class repository implements cacheable_object {
         // the file needs to copied to draft area
         $stored_file = self::get_moodle_file($source);
         if ($maxbytes != -1 && $stored_file->get_filesize() > $maxbytes) {
-            throw new file_exception('maxbytes');
+            $maxbytesdisplay = display_size($maxbytes, 0);
+            throw new file_exception('maxbytesfile', (object) array('file' => $filerecord['filename'],
+                                                                    'size' => $maxbytesdisplay));
         }
         // Validate the size of the draft area.
         if (file_is_draft_area_limit_reached($draftitemid, $areamaxbytes, $stored_file->get_filesize())) {
@@ -998,7 +1002,7 @@ abstract class repository implements cacheable_object {
      *           onlyvisible : bool (default true)
      *           type : string return instances of this type only
      *           accepted_types : string|array return instances that contain files of those types (*, web_image, .pdf, ...)
-     *           return_types : int combination of FILE_INTERNAL & FILE_EXTERNAL & FILE_REFERENCE.
+     *           return_types : int combination of FILE_INTERNAL & FILE_EXTERNAL & FILE_REFERENCE & FILE_CONTROLLED_LINK.
      *                          0 means every type. The default is FILE_INTERNAL | FILE_EXTERNAL.
      *           userid : int if specified, instances belonging to other users will not be returned
      *
@@ -1008,10 +1012,17 @@ abstract class repository implements cacheable_object {
         global $DB, $CFG, $USER;
 
         // Fill $args attributes with default values unless specified
-        if (!isset($args['currentcontext']) || !($args['currentcontext'] instanceof context)) {
-            $current_context = context_system::instance();
+        if (isset($args['currentcontext'])) {
+            if ($args['currentcontext'] instanceof context) {
+                $current_context = $args['currentcontext'];
+            } else {
+                debugging('currentcontext passed to repository::get_instances was ' .
+                        'not a context object. Using system context instead, but ' .
+                        'you should probably fix your code.', DEBUG_DEVELOPER);
+                $current_context = context_system::instance();
+            }
         } else {
-            $current_context = $args['currentcontext'];
+            $current_context = context_system::instance();
         }
         $args['currentcontext'] = $current_context->id;
         $contextids = array();
@@ -1185,72 +1196,14 @@ abstract class repository implements cacheable_object {
      * permissions of the file are not modified here!
      *
      * @static
+     * @deprecated since Moodle 3.0
      * @param string $thefile
      * @param string $filename name of the file
      * @param bool $deleteinfected
      */
     public static function antivir_scan_file($thefile, $filename, $deleteinfected) {
-        global $CFG;
-
-        if (!is_readable($thefile)) {
-            // this should not happen
-            return;
-        }
-
-        if (empty($CFG->runclamonupload) or empty($CFG->pathtoclam)) {
-            // clam not enabled
-            return;
-        }
-
-        $CFG->pathtoclam = trim($CFG->pathtoclam);
-
-        if (!file_exists($CFG->pathtoclam) or !is_executable($CFG->pathtoclam)) {
-            // misconfigured clam - use the old notification for now
-            require("$CFG->libdir/uploadlib.php");
-            $notice = get_string('clamlost', 'moodle', $CFG->pathtoclam);
-            clam_message_admins($notice);
-            return;
-        }
-
-        $clamparam = ' --stdout ';
-        // If we are dealing with clamdscan, clamd is likely run as a different user
-        // that might not have permissions to access your file.
-        // To make clamdscan work, we use --fdpass parameter that passes the file
-        // descriptor permissions to clamd, which allows it to scan given file
-        // irrespective of directory and file permissions.
-        if (basename($CFG->pathtoclam) == 'clamdscan') {
-            $clamparam .= '--fdpass ';
-        }
-        // execute test
-        $cmd = escapeshellcmd($CFG->pathtoclam).$clamparam.escapeshellarg($thefile);
-        exec($cmd, $output, $return);
-
-        if ($return == 0) {
-            // perfect, no problem found
-            return;
-
-        } else if ($return == 1) {
-            // infection found
-            if ($deleteinfected) {
-                unlink($thefile);
-            }
-            throw new moodle_exception('virusfounduser', 'moodle', '', array('filename'=>$filename));
-
-        } else {
-            //unknown problem
-            require("$CFG->libdir/uploadlib.php");
-            $notice = get_string('clamfailed', 'moodle', get_clam_error_code($return));
-            $notice .= "\n\n". implode("\n", $output);
-            clam_message_admins($notice);
-            if ($CFG->clamfailureonupload === 'actlikevirus') {
-                if ($deleteinfected) {
-                    unlink($thefile);
-                }
-                throw new moodle_exception('virusfounduser', 'moodle', '', array('filename'=>$filename));
-            } else {
-                return;
-            }
-        }
+        debugging('Please upgrade your code to use \core\antivirus\manager::scan_file instead', DEBUG_DEVELOPER);
+        \core\antivirus\manager::scan_file($thefile, $filename, $deleteinfected);
     }
 
     /**
@@ -1338,6 +1291,28 @@ abstract class repository implements cacheable_object {
     }
 
     /**
+     * reference_file_selected
+     *
+     * This function is called when a controlled link file is selected in a file picker and the form is
+     * saved. The expected behaviour for repositories supporting controlled links is to
+     * - copy the file to the moodle system account
+     * - put it in a folder that reflects the context it is being used
+     * - make sure the sharing permissions are correct (read-only with the link)
+     * - return a new reference string pointing to the newly copied file.
+     *
+     * @param string $reference this reference is generated by
+     *                          repository::get_file_reference()
+     * @param context $context the target context for this new file.
+     * @param string $component the target component for this new file.
+     * @param string $filearea the target filearea for this new file.
+     * @param string $itemid the target itemid for this new file.
+     * @return string updated reference (final one before it's saved to db).
+     */
+    public function reference_file_selected($reference, $context, $component, $filearea, $itemid) {
+        return $reference;
+    }
+
+    /**
      * Return the source information
      *
      * The result of the function is stored in files.source field. It may be analysed
@@ -1377,7 +1352,8 @@ abstract class repository implements cacheable_object {
         global $DB, $CFG, $USER, $OUTPUT;
 
         // scan for viruses if possible, throws exception if problem found
-        self::antivir_scan_file($thefile, $record->filename, empty($CFG->repository_no_delete)); //TODO: MDL-28637 this repository_no_delete is a bloody hack!
+        // TODO: MDL-28637 this repository_no_delete is a bloody hack!
+        \core\antivirus\manager::scan_file($thefile, $record->filename, empty($CFG->repository_no_delete));
 
         $fs = get_file_storage();
         // If file name being used.
@@ -1410,7 +1386,7 @@ abstract class repository implements cacheable_object {
                 'url'=>moodle_url::make_draftfile_url($file->get_itemid(), $file->get_filepath(), $file->get_filename())->out(),
                 'id'=>$file->get_itemid(),
                 'file'=>$file->get_filename(),
-                'icon' => $OUTPUT->pix_url(file_extension_icon($thefile, 32))->out(),
+                'icon' => $OUTPUT->image_url(file_extension_icon($thefile, 32))->out(),
             );
         } else {
             return null;
@@ -1456,7 +1432,7 @@ abstract class repository implements cacheable_object {
                     'size' => 0,
                     'date' => $filedate,
                     'path' => array_reverse($path),
-                    'thumbnail' => $OUTPUT->pix_url(file_folder_icon(90))->out(false)
+                    'thumbnail' => $OUTPUT->image_url(file_folder_icon(90))->out(false)
                 );
 
                 //if ($dynamicmode && $child->is_writable()) {
@@ -1493,8 +1469,8 @@ abstract class repository implements cacheable_object {
                     'date' => $filedate,
                     //'source' => $child->get_url(),
                     'source' => base64_encode($source),
-                    'icon'=>$OUTPUT->pix_url(file_file_icon($child, 24))->out(false),
-                    'thumbnail'=>$OUTPUT->pix_url(file_file_icon($child, 90))->out(false),
+                    'icon'=>$OUTPUT->image_url(file_file_icon($child, 24))->out(false),
+                    'thumbnail'=>$OUTPUT->image_url(file_file_icon($child, 90))->out(false),
                 );
                 $filecount++;
             }
@@ -1663,18 +1639,19 @@ abstract class repository implements cacheable_object {
     }
 
     /**
-     * Decide where to save the file, can be overwriten by subclass
+     * Get a unique file path in which to save the file.
+     *
+     * The filename returned will be removed at the end of the request and
+     * should not be relied upon to exist in subsequent requests.
      *
      * @param string $filename file name
      * @return file path
      */
     public function prepare_file($filename) {
-        global $CFG;
-        $dir = make_temp_directory('download/'.get_class($this).'/');
-        while (empty($filename) || file_exists($dir.$filename)) {
-            $filename = uniqid('', true).'_'.time().'.tmp';
+        if (empty($filename)) {
+            $filename = 'file';
         }
-        return $dir.$filename;
+        return sprintf('%s/%s', make_request_directory(), $filename);
     }
 
     /**
@@ -1758,21 +1735,26 @@ abstract class repository implements cacheable_object {
             // files that are references to local files are already in moodle filepool
             // just validate the size
             if ($maxbytes > 0 && $file->get_filesize() > $maxbytes) {
-                throw new file_exception('maxbytes');
+                $maxbytesdisplay = display_size($maxbytes, 0);
+                throw new file_exception('maxbytesfile', (object) array('file' => $file->get_filename(),
+                                                                        'size' => $maxbytesdisplay));
             }
             return;
         } else {
             if ($maxbytes > 0 && $file->get_filesize() > $maxbytes) {
                 // note that stored_file::get_filesize() also calls synchronisation
-                throw new file_exception('maxbytes');
+                $maxbytesdisplay = display_size($maxbytes, 0);
+                throw new file_exception('maxbytesfile', (object) array('file' => $file->get_filename(),
+                                                                        'size' => $maxbytesdisplay));
             }
             $fs = get_file_storage();
-            $contentexists = $fs->content_exists($file->get_contenthash());
-            if ($contentexists && $file->get_filesize() && $file->get_contenthash() === sha1('')) {
-                // even when 'file_storage::content_exists()' returns true this may be an empty
-                // content for the file that was not actually downloaded
-                $contentexists = false;
-            }
+
+            // If a file has been downloaded, the file record should report both a positive file
+            // size, and a contenthash which does not related to empty content.
+            // If thereis no file size, or the contenthash is for an empty file, then the file has
+            // yet to be successfully downloaded.
+            $contentexists = $file->get_filesize() && !$file->compare_to_string('');
+
             if (!$file->get_status() && $contentexists) {
                 // we already have the content in moodle filepool and it was synchronised recently.
                 // Repositories may overwrite it if they want to force synchronisation anyway!
@@ -1782,9 +1764,7 @@ abstract class repository implements cacheable_object {
                 try {
                     $fileinfo = $this->get_file($file->get_reference());
                     if (isset($fileinfo['path'])) {
-                        list($contenthash, $filesize, $newfile) = $fs->add_file_to_pool($fileinfo['path']);
-                        // set this file and other similar aliases synchronised
-                        $file->set_synchronized($contenthash, $filesize);
+                        $file->set_synchronised_content_from_file($fileinfo['path']);
                     } else {
                         throw new moodle_exception('errorwhiledownload', 'repository', '', '');
                     }
@@ -1940,6 +1920,17 @@ abstract class repository implements cacheable_object {
     }
 
     /**
+     * Tells how the file can be picked from this repository
+     *
+     * Maximum value is FILE_INTERNAL | FILE_EXTERNAL | FILE_REFERENCE
+     *
+     * @return int
+     */
+    public function default_returntype() {
+        return FILE_INTERNAL;
+    }
+
+    /**
      * Provide repository instance information for Ajax
      *
      * @return stdClass
@@ -1950,9 +1941,10 @@ abstract class repository implements cacheable_object {
         $meta->id   = $this->id;
         $meta->name = format_string($this->get_name());
         $meta->type = $this->get_typename();
-        $meta->icon = $OUTPUT->pix_url('icon', 'repository_'.$meta->type)->out(false);
+        $meta->icon = $OUTPUT->image_url('icon', 'repository_'.$meta->type)->out(false);
         $meta->supported_types = file_get_typegroup('extension', $this->supported_filetypes());
         $meta->return_types = $this->supported_returntypes();
+        $meta->defaultreturntype = $this->default_returntype();
         $meta->sortorder = $this->options['sortorder'];
         return $meta;
     }
@@ -2019,6 +2011,8 @@ abstract class repository implements cacheable_object {
         global $DB;
         if ($downloadcontents) {
             $this->convert_references_to_local();
+        } else {
+            $this->remove_files();
         }
         cache::make('core', 'repositories')->purge();
         try {
@@ -2152,12 +2146,9 @@ abstract class repository implements cacheable_object {
      * @param array $value
      * @return bool
      */
-    public function filter(&$value) {
+    public function filter($value) {
         $accepted_types = optional_param_array('accepted_types', '', PARAM_RAW);
         if (isset($value['children'])) {
-            if (!empty($value['children'])) {
-                $value['children'] = array_filter($value['children'], array($this, 'filter'));
-            }
             return true; // always return directories
         } else {
             if ($accepted_types == '*' or empty($accepted_types)
@@ -2209,7 +2200,7 @@ abstract class repository implements cacheable_object {
      */
     protected static function prepare_breadcrumb($breadcrumb) {
         global $OUTPUT;
-        $foldericon = $OUTPUT->pix_url(file_folder_icon(24))->out(false);
+        $foldericon = $OUTPUT->image_url(file_folder_icon(24))->out(false);
         $len = count($breadcrumb);
         for ($i = 0; $i < $len; $i++) {
             if (is_array($breadcrumb[$i]) && !isset($breadcrumb[$i]['icon'])) {
@@ -2230,7 +2221,7 @@ abstract class repository implements cacheable_object {
      */
     protected static function prepare_list($list) {
         global $OUTPUT;
-        $foldericon = $OUTPUT->pix_url(file_folder_icon(24))->out(false);
+        $foldericon = $OUTPUT->image_url(file_folder_icon(24))->out(false);
 
         // Reset the array keys because non-numeric keys will create an object when converted to JSON.
         $list = array_values($list);
@@ -2244,6 +2235,11 @@ abstract class repository implements cacheable_object {
                 $file =& $list[$i];
                 $converttoobject = false;
             }
+
+            if (isset($file['source'])) {
+                $file['sourcekey'] = sha1($file['source'] . self::get_secret_key() . sesskey());
+            }
+
             if (isset($file['size'])) {
                 $file['size'] = (int)$file['size'];
                 $file['size_f'] = display_size($file['size']);
@@ -2285,7 +2281,7 @@ abstract class repository implements cacheable_object {
                 if ($isfolder) {
                     $file['icon'] = $foldericon;
                 } else if ($filename) {
-                    $file['icon'] = $OUTPUT->pix_url(file_extension_icon($filename, 24))->out(false);
+                    $file['icon'] = $OUTPUT->image_url(file_extension_icon($filename, 24))->out(false);
                 }
             }
 
@@ -2684,6 +2680,17 @@ abstract class repository implements cacheable_object {
     }
 
     /**
+     * Find all external files linked to this repository and delete them.
+     */
+    public function remove_files() {
+        $fs = get_file_storage();
+        $files = $fs->get_external_files($this->id);
+        foreach ($files as $storedfile) {
+            $storedfile->delete();
+        }
+    }
+
+    /**
      * Function repository::reset_caches() is deprecated, cache is handled by MUC now.
      * @deprecated since Moodle 2.6 MDL-42016 - please do not use this function any more.
      */
@@ -2752,7 +2759,7 @@ abstract class repository implements cacheable_object {
                     $params['filename']))) {
                 $file->set_missingsource();
             } else {
-                $file->set_synchronized($storedfile->get_contenthash(), $storedfile->get_filesize());
+                $file->set_synchronized($storedfile->get_contenthash(), $storedfile->get_filesize(), 0, $storedfile->get_timemodified());
             }
             return true;
         }
@@ -2827,6 +2834,31 @@ abstract class repository implements cacheable_object {
      */
     public function supports_relative_file() {
         return false;
+    }
+
+    /**
+     * Helper function to indicate if this repository uses post requests for uploading files.
+     *
+     * @deprecated since Moodle 3.2, 3.1.1, 3.0.5
+     * @return bool
+     */
+    public function uses_post_requests() {
+        debugging('The method repository::uses_post_requests() is deprecated and must not be used anymore.', DEBUG_DEVELOPER);
+        return false;
+    }
+
+    /**
+     * Generate a secret key to be used for passing sensitive information around.
+     *
+     * @return string repository secret key.
+     */
+    final static public function get_secret_key() {
+        global $CFG;
+
+        if (!isset($CFG->reposecretkey)) {
+            set_config('reposecretkey', time() . random_string(32));
+        }
+        return $CFG->reposecretkey;
     }
 }
 
@@ -3087,21 +3119,14 @@ final class repository_type_form extends moodleform {
  *          accepted_types
  */
 function initialise_filepicker($args) {
-    global $CFG, $USER, $PAGE, $OUTPUT;
+    global $CFG, $USER, $PAGE;
     static $templatesinitialized = array();
     require_once($CFG->libdir . '/licenselib.php');
 
     $return = new stdClass();
-    $licenses = array();
-    if (!empty($CFG->licenses)) {
-        $array = explode(',', $CFG->licenses);
-        foreach ($array as $license) {
-            $l = new stdClass();
-            $l->shortname = $license;
-            $l->fullname = get_string($license, 'license');
-            $licenses[] = $l;
-        }
-    }
+
+    $licenses = license_manager::get_licenses();
+
     if (!empty($CFG->sitedefaultlicense)) {
         $return->defaultlicense = $CFG->sitedefaultlicense;
     }
@@ -3145,6 +3170,8 @@ function initialise_filepicker($args) {
         $return->externallink = true;
     }
 
+    $return->rememberuserlicensepref = (bool) get_config(null, 'rememberuserlicensepref');
+
     $return->userprefs = array();
     $return->userprefs['recentrepository'] = get_user_preferences('filepicker_recentrepository', '');
     $return->userprefs['recentlicense'] = get_user_preferences('filepicker_recentlicense', '');
@@ -3179,5 +3206,105 @@ function initialise_filepicker($args) {
     if (sizeof($templates)) {
         $PAGE->requires->js_init_call('M.core_filepicker.set_templates', array($templates), true);
     }
+    return $return;
+}
+
+/**
+ * Convenience function to handle deletion of files.
+ *
+ * @param object $context The context where the delete is called
+ * @param string $component component
+ * @param string $filearea filearea
+ * @param int $itemid the item id
+ * @param array $files Array of files object with each item having filename/filepath as values
+ * @return array $return Array of strings matching up to the parent directory of the deleted files
+ * @throws coding_exception
+ */
+function repository_delete_selected_files($context, string $component, string $filearea, $itemid, array $files) {
+    $fs = get_file_storage();
+    $return = [];
+
+    foreach ($files as $selectedfile) {
+        $filename = clean_filename($selectedfile->filename);
+        $filepath = clean_param($selectedfile->filepath, PARAM_PATH);
+        $filepath = file_correct_filepath($filepath);
+
+        if ($storedfile = $fs->get_file($context->id, $component, $filearea, $itemid, $filepath, $filename)) {
+            $parentpath = $storedfile->get_parent_directory()->get_filepath();
+            if ($storedfile->is_directory()) {
+                $files = $fs->get_directory_files($context->id, $component, $filearea, $itemid, $filepath, true);
+                foreach ($files as $file) {
+                    $file->delete();
+                }
+                $storedfile->delete();
+                $return[$parentpath] = "";
+            } else {
+                if ($result = $storedfile->delete()) {
+                    $return[$parentpath] = "";
+                }
+            }
+        }
+    }
+
+    return $return;
+}
+
+/**
+ * Convenience function to handle deletion of files.
+ *
+ * @param object $context The context where the delete is called
+ * @param string $component component
+ * @param string $filearea filearea
+ * @param int $itemid the item id
+ * @param array $files Array of files object with each item having filename/filepath as values
+ * @return array $return Array of strings matching up to the parent directory of the deleted files
+ * @throws coding_exception
+ */
+function repository_download_selected_files($context, string $component, string $filearea, $itemid, array $files) {
+    global $USER;
+    $return = false;
+
+    $zipper = get_file_packer('application/zip');
+    $fs = get_file_storage();
+    // Archive compressed file to an unused draft area.
+    $newdraftitemid = file_get_unused_draft_itemid();
+    $filestoarchive = [];
+
+    foreach ($files as $selectedfile) {
+        $filename = $selectedfile->filename ? clean_filename($selectedfile->filename) : '.'; // Default to '.' for root.
+        $filepath = clean_param($selectedfile->filepath, PARAM_PATH); // Default to '/' for downloadall.
+        $filepath = file_correct_filepath($filepath);
+        $area = file_get_draft_area_info($itemid, $filepath);
+        if ($area['filecount'] == 0 && $area['foldercount'] == 0) {
+            continue;
+        }
+
+        $storedfile = $fs->get_file($context->id, $component, $filearea, $itemid, $filepath, $filename);
+        // If it is empty we are downloading a directory.
+        $archivefile = $storedfile->get_filename();
+        if (!$filename || $filename == '.' ) {
+            $foldername = explode('/', trim($filepath, '/'));
+            $folder = trim(array_pop($foldername), '/');
+            $archivefile = $folder ?? '/';
+        }
+
+        $filestoarchive[$archivefile] = $storedfile;
+    }
+    $zippedfile = get_string('files') . '.zip';
+    if ($newfile =
+        $zipper->archive_to_storage(
+            $filestoarchive,
+            $context->id,
+            $component,
+            $filearea,
+            $newdraftitemid,
+            "/",
+            $zippedfile, $USER->id)
+    ) {
+        $return = new stdClass();
+        $return->fileurl = moodle_url::make_draftfile_url($newdraftitemid, '/', $zippedfile)->out();
+        $return->filepath = $filepath;
+    }
+
     return $return;
 }

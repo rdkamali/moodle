@@ -38,6 +38,7 @@ $phrase  = trim(optional_param('phrase', '', PARAM_NOTAGS));  // Phrase
 $words   = trim(optional_param('words', '', PARAM_NOTAGS));   // Words
 $fullwords = trim(optional_param('fullwords', '', PARAM_NOTAGS)); // Whole words
 $notwords = trim(optional_param('notwords', '', PARAM_NOTAGS));   // Words we don't want
+$tags = optional_param_array('tags', [], PARAM_TEXT);
 
 $timefromrestrict = optional_param('timefromrestrict', 0, PARAM_INT); // Use starting date
 $fromday = optional_param('fromday', 0, PARAM_INT);      // Starting date
@@ -46,7 +47,9 @@ $fromyear = optional_param('fromyear', 0, PARAM_INT);      // Starting date
 $fromhour = optional_param('fromhour', 0, PARAM_INT);      // Starting date
 $fromminute = optional_param('fromminute', 0, PARAM_INT);      // Starting date
 if ($timefromrestrict) {
-    $datefrom = make_timestamp($fromyear, $frommonth, $fromday, $fromhour, $fromminute);
+    $calendartype = \core_calendar\type_factory::get_calendar_instance();
+    $gregorianfrom = $calendartype->convert_to_gregorian($fromyear, $frommonth, $fromday);
+    $datefrom = make_timestamp($gregorianfrom['year'], $gregorianfrom['month'], $gregorianfrom['day'], $fromhour, $fromminute);
 } else {
     $datefrom = optional_param('datefrom', 0, PARAM_INT);      // Starting date
 }
@@ -58,13 +61,17 @@ $toyear = optional_param('toyear', 0, PARAM_INT);      // Ending date
 $tohour = optional_param('tohour', 0, PARAM_INT);      // Ending date
 $tominute = optional_param('tominute', 0, PARAM_INT);      // Ending date
 if ($timetorestrict) {
-    $dateto = make_timestamp($toyear, $tomonth, $today, $tohour, $tominute);
+    $calendartype = \core_calendar\type_factory::get_calendar_instance();
+    $gregorianto = $calendartype->convert_to_gregorian($toyear, $tomonth, $today);
+    $dateto = make_timestamp($gregorianto['year'], $gregorianto['month'], $gregorianto['day'], $tohour, $tominute);
 } else {
     $dateto = optional_param('dateto', 0, PARAM_INT);      // Ending date
 }
+$starredonly = optional_param('starredonly', false, PARAM_BOOL); // Include only favourites.
 
 $PAGE->set_pagelayout('standard');
 $PAGE->set_url($FULLME); //TODO: this is very sloppy --skodak
+$PAGE->set_secondary_active_tab("coursehome");
 
 if (empty($search)) {   // Check the other parameters instead
     if (!empty($words)) {
@@ -97,6 +104,12 @@ if (empty($search)) {   // Check the other parameters instead
     if (!empty($dateto)) {
         $search .= ' dateto:'.$dateto;
     }
+    if (!empty($tags)) {
+        $search .= ' tags:' . implode(',', $tags);
+    }
+    if (!empty($starredonly)) {
+        $search .= ' starredonly:on';
+    }
     $individualparams = true;
 } else {
     $individualparams = false;
@@ -127,8 +140,10 @@ $strpage = get_string("page");
 
 if (!$search || $showform) {
 
-    $PAGE->navbar->add($strforums, new moodle_url('/mod/forum/index.php', array('id'=>$course->id)));
-    $PAGE->navbar->add(get_string('advancedsearch', 'forum'));
+    $url = new moodle_url('/mod/forum/index.php', array('id' => $course->id));
+    $PAGE->navbar->add($strforums, $url);
+    $url = new moodle_url('/mod/forum/search.php', array('id' => $course->id));
+    $PAGE->navbar->add(get_string('advancedsearch', 'forum'), $url);
 
     $PAGE->set_title($strsearch);
     $PAGE->set_heading($course->fullname);
@@ -152,7 +167,9 @@ if (!$posts = forum_search_posts($searchterms, $course->id, $page*$perpage, $per
     $PAGE->set_title($strsearchresults);
     $PAGE->set_heading($course->fullname);
     echo $OUTPUT->header();
-    echo $OUTPUT->heading($strforums, 2);
+    if (!$PAGE->has_secondary_navigation()) {
+        echo $OUTPUT->heading($strforums, 2);
+    }
     echo $OUTPUT->heading($strsearchresults, 3);
     echo $OUTPUT->heading(get_string("noposts", "forum"), 4);
 
@@ -179,25 +196,35 @@ $rm = new rating_manager();
 
 $PAGE->set_title($strsearchresults);
 $PAGE->set_heading($course->fullname);
-$PAGE->set_button($searchform);
+$PAGE->add_header_action($searchform);
 echo $OUTPUT->header();
 echo '<div class="reportlink">';
-echo '<a href="search.php?id='.$course->id.
-                         '&amp;user='.urlencode($user).
-                         '&amp;userid='.$userid.
-                         '&amp;forumid='.$forumid.
-                         '&amp;subject='.urlencode($subject).
-                         '&amp;phrase='.urlencode($phrase).
-                         '&amp;words='.urlencode($words).
-                         '&amp;fullwords='.urlencode($fullwords).
-                         '&amp;notwords='.urlencode($notwords).
-                         '&amp;dateto='.$dateto.
-                         '&amp;datefrom='.$datefrom.
-                         '&amp;showform=1'.
-                         '">'.get_string('advancedsearch','forum').'...</a>';
+
+$params = [
+    'id'        => $course->id,
+    'user'      => $user,
+    'userid'    => $userid,
+    'forumid'   => $forumid,
+    'subject'   => $subject,
+    'phrase'    => $phrase,
+    'words'     => $words,
+    'fullwords' => $fullwords,
+    'notwords'  => $notwords,
+    'dateto'    => $dateto,
+    'datefrom'  => $datefrom,
+    'showform'  => 1,
+    'starredonly' => $starredonly
+];
+$url    = new moodle_url("/mod/forum/search.php", $params);
+foreach ($tags as $tag) {
+    $url .= "&tags[]=$tag";
+}
+echo html_writer::link($url, get_string('advancedsearch', 'forum').'...');
+
 echo '</div>';
 
 echo $OUTPUT->heading($strforums, 2);
+
 echo $OUTPUT->heading("$strsearchresults: $totalcount", 3);
 
 $url = new moodle_url('search.php', array('search' => $search, 'id' => $course->id, 'perpage' => $perpage));
@@ -217,85 +244,78 @@ foreach ($searchterms as $key => $searchterm) {
     }
 }
 $strippedsearch = implode(' ', $searchterms);    // Rebuild the string
+$entityfactory = mod_forum\local\container::get_entity_factory();
+$vaultfactory = mod_forum\local\container::get_vault_factory();
+$rendererfactory = mod_forum\local\container::get_renderer_factory();
+$managerfactory = mod_forum\local\container::get_manager_factory();
+$legacydatamapperfactory = mod_forum\local\container::get_legacy_data_mapper_factory();
+$forumdatamapper = $legacydatamapperfactory->get_forum_data_mapper();
+
+$discussionvault = $vaultfactory->get_discussion_vault();
+$discussionids = array_keys(array_reduce($posts, function($carry, $post) {
+    $carry[$post->discussion] = true;
+    return $carry;
+}, []));
+$discussions = $discussionvault->get_from_ids($discussionids);
+$discussionsbyid = array_reduce($discussions, function($carry, $discussion) {
+    $carry[$discussion->get_id()] = $discussion;
+    return $carry;
+}, []);
+
+$forumvault = $vaultfactory->get_forum_vault();
+$forumids = array_keys(array_reduce($discussions, function($carry, $discussion) {
+    $carry[$discussion->get_forum_id()] = true;
+    return $carry;
+}, []));
+$forums = $forumvault->get_from_ids($forumids);
+$forumsbyid = array_reduce($forums, function($carry, $forum) {
+    $carry[$forum->get_id()] = $forum;
+    return $carry;
+}, []);
+
+$postids = array_map(function($post) {
+    return $post->id;
+}, $posts);
+
+$poststorender = [];
 
 foreach ($posts as $post) {
 
     // Replace the simple subject with the three items forum name -> thread name -> subject
     // (if all three are appropriate) each as a link.
-    if (! $discussion = $DB->get_record('forum_discussions', array('id' => $post->discussion))) {
+    if (!isset($discussionsbyid[$post->discussion])) {
         print_error('invaliddiscussionid', 'forum');
     }
-    if (! $forum = $DB->get_record('forum', array('id' => "$discussion->forum"))) {
+
+    $discussion = $discussionsbyid[$post->discussion];
+    if (!isset($forumsbyid[$discussion->get_forum_id()])) {
         print_error('invalidforumid', 'forum');
     }
 
-    if (!$cm = get_coursemodule_from_instance('forum', $forum->id)) {
-        print_error('invalidcoursemodule');
+    $forum = $forumsbyid[$discussion->get_forum_id()];
+    $capabilitymanager = $managerfactory->get_capability_manager($forum);
+    $postentity = $entityfactory->get_post_from_stdclass($post);
+
+    if (!$capabilitymanager->can_view_post($USER, $discussion, $postentity)) {
+        // Don't render posts that the user can't view.
+        continue;
     }
 
-    $post->subject = highlight($strippedsearch, $post->subject);
-    $discussion->name = highlight($strippedsearch, $discussion->name);
-
-    $fullsubject = "<a href=\"view.php?f=$forum->id\">".format_string($forum->name,true)."</a>";
-    if ($forum->type != 'single') {
-        $fullsubject .= " -> <a href=\"discuss.php?d=$discussion->id\">".format_string($discussion->name,true)."</a>";
-        if ($post->parent != 0) {
-            $fullsubject .= " -> <a href=\"discuss.php?d=$post->discussion&amp;parent=$post->id\">".format_string($post->subject,true)."</a>";
-        }
+    if ($postentity->is_deleted()) {
+        // Don't render deleted posts.
+        continue;
     }
 
-    $post->subject = $fullsubject;
-    $post->subjectnoformat = true;
-
-    //add the ratings information to the post
-    //Unfortunately seem to have do this individually as posts may be from different forums
-    if ($forum->assessed != RATING_AGGREGATE_NONE) {
-        $modcontext = context_module::instance($cm->id);
-        $ratingoptions->context = $modcontext;
-        $ratingoptions->items = array($post);
-        $ratingoptions->aggregate = $forum->assessed;//the aggregation method
-        $ratingoptions->scaleid = $forum->scale;
-        $ratingoptions->assesstimestart = $forum->assesstimestart;
-        $ratingoptions->assesstimefinish = $forum->assesstimefinish;
-        $postswithratings = $rm->get_ratings($ratingoptions);
-
-        if ($postswithratings && count($postswithratings)==1) {
-            $post = $postswithratings[0];
-        }
-    }
-
-    // Identify search terms only found in HTML markup, and add a warning about them to
-    // the start of the message text. However, do not do the highlighting here. forum_print_post
-    // will do it for us later.
-    $missing_terms = "";
-
-    $options = new stdClass();
-    $options->trusted = $post->messagetrust;
-    $post->message = highlight($strippedsearch,
-                    format_text($post->message, $post->messageformat, $options, $course->id),
-                    0, '<fgw9sdpq4>', '</fgw9sdpq4>');
-
-    foreach ($searchterms as $searchterm) {
-        if (preg_match("/$searchterm/i",$post->message) && !preg_match('/<fgw9sdpq4>'.$searchterm.'<\/fgw9sdpq4>/i',$post->message)) {
-            $missing_terms .= " $searchterm";
-        }
-    }
-
-    $post->message = str_replace('<fgw9sdpq4>', '<span class="highlight">', $post->message);
-    $post->message = str_replace('</fgw9sdpq4>', '</span>', $post->message);
-
-    if ($missing_terms) {
-        $strmissingsearchterms = get_string('missingsearchterms','forum');
-        $post->message = '<p class="highlight2">'.$strmissingsearchterms.' '.$missing_terms.'</p>'.$post->message;
-    }
-
-    // Prepare a link to the post in context, to be displayed after the forum post.
-    $fulllink = "<a href=\"discuss.php?d=$post->discussion#p$post->id\">".get_string("postincontext", "forum")."</a>";
-
-    // Now pring the post.
-    forum_print_post($post, $discussion, $forum, $cm, $course, false, false, false,
-            $fulllink, '', -99, false);
+    $poststorender[] = $postentity;
 }
+
+$renderer = $rendererfactory->get_posts_search_results_renderer($searchterms);
+echo $renderer->render(
+    $USER,
+    $forumsbyid,
+    $discussionsbyid,
+    $poststorender
+);
 
 echo $OUTPUT->paging_bar($totalcount, $page, $perpage, $url);
 
@@ -309,122 +329,24 @@ echo $OUTPUT->footer();
   * @return void The function prints the form.
   */
 function forum_print_big_search_form($course) {
-    global $CFG, $DB, $words, $subject, $phrase, $user, $userid, $fullwords, $notwords, $datefrom, $dateto, $PAGE, $OUTPUT;
+    global $PAGE, $words, $subject, $phrase, $user, $fullwords, $notwords, $datefrom,
+           $dateto, $forumid, $tags, $starredonly;
 
-    echo $OUTPUT->box(get_string('searchforumintro', 'forum'), 'searchbox boxaligncenter', 'intro');
+    $renderable = new \mod_forum\output\big_search_form($course, $user);
+    $renderable->set_words($words);
+    $renderable->set_phrase($phrase);
+    $renderable->set_notwords($notwords);
+    $renderable->set_fullwords($fullwords);
+    $renderable->set_datefrom($datefrom);
+    $renderable->set_dateto($dateto);
+    $renderable->set_subject($subject);
+    $renderable->set_user($user);
+    $renderable->set_forumid($forumid);
+    $renderable->set_tags($tags);
+    $renderable->set_starredonly($starredonly);
 
-    echo $OUTPUT->box_start('generalbox boxaligncenter');
-
-    echo html_writer::script('', $CFG->wwwroot.'/mod/forum/forum.js');
-
-    echo '<form id="searchform" action="search.php" method="get">';
-    echo '<table cellpadding="10" class="searchbox" id="form">';
-
-    echo '<tr>';
-    echo '<td class="c0"><label for="words">'.get_string('searchwords', 'forum').'</label>';
-    echo '<input type="hidden" value="'.$course->id.'" name="id" alt="" /></td>';
-    echo '<td class="c1"><input type="text" size="35" name="words" id="words"value="'.s($words, true).'" alt="" /></td>';
-    echo '</tr>';
-
-    echo '<tr>';
-    echo '<td class="c0"><label for="phrase">'.get_string('searchphrase', 'forum').'</label></td>';
-    echo '<td class="c1"><input type="text" size="35" name="phrase" id="phrase" value="'.s($phrase, true).'" alt="" /></td>';
-    echo '</tr>';
-
-    echo '<tr>';
-    echo '<td class="c0"><label for="notwords">'.get_string('searchnotwords', 'forum').'</label></td>';
-    echo '<td class="c1"><input type="text" size="35" name="notwords" id="notwords" value="'.s($notwords, true).'" alt="" /></td>';
-    echo '</tr>';
-
-    if ($DB->get_dbfamily() == 'mysql' || $DB->get_dbfamily() == 'postgres') {
-        echo '<tr>';
-        echo '<td class="c0"><label for="fullwords">'.get_string('searchfullwords', 'forum').'</label></td>';
-        echo '<td class="c1"><input type="text" size="35" name="fullwords" id="fullwords" value="'.s($fullwords, true).'" alt="" /></td>';
-        echo '</tr>';
-    }
-
-    echo '<tr>';
-    echo '<td class="c0">'.get_string('searchdatefrom', 'forum').'</td>';
-    echo '<td class="c1">';
-    if (empty($datefrom)) {
-        $datefromchecked = '';
-        $datefrom = make_timestamp(2000, 1, 1, 0, 0, 0);
-    }else{
-        $datefromchecked = 'checked="checked"';
-    }
-
-    echo '<input name="timefromrestrict" type="checkbox" value="1" alt="'.get_string('searchdatefrom', 'forum').'" onclick="return lockoptions(\'searchform\', \'timefromrestrict\', timefromitems)" '.  $datefromchecked . ' /> ';
-    $selectors = html_writer::select_time('days', 'fromday', $datefrom)
-               . html_writer::select_time('months', 'frommonth', $datefrom)
-               . html_writer::select_time('years', 'fromyear', $datefrom)
-               . html_writer::select_time('hours', 'fromhour', $datefrom)
-               . html_writer::select_time('minutes', 'fromminute', $datefrom);
-    echo $selectors;
-    echo '<input type="hidden" name="hfromday" value="0" />';
-    echo '<input type="hidden" name="hfrommonth" value="0" />';
-    echo '<input type="hidden" name="hfromyear" value="0" />';
-    echo '<input type="hidden" name="hfromhour" value="0" />';
-    echo '<input type="hidden" name="hfromminute" value="0" />';
-
-    echo '</td>';
-    echo '</tr>';
-
-    echo '<tr>';
-    echo '<td class="c0">'.get_string('searchdateto', 'forum').'</td>';
-    echo '<td class="c1">';
-    if (empty($dateto)) {
-        $datetochecked = '';
-        $dateto = time()+3600;
-    }else{
-        $datetochecked = 'checked="checked"';
-    }
-
-    echo '<input name="timetorestrict" type="checkbox" value="1" alt="'.get_string('searchdateto', 'forum').'" onclick="return lockoptions(\'searchform\', \'timetorestrict\', timetoitems)" ' .$datetochecked. ' /> ';
-    $selectors = html_writer::select_time('days', 'today', $dateto)
-               . html_writer::select_time('months', 'tomonth', $dateto)
-               . html_writer::select_time('years', 'toyear', $dateto)
-               . html_writer::select_time('hours', 'tohour', $dateto)
-               . html_writer::select_time('minutes', 'tominute', $dateto);
-    echo $selectors;
-
-    echo '<input type="hidden" name="htoday" value="0" />';
-    echo '<input type="hidden" name="htomonth" value="0" />';
-    echo '<input type="hidden" name="htoyear" value="0" />';
-    echo '<input type="hidden" name="htohour" value="0" />';
-    echo '<input type="hidden" name="htominute" value="0" />';
-
-    echo '</td>';
-    echo '</tr>';
-
-    echo '<tr>';
-    echo '<td class="c0"><label for="menuforumid">'.get_string('searchwhichforums', 'forum').'</label></td>';
-    echo '<td class="c1">';
-    echo html_writer::select(forum_menu_list($course), 'forumid', '', array(''=>get_string('allforums', 'forum')));
-    echo '</td>';
-    echo '</tr>';
-
-    echo '<tr>';
-    echo '<td class="c0"><label for="subject">'.get_string('searchsubject', 'forum').'</label></td>';
-    echo '<td class="c1"><input type="text" size="35" name="subject" id="subject" value="'.s($subject, true).'" alt="" /></td>';
-    echo '</tr>';
-
-    echo '<tr>';
-    echo '<td class="c0"><label for="user">'.get_string('searchuser', 'forum').'</label></td>';
-    echo '<td class="c1"><input type="text" size="35" name="user" id="user" value="'.s($user, true).'" alt="" /></td>';
-    echo '</tr>';
-
-    echo '<tr>';
-    echo '<td class="submit" colspan="2" align="center">';
-    echo '<input type="submit" value="'.get_string('searchforums', 'forum').'" alt="" /></td>';
-    echo '</tr>';
-
-    echo '</table>';
-    echo '</form>';
-
-    echo html_writer::script(js_writer::function_call('lockoptions_timetoitems'));
-    echo html_writer::script(js_writer::function_call('lockoptions_timefromitems'));
-
-    echo $OUTPUT->box_end();
+    $output = $PAGE->get_renderer('mod_forum');
+    echo $output->render($renderable);
 }
 
 /**

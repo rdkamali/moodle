@@ -20,11 +20,10 @@
  * if a blog id is specified then the latest entries from that blog are shown
  */
 
-require_once(dirname(dirname(__FILE__)).'/config.php');
+require_once(__DIR__ . '/../config.php');
 require_once($CFG->dirroot .'/blog/lib.php');
 require_once($CFG->dirroot .'/blog/locallib.php');
 require_once($CFG->dirroot .'/course/lib.php');
-require_once($CFG->dirroot .'/tag/lib.php');
 require_once($CFG->dirroot .'/comment/lib.php');
 
 $id       = optional_param('id', null, PARAM_INT);
@@ -40,13 +39,13 @@ $search   = optional_param('search', null, PARAM_RAW);
 
 comment::init();
 
-$url_params = compact('id', 'start', 'tag', 'userid', 'tagid', 'modid', 'entryid', 'groupid', 'courseid', 'search');
-foreach ($url_params as $var => $val) {
+$urlparams = compact('id', 'start', 'tag', 'userid', 'tagid', 'modid', 'entryid', 'groupid', 'courseid', 'search');
+foreach ($urlparams as $var => $val) {
     if (empty($val)) {
-        unset($url_params[$var]);
+        unset($urlparams[$var]);
     }
 }
-$PAGE->set_url('/blog/index.php', $url_params);
+$PAGE->set_url('/blog/index.php', $urlparams);
 
 // Correct tagid if a text tag is provided as a param.
 if (!empty($tag)) {
@@ -57,9 +56,27 @@ if (!empty($tag)) {
     }
 }
 
-$sitecontext = context_system::instance();
-// Blogs are always in system context.
-$PAGE->set_context($sitecontext);
+// Set the userid to the entry author if we have the entry ID.
+if ($entryid and !isset($userid)) {
+    $entry = new blog_entry($entryid);
+    $userid = $entry->userid;
+}
+
+if (isset($userid) && empty($courseid) && empty($modid)) {
+    $context = context_user::instance($userid);
+} else if (!empty($courseid) && $courseid != SITEID) {
+    $context = context_course::instance($courseid);
+} else {
+    $context = context_system::instance();
+}
+$PAGE->set_context($context);
+
+if (isset($userid) && $USER->id == $userid && !$PAGE->has_secondary_navigation()) {
+    $blognode = $PAGE->navigation->find('siteblog', null);
+    if ($blognode) {
+        $blognode->make_inactive();
+    }
+}
 
 // Check basic permissions.
 if ($CFG->bloglevel == BLOG_GLOBAL_LEVEL) {
@@ -73,7 +90,7 @@ if ($CFG->bloglevel == BLOG_GLOBAL_LEVEL) {
     require_login();
     if (isguestuser()) {
         // They must have entered the url manually.
-        print_error('blogdisable', 'blog');
+        print_error('noguest');
     }
 
 } else if ($CFG->bloglevel == BLOG_USER_LEVEL) {
@@ -89,131 +106,27 @@ if (empty($CFG->enableblogs)) {
     print_error('blogdisable', 'blog');
 }
 
-// Add courseid if modid or groupid is specified: This is used for navigation and title.
-if (!empty($modid) && empty($courseid)) {
-    $courseid = $DB->get_field('course_modules', 'course', array('id' => $modid));
-}
-
-if (!empty($groupid) && empty($courseid)) {
-    $courseid = $DB->get_field('groups', 'courseid', array('id' => $groupid));
-}
-
-
-if (!$userid && has_capability('moodle/blog:view', $sitecontext) && $CFG->bloglevel > BLOG_USER_LEVEL) {
-    if ($entryid) {
-        if (!$entryobject = $DB->get_record('post', array('id'=>$entryid))) {
-            print_error('nosuchentry', 'blog');
-        }
-        $userid = $entryobject->userid;
-    }
-} else if (!$userid) {
-    $userid = $USER->id;
-}
-
-if (!empty($modid)) {
-    if ($CFG->bloglevel < BLOG_SITE_LEVEL) {
-        print_error(get_string('nocourseblogs', 'blog'));
-    }
-    if (!$mod = $DB->get_record('course_modules', array('id' => $modid))) {
-        print_error(get_string('invalidmodid', 'blog'));
-    }
-    $courseid = $mod->course;
-}
-
-if ((empty($courseid) ? true : $courseid == SITEID) && empty($userid)) {
-    if ($CFG->bloglevel < BLOG_SITE_LEVEL) {
-        print_error('siteblogdisable', 'blog');
-    }
-    if (!has_capability('moodle/blog:view', $sitecontext)) {
-        print_error('cannotviewsiteblog', 'blog');
-    }
-
-    $COURSE = $DB->get_record('course', array('format'=>'site'));
-    $courseid = $COURSE->id;
-}
-
-if (!empty($courseid)) {
-    if (!$course = $DB->get_record('course', array('id'=>$courseid))) {
-        print_error('invalidcourseid');
-    }
-
-    $courseid = $course->id;
-    require_login($course);
-
-    if (!has_capability('moodle/blog:view', $sitecontext)) {
-        print_error('cannotviewcourseblog', 'blog');
-    }
-} else {
-    $coursecontext = context_course::instance(SITEID);
-}
-
-if (!empty($groupid)) {
-    if ($CFG->bloglevel < BLOG_SITE_LEVEL) {
-        print_error('groupblogdisable', 'blog');
-    }
-
-    if (! $group = groups_get_group($groupid)) {
-        print_error(get_string('invalidgroupid', 'blog'));
-    }
-
-    if (!$course = $DB->get_record('course', array('id'=>$group->courseid))) {
-        print_error('invalidcourseid');
-    }
-
-    $coursecontext = context_course::instance($course->id);
-    $courseid = $course->id;
-    require_login($course);
-
-    if (!has_capability('moodle/blog:view', $sitecontext)) {
-        print_error(get_string('cannotviewcourseorgroupblog', 'blog'));
-    }
-
-    if (groups_get_course_groupmode($course) == SEPARATEGROUPS && !has_capability('moodle/site:accessallgroups', $coursecontext)) {
-        if (!groups_is_member($groupid)) {
-            print_error('notmemberofgroup');
-        }
-    }
-}
-
-if (!empty($userid)) {
-    if ($CFG->bloglevel < BLOG_USER_LEVEL) {
-        print_error('blogdisable', 'blog');
-    }
-
-    if (!$user = $DB->get_record('user', array('id'=>$userid))) {
-        print_error('invaliduserid');
-    }
-
-    if ($user->deleted) {
-        echo $OUTPUT->header();
-        echo $OUTPUT->heading(get_string('userdeleted'));
-        echo $OUTPUT->footer();
-        die;
-    }
-
-    if ($USER->id == $userid) {
-        if (!has_capability('moodle/blog:create', $sitecontext)
-          && !has_capability('moodle/blog:view', $sitecontext)) {
-            print_error('donothaveblog', 'blog');
-        }
-    } else {
-        if (!has_capability('moodle/blog:view', $sitecontext) || !blog_user_can_view_user_entry($userid)) {
-            print_error('cannotviewcourseblog', 'blog');
-        }
-
-        $PAGE->navigation->extend_for_user($user);
-    }
-}
+list($courseid, $userid) = blog_validate_access($courseid, $modid, $groupid, $entryid, $userid);
 
 $courseid = (empty($courseid)) ? SITEID : $courseid;
 
+if ($courseid != SITEID) {
+    $course = get_course($courseid);
+    require_login($course);
+}
+
+if (!empty($userid)) {
+    $user = core_user::get_user($userid);
+    $PAGE->navigation->extend_for_user($user);
+}
 
 $blogheaders = blog_get_headers();
 
+$rsscontext = null;
+$filtertype = null;
+$thingid = null;
+$rsstitle = '';
 if ($CFG->enablerssfeeds) {
-    $rsscontext = null;
-    $filtertype = null;
-    $thingid = null;
     list($thingid, $rsscontext, $filtertype) = blog_rss_get_params($blogheaders['filters']);
     if (empty($rsscontext)) {
         $rsscontext = context_system::instance();
@@ -226,12 +139,42 @@ if ($CFG->enablerssfeeds) {
     }
 }
 
-echo $OUTPUT->header();
+$usernode = $PAGE->navigation->find('user'.$userid, null);
+if ($usernode && $courseid != SITEID) {
+    $courseblogsnode = $PAGE->navigation->find('courseblogs', null);
+    if ($courseblogsnode) {
+        $courseblogsnode->remove();
+    }
+    $blogurl = new moodle_url($PAGE->url);
+    $blognode = $usernode->add(get_string('blogscourse', 'blog'), $blogurl);
+    $blognode->make_active();
+}
+
+if ($courseid != SITEID) {
+    $PAGE->set_heading($course->fullname);
+    echo $OUTPUT->header();
+    $backurl = new moodle_url('/user/view.php', ['id' => $userid, 'course' => $courseid]);
+    echo $OUTPUT->single_button($backurl, get_string('back'), 'get', ['class' => 'mb-3']);
+
+    if (!empty($user)) {
+        $headerinfo = array('heading' => fullname($user), 'user' => $user);
+        echo $OUTPUT->context_header($headerinfo, 2);
+    }
+} else if (isset($userid)) {
+    $PAGE->set_heading(fullname($user));
+    echo $OUTPUT->header();
+} else if ($courseid == SITEID) {
+    echo $OUTPUT->header();
+}
 
 echo $OUTPUT->heading($blogheaders['heading'], 2);
 
 $bloglisting = new blog_listing($blogheaders['filters']);
 $bloglisting->print_entries();
+
+if ($CFG->enablerssfeeds) {
+    blog_rss_print_link($rsscontext, $filtertype, $thingid, $tagid, get_string('rssfeed', 'blog'));
+}
 
 echo $OUTPUT->footer();
 $eventparams = array(

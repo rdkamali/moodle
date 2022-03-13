@@ -39,7 +39,7 @@ class workshopallocation_random_testcase extends advanced_testcase {
     /** allocator instance */
     protected $allocator;
 
-    protected function setUp() {
+    protected function setUp(): void {
         parent::setUp();
         $this->resetAfterTest();
         $this->setAdminUser();
@@ -50,7 +50,7 @@ class workshopallocation_random_testcase extends advanced_testcase {
         $this->allocator = new testable_workshop_random_allocator($this->workshop);
     }
 
-    protected function tearDown() {
+    protected function tearDown(): void {
         $this->allocator    = null;
         $this->workshop     = null;
         parent::tearDown();
@@ -120,9 +120,8 @@ class workshopallocation_random_testcase extends advanced_testcase {
             14 => (object)array('id' => 676, 'authorid' => 3),
             87 => (object)array('id' => 121, 'authorid' => 3),
         );
-        // set expectation
-        $this->setExpectedException('moodle_exception');
         // exercise SUT
+        $this->expectException(moodle_exception::class);
         $submissions = $this->allocator->index_submissions_by_authors($submissions);
     }
 

@@ -37,9 +37,10 @@ function get_new_importcode() {
  * (grade_import_value and grade_import_newitem)
  * If this function is called, we assume that all data collected
  * up to this point is fine and we can go ahead and commit
- * @param int courseid - id of the course
- * @param string importcode - import batch identifier
- * @param feedback print feedback and continue button
+ * @param int $courseid - ID of the course.
+ * @param int $importcode - Import batch identifier.
+ * @param bool $importfeedback - Whether to import feedback as well.
+ * @param bool $verbose - Print feedback and continue button.
  * @return bool success
  */
 function grade_import_commit($courseid, $importcode, $importfeedback=true, $verbose=true) {
@@ -72,7 +73,8 @@ function grade_import_commit($courseid, $importcode, $importfeedback=true, $verb
 
                 // insert each individual grade to this new grade item
                 foreach ($grades as $grade) {
-                    if (!$gradeitem->update_final_grade($grade->userid, $grade->finalgrade, 'import', $grade->feedback, FORMAT_MOODLE)) {
+                    if (!$gradeitem->update_final_grade($grade->userid, $grade->finalgrade, 'import',
+                        $grade->feedback, FORMAT_MOODLE, null, null, true)) {
                         $failed = true;
                         break 2;
                     }
@@ -111,10 +113,15 @@ function grade_import_commit($courseid, $importcode, $importfeedback=true, $verb
 
                 // make the grades array for update_grade
                 foreach ($grades as $grade) {
-                    if (!$importfeedback) {
+                    if (!$importfeedback || $grade->feedback === null) {
                         $grade->feedback = false; // ignore it
                     }
-                    if (!$gradeitem->update_final_grade($grade->userid, $grade->finalgrade, 'import', $grade->feedback)) {
+                    if ($grade->importonlyfeedback) {
+                        // False means do not change. See grade_itme::update_final_grade().
+                        $grade->finalgrade = false;
+                    }
+                    if (!$gradeitem->update_final_grade($grade->userid, $grade->finalgrade, 'import',
+                            $grade->feedback, FORMAT_MOODLE, null, null, true)) {
                         $errordata = new stdClass();
                         $errordata->itemname = $gradeitem->itemname;
                         $errordata->userid = $grade->userid;

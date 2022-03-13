@@ -27,10 +27,10 @@
 defined('MOODLE_INTERNAL') || die();
 
 global $CFG;
-require_once(dirname(__FILE__) . '/../../../engine/tests/helpers.php');
-require_once(dirname(__FILE__) . '/../../../behaviour/deferredfeedback/behaviour.php');
-require_once(dirname(__FILE__) . '/../question.php');
-
+require_once(__DIR__ . '/../../../engine/tests/helpers.php');
+require_once(__DIR__ . '/../../../behaviour/deferredfeedback/behaviour.php');
+require_once(__DIR__ . '/../question.php');
+require_once($CFG->dirroot . '/question/type/missingtype/questiontype.php');
 
 /**
  * Unit tests for the 'missing' question type.
@@ -56,8 +56,11 @@ class qtype_missing_test extends question_testcase {
         $questiondata->qtype = 'strange_unknown';
         $questiondata->length = 1;
         $questiondata->stamp = make_unique_id_code();
-        $questiondata->version = make_unique_id_code();
-        $questiondata->hidden = 0;
+        $questiondata->status = \core_question\local\bank\question_version_status::QUESTION_STATUS_READY;
+        $questiondata->version = 1;
+        $questiondata->versionid = 0;
+        $questiondata->questionbankentryid = 0;
+        $questiondata->idnumber = null;
         $questiondata->timecreated = 0;
         $questiondata->timemodified = 0;
         $questiondata->createdby = 0;
@@ -68,12 +71,12 @@ class qtype_missing_test extends question_testcase {
 
     public function test_cannot_grade() {
         $q = new qtype_missingtype_question();
-        $this->setExpectedException('moodle_exception');
+        $this->expectException(moodle_exception::class);
         $q->grade_response(array());
     }
 
     public function test_load_qtype_strict() {
-        $this->setExpectedException('moodle_exception');
+        $this->expectException(moodle_exception::class);
         $qtype = question_bank::get_qtype('strange_unknown');
     }
 
@@ -104,9 +107,9 @@ class qtype_missing_test extends question_testcase {
 
         $output = $qa->render(new question_display_options(), '1');
 
-        $this->assertRegExp('/' .
-                preg_quote($qa->get_question()->questiontext, '/') . '/', $output);
-        $this->assertRegExp('/' .
+        $this->assertMatchesRegularExpression('/' .
+                preg_quote($qa->get_question(false)->questiontext, '/') . '/', $output);
+        $this->assertMatchesRegularExpression('/' .
                 preg_quote(get_string('missingqtypewarning', 'qtype_missingtype'), '/') . '/', $output);
         $this->assert(new question_contains_tag_with_attribute(
                 'div', 'class', 'warning missingqtypewarning'), $output);

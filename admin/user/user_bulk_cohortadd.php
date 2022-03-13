@@ -60,19 +60,15 @@ foreach ($allcohorts as $c) {
 unset($allcohorts);
 
 if (count($cohorts) < 2) {
-    echo $OUTPUT->header();
-    echo $OUTPUT->heading(get_string('bulkadd', 'core_cohort'));
-    echo $OUTPUT->notification(get_string('bulknocohort', 'core_cohort'));
-    echo $OUTPUT->continue_button(new moodle_url('/admin/user/user_bulk.php'));
-    echo $OUTPUT->footer();
-    die;
+    redirect(new moodle_url('/admin/user/user_bulk.php'), get_string('bulknocohort', 'core_cohort'));
 }
 
 $countries = get_string_manager()->get_list_of_countries(true);
-$namefields = get_all_user_name_fields(true);
+$userfieldsapi = \core_user\fields::for_name();
+$namefields = $userfieldsapi->get_sql('', false, '', '', false)->selects;
 foreach ($users as $key => $id) {
-    $user = $DB->get_record('user', array('id'=>$id, 'deleted'=>0), 'id, ' . $namefields . ', username,
-            email, country, lastaccess, city');
+    $user = $DB->get_record('user', array('id' => $id), 'id, ' . $namefields . ', username,
+            email, country, lastaccess, city, deleted');
     $user->fullname = fullname($user, true);
     $user->country = @$countries[$user->country];
     unset($user->firstname);
@@ -89,7 +85,7 @@ if (empty($users) or $mform->is_cancelled()) {
 } else if ($data = $mform->get_data()) {
     // process request
     foreach ($users as $user) {
-        if (!$DB->record_exists('cohort_members', array('cohortid'=>$data->cohort, 'userid'=>$user->id))) {
+        if (!$user->deleted && !$DB->record_exists('cohort_members', array('cohortid' => $data->cohort, 'userid' => $user->id))) {
             cohort_add_member($data->cohort, $user->id);
         }
     }
@@ -118,20 +114,37 @@ foreach ($columns as $column) {
         $columndir = 'asc';
     } else {
         $columndir = ($dir == 'asc') ? 'desc' : 'asc';
-        $columnicon = ' <img src="'.$OUTPUT->pix_url('t/'.($dir == 'asc' ? 'down' : 'up' )).'" alt="" />';
+        $icon = 't/down';
+        $iconstr = $columndir;
+        if ($dir != 'asc') {
+            $icon = 't/up';
+        }
+        $columnicon = ' ' . $OUTPUT->pix_icon($icon, get_string($iconstr));
     }
     $table->head[] = '<a href="user_bulk_cohortadd.php?sort='.$column.'&amp;dir='.$columndir.'">'.$strtitle.'</a>'.$columnicon;
     $table->align[] = 'left';
 }
 
 foreach ($users as $user) {
-    $table->data[] = array (
-        '<a href="'.$CFG->wwwroot.'/user/view.php?id='.$user->id.'&amp;course='.SITEID.'">'.$user->fullname.'</a>',
-        $user->email,
-        $user->city,
-        $user->country,
-        $user->lastaccess ? format_time(time() - $user->lastaccess) : $strnever
-    );
+    if ($user->deleted) {
+        $table->data[] = array (
+            $user->fullname,
+            '',
+            '',
+            '',
+            get_string('deleteduser', 'bulkusers')
+        );
+    } else {
+        $table->data[] = array(
+            '<a href="' . $CFG->wwwroot . '/user/view.php?id=' . $user->id . '&amp;course=' . SITEID . '">' .
+            $user->fullname .
+            '</a>',
+            s($user->email),
+            $user->city,
+            $user->country,
+            $user->lastaccess ? format_time(time() - $user->lastaccess) : $strnever
+        );
+    }
 }
 
 echo $OUTPUT->header();

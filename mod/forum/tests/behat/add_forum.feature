@@ -8,8 +8,8 @@ Feature: Add forum activities and discussions
   Scenario: Add a forum and a discussion attaching files
     Given the following "users" exist:
       | username | firstname | lastname | email |
-      | teacher1 | Teacher | 1 | teacher1@asd.com |
-      | student1 | Student | 1 | student1@asd.com |
+      | teacher1 | Teacher | 1 | teacher1@example.com |
+      | student1 | Student | 1 | student1@example.com |
     And the following "courses" exist:
       | fullname | shortname | category |
       | Course 1 | C1 | 0 |
@@ -18,8 +18,7 @@ Feature: Add forum activities and discussions
       | teacher1 | C1 | editingteacher |
       | student1 | C1 | student |
     And I log in as "teacher1"
-    And I follow "Course 1"
-    And I turn editing mode on
+    And I am on "Course 1" course homepage with editing mode on
     And I add a "Forum" to section "1" and I fill the form with:
       | Forum name | Test forum name |
       | Forum type | Standard forum for general use |
@@ -29,7 +28,7 @@ Feature: Add forum activities and discussions
       | Message | This is the body |
     And I log out
     And I log in as "student1"
-    And I follow "Course 1"
+    And I am on "Course 1" course homepage
     When I add a new discussion to "Test forum name" forum with:
       | Subject | Post with attachment |
       | Message | This is the body |
@@ -40,7 +39,7 @@ Feature: Add forum activities and discussions
       | Attachment | lib/tests/fixtures/upload_users.csv |
     Then I should see "Reply with attachment"
     And I should see "upload_users.csv"
-    And I follow "Test forum name"
+    And I am on the "Test forum name" "forum activity" page
     And I follow "Post with attachment"
     And I should see "empty.txt"
     And I follow "Edit"

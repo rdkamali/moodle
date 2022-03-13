@@ -22,8 +22,12 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+$string['addgroup'] = 'Add to group';
 $string['coursesort'] = 'Sort course list';
 $string['coursesort_help'] = 'This determines whether the list of courses that can be linked are sorted by sort order (i.e. the order set in Site administration > Courses > Manage courses and categories) or alphabetically by course setting.';
+$string['creategroup'] = 'Create new group';
+$string['defaultgroupnametext'] = '{$a->name} course {$a->increment}';
+$string['enrolmetasynctask'] = 'Meta enrolment sync task';
 $string['linkedcourse'] = 'Link course';
 $string['meta:config'] = 'Configure meta enrol instances';
 $string['meta:selectaslinked'] = 'Select course as meta linked';
@@ -34,3 +38,8 @@ $string['pluginname'] = 'Course meta link';
 $string['pluginname_desc'] = 'Course meta link enrolment plugin synchronises enrolments and roles in two different courses.';
 $string['syncall'] = 'Synchronise all enrolled users';
 $string['syncall_desc'] = 'If enabled all enrolled users are synchronised even if they have no role in parent course, if disabled only users that have at least one synchronised role are enrolled in child course.';
+$string['privacy:metadata:core_group'] = 'Enrol meta plugin can create a new group or use an existing group to add all the participants of the course linked.';
+$string['wscannotcreategroup'] = 'No permission to create group in linked course id = {$a}.';
+$string['wsinvalidcourse'] = 'Course id = {$a} does not exist or no permission to link in meta enrolment.';
+$string['wsinvalidmetacourse'] = 'Meta course id = {$a} does not exist or no permission to add enrolment instance.';
+$string['wsnoinstancesspecified'] = 'No instances specified';

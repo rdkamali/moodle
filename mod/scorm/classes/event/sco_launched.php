@@ -76,7 +76,7 @@ class sco_launched extends \core\event\base {
      * @return \moodle_url
      */
     public function get_url() {
-        return new \moodle_url('/mod/scorm/player.php', array('id' => $this->contextinstanceid, 'scoid' => $this->objectid));
+        return new \moodle_url('/mod/scorm/player.php', array('cm' => $this->contextinstanceid, 'scoid' => $this->objectid));
     }
 
     /**
@@ -101,5 +101,16 @@ class sco_launched extends \core\event\base {
         if (empty($this->other['loadedcontent'])) {
             throw new \coding_exception('The \'loadedcontent\' value must be set in other.');
         }
+    }
+
+    public static function get_objectid_mapping() {
+        return array('db' => 'scorm_scoes', 'restore' => 'scorm_sco');
+    }
+
+    public static function get_other_mapping() {
+        $othermapped = array();
+        $othermapped['instanceid'] = array('db' => 'scorm', 'restore' => 'scorm');
+
+        return $othermapped;
     }
 }

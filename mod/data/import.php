@@ -33,6 +33,7 @@ $d               = optional_param('d', 0, PARAM_INT);   // database id
 $rid             = optional_param('rid', 0, PARAM_INT); // record id
 $fielddelimiter  = optional_param('fielddelimiter', ',', PARAM_CLEANHTML); // characters used as field delimiters for csv file import
 $fieldenclosure = optional_param('fieldenclosure', '', PARAM_CLEANHTML);   // characters used as record delimiters for csv file import
+$redirectbackto = optional_param('backto', '', PARAM_LOCALURL); // The location to redirect back to.
 
 $url = new moodle_url('/mod/data/import.php');
 if ($rid !== 0) {
@@ -64,137 +65,42 @@ require_login($course, false, $cm);
 
 $context = context_module::instance($cm->id);
 require_capability('mod/data:manageentries', $context);
-$form = new mod_data_import_form(new moodle_url('/mod/data/import.php'));
+
+$form = new mod_data_import_form(new moodle_url('/mod/data/import.php'), ['dataid' => $data->id,
+    'backtourl' => $redirectbackto]);
+
+if ($form->is_cancelled()) {
+    $redirectbackto = !empty($redirectbackto) ? $redirectbackto :
+        new \moodle_url('/mod/data/view.php', ['d' => $data->id]);
+    redirect($redirectbackto);
+}
 
 /// Print the page header
 $PAGE->navbar->add(get_string('add', 'data'));
 $PAGE->set_title($data->name);
 $PAGE->set_heading($course->fullname);
-navigation_node::override_active_url(new moodle_url('/mod/data/import.php', array('d' => $data->id)));
+$PAGE->set_secondary_active_tab('modulepage');
+$PAGE->activityheader->disable();
 echo $OUTPUT->header();
 echo $OUTPUT->heading_with_help(get_string('uploadrecords', 'mod_data'), 'uploadrecords', 'mod_data');
 
-/// Groups needed for Add entry tab
-$currentgroup = groups_get_activity_group($cm);
-$groupmode = groups_get_activity_groupmode($cm);
+if ($formdata = $form->get_data()) {
+    $filecontent = $form->get_file_content('recordsfile');
+    $recordsadded = data_import_csv($cm, $data, $filecontent, $formdata->encoding, $formdata->fielddelimiter);
 
-if (!$formdata = $form->get_data()) {
+    if ($recordsadded > 0) {
+        echo $OUTPUT->notification($recordsadded. ' '. get_string('recordssaved', 'data'), '');
+    } else {
+        echo $OUTPUT->notification(get_string('recordsnotsaved', 'data'), 'notifysuccess');
+    }
+
+    echo $OUTPUT->continue_button($redirectbackto);
+} else {
     /// Upload records section. Only for teachers and the admin.
     echo $OUTPUT->box_start('generalbox boxaligncenter boxwidthwide');
-    require_once('import_form.php');
-    $form = new mod_data_import_form(new moodle_url('/mod/data/import.php'));
-    $formdata = new stdClass();
-    $formdata->d = $data->id;
-    $form->set_data($formdata);
     $form->display();
     echo $OUTPUT->box_end();
-    echo $OUTPUT->footer();
-    die;
-} else {
-    // Large files are likely to take their time and memory. Let PHP know
-    // that we'll take longer, and that the process should be recycled soon
-    // to free up memory.
-    core_php_time_limit::raise();
-    raise_memory_limit(MEMORY_EXTRA);
-
-    $iid = csv_import_reader::get_new_iid('moddata');
-    $cir = new csv_import_reader($iid, 'moddata');
-
-    $filecontent = $form->get_file_content('recordsfile');
-    $readcount = $cir->load_csv_content($filecontent, $formdata->encoding, $formdata->fielddelimiter);
-    unset($filecontent);
-    if (empty($readcount)) {
-        print_error('csvfailed','data',"{$CFG->wwwroot}/mod/data/edit.php?d={$data->id}");
-    } else {
-        if (!$fieldnames = $cir->get_columns()) {
-            print_error('cannotreadtmpfile', 'error');
-        }
-        // check the fieldnames are valid
-        $fields = $DB->get_records('data_fields', array('dataid'=>$data->id), '', 'name, id, type');
-        $errorfield = '';
-        foreach ($fieldnames as $name) {
-            if (!isset($fields[$name])) {
-                $errorfield .= "'$name' ";
-            }
-        }
-
-        if (!empty($errorfield)) {
-            print_error('fieldnotmatched','data',"{$CFG->wwwroot}/mod/data/edit.php?d={$data->id}",$errorfield);
-        }
-
-        $cir->init();
-        $recordsadded = 0;
-        while ($record = $cir->next()) {
-            if ($recordid = data_add_record($data, 0)) {  // add instance to data_record
-                $fields = $DB->get_records('data_fields', array('dataid'=>$data->id), '', 'name, id, type');
-
-                // Insert new data_content fields with NULL contents:
-                foreach ($fields as $field) {
-                    $content = new stdClass();
-                    $content->recordid = $recordid;
-                    $content->fieldid = $field->id;
-                    $DB->insert_record('data_content', $content);
-                }
-                // Fill data_content with the values imported from the CSV file:
-                foreach ($record as $key => $value) {
-                    $name = $fieldnames[$key];
-                    $field = $fields[$name];
-                    $content = new stdClass();
-                    $content->fieldid = $field->id;
-                    $content->recordid = $recordid;
-                    if ($field->type == 'textarea') {
-                        // the only field type where HTML is possible
-                        $value = clean_param($value, PARAM_CLEANHTML);
-                    } else {
-                        // remove potential HTML:
-                        $patterns[] = '/</';
-                        $replacements[] = '&lt;';
-                        $patterns[] = '/>/';
-                        $replacements[] = '&gt;';
-                        $value = preg_replace($patterns, $replacements, $value);
-                    }
-                    // for now, only for "latlong" and "url" fields, but that should better be looked up from
-                    // $CFG->dirroot . '/mod/data/field/' . $field->type . '/field.class.php'
-                    // once there is stored how many contents the field can have.
-                    if ($field->type == 'latlong') {
-                        $values = explode(" ", $value, 2);
-                        // The lat, long values might be in a different float format.
-                        $content->content  = unformat_float($values[0]);
-                        $content->content1 = unformat_float($values[1]);
-                    } else if ($field->type == 'url') {
-                        $values = explode(" ", $value, 2);
-                        $content->content  = $values[0];
-                        if (!empty($content->content) && (strpos($content->content, '://') === false)
-                                && (strpos($content->content, '/') !== 0)) {
-                            $content->content = 'http://' . $content->content;
-                        }
-                        // The url field doesn't always have two values (unforced autolinking).
-                        if (count($values) > 1) {
-                            $content->content1 = $values[1];
-                        }
-                    } else {
-                        $content->content = $value;
-                    }
-                    $oldcontent = $DB->get_record('data_content', array('fieldid'=>$field->id, 'recordid'=>$recordid));
-                    $content->id = $oldcontent->id;
-                    $DB->update_record('data_content', $content);
-                }
-                $recordsadded++;
-                print get_string('added', 'moodle', $recordsadded) . ". " . get_string('entry', 'data') . " (ID $recordid)<br />\n";
-            }
-        }
-        $cir->close();
-        $cir->cleanup(true);
-    }
 }
-
-if ($recordsadded > 0) {
-    echo $OUTPUT->notification($recordsadded. ' '. get_string('recordssaved', 'data'), '');
-} else {
-    echo $OUTPUT->notification(get_string('recordsnotsaved', 'data'), 'notifysuccess');
-}
-
-echo $OUTPUT->continue_button('import.php?d='.$data->id);
 
 /// Finish the page
 echo $OUTPUT->footer();

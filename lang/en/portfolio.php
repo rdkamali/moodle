@@ -107,6 +107,8 @@ $string['instanceismisconfigured'] = 'Portfolio instance is misconfigured, skipp
 $string['instancenotdelete'] = 'Failed to delete portfolio';
 $string['instancenotsaved'] = 'Failed to save portfolio';
 $string['instancesaved'] = 'Portfolio saved successfully';
+$string['intro'] = 'Content which you have created, such as assignment submissions, forum posts and blog entries, can be exported to a portfolio or downloaded.<br>
+Any portfolio that you do not wish to use may be hidden so that it is not listed as an option to export content to.';
 $string['invalidaddformat'] = 'Invalid add format passed to portfolio_add_button. ({$a}) Must be one of PORTFOLIO_ADD_XXX';
 $string['invalidbuttonproperty'] = 'Could not find that property ({$a}) of portfolio_button';
 $string['invalidconfigproperty'] = 'Could not find that config property ({$a->property} of {$a->class})';
@@ -164,12 +166,30 @@ $string['plugincouldnotpackage'] = 'Failed to package up your data for export: o
 $string['pluginismisconfigured'] = 'Portfolio plugin is misconfigured, skipping. Error was: {$a}';
 $string['portfolio'] = 'Portfolio';
 $string['portfolios'] = 'Portfolios';
+$string['privacy:metadata'] = 'The portfolio subsystem acts as a channel, passing requests from plugins to the various portfolio plugins.';
+$string['privacy:metadata:name'] = 'Preference name';
+$string['privacy:metadata:instance'] = 'Portfolio identifier';
+$string['privacy:metadata:instancesummary'] = 'Stores data about portfolio instances and preferences.';
+$string['privacy:metadata:portfolio_log'] = 'Log of portfolio transfers (used to later check for duplicates)';
+$string['privacy:metadata:portfolio_log:caller_class'] = 'Name of the class used to create the transfer';
+$string['privacy:metadata:portfolio_log:caller_component'] = 'Component name responsible for exporting';
+$string['privacy:metadata:portfolio_log:time'] = 'Time of transfer (in the case of a queued transfer this is the time the actual transfer ran, not when the user started it)';
+$string['privacy:metadata:portfolio_log:userid'] = 'ID of user who exported content';
+$string['privacy:metadata:portfolio_tempdata'] = 'Stores temporary data for portfolio exports.';
+$string['privacy:metadata:portfolio_tempdata:data'] = 'Export data';
+$string['privacy:metadata:portfolio_tempdata:expirytime'] = 'Time this record will expire';
+$string['privacy:metadata:portfolio_tempdata:instance'] = 'Portfolio plugin instance being used';
+$string['privacy:metadata:portfolio_tempdata:userid'] = 'User performing export';
+$string['privacy:metadata:value'] = 'Value for the preference';
+$string['privacy:metadata:userid'] = 'User ID';
+$string['privacy:path'] = 'Portfolio instances';
 $string['queuesummary'] = 'Currently queued transfers';
 $string['returntowhereyouwere'] = 'Return to where you were';
 $string['save'] = 'Save';
 $string['selectedformat'] = 'Selected export format';
 $string['selectedwait'] = 'Selected to wait?';
 $string['selectplugin'] = 'Select destination';
+$string['showhide'] = 'Show / hide';
 $string['singleinstancenomultiallowed'] = 'Only a single portfolio plugin instance is available, it doesn\'t support multiple exports per session, and there\'s already an active export in the session using this plugin!';
 $string['somepluginsdisabled'] = 'Some entire portfolio plugins have been disabled because they are either misconfigured or rely on something else that is:';
 $string['sure'] = 'Are you sure you want to delete \'{$a}\'? This cannot be undone.';
@@ -180,6 +200,3 @@ $string['wait'] = 'Wait';
 $string['wanttowait_high'] = 'It is not recommended that you wait for this transfer to complete, but you can if you\'re sure and know what you\'re doing';
 $string['wanttowait_moderate'] = 'Do you want to wait for this transfer? It might take a few minutes';
 
-// Deprecated since Moodle 2.8.
-
-$string['hidden'] = 'Hidden';

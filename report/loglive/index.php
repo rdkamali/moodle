@@ -24,6 +24,8 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+use core\report_helper;
+
 require('../../config.php');
 require_once($CFG->libdir.'/adminlib.php');
 require_once($CFG->dirroot.'/course/lib.php');
@@ -33,7 +35,7 @@ $page = optional_param('page', 0, PARAM_INT);
 $logreader = optional_param('logreader', '', PARAM_COMPONENT); // Reader which will be used for displaying logs.
 
 if (empty($id)) {
-    require_login();
+    admin_externalpage_setup('reportloglive', '', null, '', array('pagelayout' => 'report'));
     $context = context_system::instance();
     $coursename = format_string($SITE->fullname, true, array('context' => $context));
 } else {
@@ -75,16 +77,19 @@ if ($page == 0 && !empty($logreader)) {
 $strlivelogs = get_string('livelogs', 'report_loglive');
 $strupdatesevery = get_string('updatesevery', 'moodle', $refresh);
 
-if (empty($id)) {
-    admin_externalpage_setup('reportloglive', '', null, '', array('pagelayout' => 'report'));
-}
+
 $PAGE->set_url($url);
 $PAGE->set_context($context);
-$PAGE->set_title("$coursename: $strlivelogs ($strupdatesevery)");
-$PAGE->set_heading("$coursename: $strlivelogs ($strupdatesevery)");
+$PAGE->set_title("$coursename: $strlivelogs");
+$PAGE->set_heading($coursename);
 
 $output = $PAGE->get_renderer('report_loglive');
 echo $output->header();
+
+// Print selector dropdown.
+$pluginname = get_string('pluginname', 'report_loglive');
+report_helper::print_report_selector($pluginname);
+echo html_writer::div(get_string('livelogswithupdate', 'report_loglive', $strupdatesevery), 'mb-3');
 echo $output->reader_selector($renderable);
 echo $output->toggle_liveupdate_button($renderable);
 echo $output->render($renderable);

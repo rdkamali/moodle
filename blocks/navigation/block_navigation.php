@@ -107,25 +107,12 @@ class block_navigation extends block_base {
      * Gets Javascript that may be required for navigation
      */
     function get_required_javascript() {
-        global $CFG;
         parent::get_required_javascript();
-        $limit = 20;
-        if (!empty($CFG->navcourselimit)) {
-            $limit = $CFG->navcourselimit;
-        }
-        $expansionlimit = 0;
-        if (!empty($this->config->expansionlimit)) {
-            $expansionlimit = $this->config->expansionlimit;
-        }
         $arguments = array(
-            'id'             => $this->instance->id,
-            'instance'       => $this->instance->id,
-            'candock'        => $this->instance_can_be_docked(),
-            'courselimit'    => $limit,
-            'expansionlimit' => $expansionlimit
+            'instanceid' => $this->instance->id
         );
         $this->page->requires->string_for_js('viewallcourses', 'moodle');
-        $this->page->requires->yui_module('moodle-block_navigation-navigation', 'M.block_navigation.init_add_tree', array($arguments));
+        $this->page->requires->js_call_amd('block_navigation/navblock', 'init', $arguments);
     }
 
     /**
@@ -134,6 +121,7 @@ class block_navigation extends block_base {
      * @return object $this->content
      */
     function get_content() {
+        global $CFG;
         // First check if we have already generated, don't waste cycles
         if ($this->contentgenerated === true) {
             return $this->content;
@@ -196,7 +184,14 @@ class block_navigation extends block_base {
             }
         }
 
-        $this->page->requires->data_for_js('navtreeexpansions'.$this->instance->id, $expandable);
+        $limit = 20;
+        if (!empty($CFG->navcourselimit)) {
+            $limit = $CFG->navcourselimit;
+        }
+        $expansionlimit = 0;
+        if (!empty($this->config->expansionlimit)) {
+            $expansionlimit = $this->config->expansionlimit;
+        }
 
         $options = array();
         $options['linkcategories'] = (!empty($this->config->linkcategories) && $this->config->linkcategories == 'yes');
@@ -330,5 +325,21 @@ class block_navigation extends block_base {
      */
     public function get_aria_role() {
         return 'navigation';
+    }
+
+    /**
+     * Return the plugin config settings for external functions.
+     *
+     * @return stdClass the configs for both the block instance and plugin
+     * @since Moodle 3.8
+     */
+    public function get_config_for_external() {
+        // Return all settings for all users since it is safe (no private keys, etc..).
+        $configs = !empty($this->config) ? $this->config : new stdClass();
+
+        return (object) [
+            'instance' => $configs,
+            'plugin' => new stdClass(),
+        ];
     }
 }

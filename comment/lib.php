@@ -153,7 +153,11 @@ class comment {
         } else if (!empty($options->courseid)) {
             $this->courseid = $options->courseid;
         } else {
-            $this->courseid = SITEID;
+            if ($coursecontext = $this->context->get_course_context(false)) {
+                $this->courseid = $coursecontext->instanceid;
+            } else {
+                $this->courseid = SITEID;
+            }
         }
 
         // setup coursemodule
@@ -216,7 +220,7 @@ class comment {
         // load template
         $this->template = html_writer::start_tag('div', array('class' => 'comment-message'));
 
-        $this->template .= html_writer::start_tag('div', array('class' => 'comment-message-meta'));
+        $this->template .= html_writer::start_tag('div', array('class' => 'comment-message-meta mr-3'));
 
         $this->template .= html_writer::tag('span', '___picture___', array('class' => 'picture'));
         $this->template .= html_writer::tag('span', '___name___', array('class' => 'user')) . ' - ';
@@ -259,7 +263,7 @@ class comment {
                 'comments',
                 'commentscount',
                 'commentsrequirelogin',
-                'deletecomment',
+                'deletecommentbyon'
             ),
             'moodle'
         );
@@ -456,8 +460,14 @@ class comment {
                 } else {
                     $collapsedimage= 't/collapsed';
                 }
-                $html .= html_writer::start_tag('a', array('class' => 'comment-link', 'id' => 'comment-link-'.$this->cid, 'href' => '#'));
-                $html .= html_writer::empty_tag('img', array('id' => 'comment-img-'.$this->cid, 'src' => $OUTPUT->pix_url($collapsedimage), 'alt' => $this->linktext, 'title' => $this->linktext));
+                $html .= html_writer::start_tag('a', array(
+                    'class' => 'comment-link',
+                    'id' => 'comment-link-'.$this->cid,
+                    'href' => '#',
+                    'role' => 'button',
+                    'aria-expanded' => 'false')
+                );
+                $html .= $OUTPUT->pix_icon($collapsedimage, $this->linktext);
                 $html .= html_writer::tag('span', $this->linktext.' '.$countstring, array('id' => 'comment-link-text-'.$this->cid));
                 $html .= html_writer::end_tag('a');
             }
@@ -483,7 +493,8 @@ class comment {
                 $textareaattrs = array(
                     'name' => 'content',
                     'rows' => 2,
-                    'id' => 'dlg-content-'.$this->cid
+                    'id' => 'dlg-content-'.$this->cid,
+                    'aria-label' => get_string('addcomment')
                 );
                 if (!$this->fullwidth) {
                     $textareaattrs['cols'] = '20';
@@ -526,9 +537,10 @@ class comment {
      * Return matched comments
      *
      * @param  int $page
+     * @param  str $sortdirection sort direction, ASC or DESC
      * @return array
      */
-    public function get_comments($page = '') {
+    public function get_comments($page = '', $sortdirection = 'DESC') {
         global $DB, $CFG, $USER, $OUTPUT;
         if (!$this->can_view()) {
             return false;
@@ -539,13 +551,15 @@ class comment {
         $params = array();
         $perpage = (!empty($CFG->commentsperpage))?$CFG->commentsperpage:15;
         $start = $page * $perpage;
-        $ufields = user_picture::fields('u');
+        $userfieldsapi = \core_user\fields::for_userpic();
+        $ufields = $userfieldsapi->get_sql('u', false, '', '', false)->selects;
 
         list($componentwhere, $component) = $this->get_component_select_sql('c');
         if ($component) {
             $params['component'] = $component;
         }
 
+        $sortdirection = ($sortdirection === 'ASC') ? 'ASC' : 'DESC';
         $sql = "SELECT $ufields, c.id AS cid, c.content AS ccontent, c.format AS cformat, c.timecreated AS ctimecreated
                   FROM {comments} c
                   JOIN {user} u ON u.id = c.userid
@@ -553,13 +567,13 @@ class comment {
                        c.commentarea = :commentarea AND
                        c.itemid = :itemid AND
                        $componentwhere
-              ORDER BY c.timecreated DESC";
+              ORDER BY c.timecreated $sortdirection, c.id $sortdirection";
         $params['contextid'] = $this->contextid;
         $params['commentarea'] = $this->commentarea;
         $params['itemid'] = $this->itemid;
 
         $comments = array();
-        $formatoptions = array('overflowdiv' => true);
+        $formatoptions = array('overflowdiv' => true, 'blanktarget' => true);
         $rs = $DB->get_recordset_sql($sql, $params, $start, $perpage);
         foreach ($rs as $u) {
             $c = new stdClass();
@@ -573,11 +587,10 @@ class comment {
             $c->fullname = fullname($u);
             $c->time = userdate($c->timecreated, $c->strftimeformat);
             $c->content = format_text($c->content, $c->format, $formatoptions);
-            $c->avatar = $OUTPUT->user_picture($u, array('size'=>18));
+            $c->avatar = $OUTPUT->user_picture($u, array('size' => 16));
             $c->userid = $u->id;
 
-            $candelete = $this->can_delete($c->id);
-            if (($USER->id == $u->id) || !empty($candelete)) {
+            if ($this->can_delete($c)) {
                 $c->delete = true;
             }
             $comments[] = $c;
@@ -702,11 +715,12 @@ class comment {
         $cmt_id = $DB->insert_record('comments', $newcmt);
         if (!empty($cmt_id)) {
             $newcmt->id = $cmt_id;
-            $newcmt->strftimeformat = get_string('strftimerecent', 'langconfig');
+            $newcmt->strftimeformat = get_string('strftimerecentfull', 'langconfig');
             $newcmt->fullname = fullname($USER);
             $url = new moodle_url('/user/view.php', array('id' => $USER->id, 'course' => $this->courseid));
             $newcmt->profileurl = $url->out();
-            $newcmt->content = format_text($newcmt->content, $format, array('overflowdiv'=>true));
+            $formatoptions = array('overflowdiv' => true, 'blanktarget' => true);
+            $newcmt->content = format_text($newcmt->content, $newcmt->format, $formatoptions);
             $newcmt->avatar = $OUTPUT->user_picture($USER, array('size'=>16));
 
             $commentlist = array($newcmt);
@@ -786,16 +800,22 @@ class comment {
     /**
      * Delete a comment
      *
-     * @param  int $commentid
+     * @param  int|stdClass $comment The id of a comment, or a comment record.
      * @return bool
      */
-    public function delete($commentid) {
-        global $DB, $USER;
-        $candelete = has_capability('moodle/comment:delete', $this->context);
-        if (!$comment = $DB->get_record('comments', array('id'=>$commentid))) {
+    public function delete($comment) {
+        global $DB;
+        if (is_object($comment)) {
+            $commentid = $comment->id;
+        } else {
+            $commentid = $comment;
+            $comment = $DB->get_record('comments', ['id' => $commentid]);
+        }
+
+        if (!$comment) {
             throw new comment_exception('dbupdatefailed');
         }
-        if (!($USER->id == $comment->userid || !empty($candelete))) {
+        if (!$this->can_delete($comment)) {
             throw new comment_exception('nopermissiontocomment');
         }
         $DB->delete_records('comments', array('id'=>$commentid));
@@ -905,8 +925,11 @@ class comment {
         $replacements = array();
 
         if (!empty($cmt->delete) && empty($nonjs)) {
+            $strdelete = get_string('deletecommentbyon', 'moodle', (object)['user' => $cmt->fullname, 'time' => $cmt->time]);
             $deletelink  = html_writer::start_tag('div', array('class'=>'comment-delete'));
-            $deletelink .= html_writer::start_tag('a', array('href' => '#', 'id' => 'comment-delete-'.$this->cid.'-'.$cmt->id));
+            $deletelink .= html_writer::start_tag('a', array('href' => '#', 'id' => 'comment-delete-'.$this->cid.'-'.$cmt->id,
+                'class' => 'icon-no-margin', 'title' => $strdelete));
+
             $deletelink .= $OUTPUT->pix_icon('t/delete', get_string('delete'));
             $deletelink .= html_writer::end_tag('a');
             $deletelink .= html_writer::end_tag('div');
@@ -959,13 +982,35 @@ class comment {
     }
 
     /**
-     * Returns true if the user can delete this comment
-     * @param int $commentid
+     * Returns true if the user can delete this comment.
+     *
+     * The user can delete comments if it is one they posted and they can still make posts,
+     * or they have the capability to delete comments.
+     *
+     * A database call is avoided if a comment record is passed.
+     *
+     * @param int|stdClass $comment The id of a comment, or a comment record.
      * @return bool
      */
-    public function can_delete($commentid) {
+    public function can_delete($comment) {
+        global $USER, $DB;
+        if (is_object($comment)) {
+            $commentid = $comment->id;
+        } else {
+            $commentid = $comment;
+        }
+
         $this->validate(array('commentid'=>$commentid));
-        return has_capability('moodle/comment:delete', $this->context);
+
+        if (!is_object($comment)) {
+            // Get the comment record from the database.
+            $comment = $DB->get_record('comments', array('id' => $commentid), 'id, userid', MUST_EXIST);
+        }
+
+        $hascapability = has_capability('moodle/comment:delete', $this->context);
+        $owncomment = $USER->id == $comment->userid;
+
+        return ($hascapability || ($owncomment && $this->can_post()));
     }
 
     /**
@@ -1039,6 +1084,87 @@ class comment {
     public function set_fullwidth($fullwidth = true) {
         $this->fullwidth = (bool)$fullwidth;
     }
+
+    /**
+     * Return the template.
+     *
+     * @since 3.1
+     * @return string
+     */
+    public function get_template() {
+        return $this->template;
+    }
+
+    /**
+     * Return the cid.
+     *
+     * @since 3.1
+     * @return string
+     */
+    public function get_cid() {
+        return $this->cid;
+    }
+
+    /**
+     * Return the link text.
+     *
+     * @since 3.1
+     * @return string
+     */
+    public function get_linktext() {
+        return $this->linktext;
+    }
+
+    /**
+     * Return no toggle.
+     *
+     * @since 3.1
+     * @return bool
+     */
+    public function get_notoggle() {
+        return $this->notoggle;
+    }
+
+    /**
+     * Return display total count.
+     *
+     * @since 3.1
+     * @return bool
+     */
+    public function get_displaytotalcount() {
+        return $this->displaytotalcount;
+    }
+
+    /**
+     * Return display cancel.
+     *
+     * @since 3.1
+     * @return bool
+     */
+    public function get_displaycancel() {
+        return $this->displaycancel;
+    }
+
+    /**
+     * Return fullwidth.
+     *
+     * @since 3.1
+     * @return bool
+     */
+    public function get_fullwidth() {
+        return $this->fullwidth;
+    }
+
+    /**
+     * Return autostart.
+     *
+     * @since 3.1
+     * @return bool
+     */
+    public function get_autostart() {
+        return $this->autostart;
+    }
+
 }
 
 /**

@@ -39,8 +39,18 @@ class user_filter_profilefield extends user_filter_type {
      * @param string $label the label of the filter instance
      * @param boolean $advanced advanced form element flag
      */
+    public function __construct($name, $label, $advanced) {
+        parent::__construct($name, $label, $advanced);
+    }
+
+    /**
+     * Old syntax of class constructor. Deprecated in PHP7.
+     *
+     * @deprecated since Moodle 3.1
+     */
     public function user_filter_profilefield($name, $label, $advanced) {
-        parent::user_filter_type($name, $label, $advanced);
+        debugging('Use of class name as constructor is deprecated', DEBUG_DEVELOPER);
+        self::__construct($name, $label, $advanced);
     }
 
     /**
@@ -63,15 +73,15 @@ class user_filter_profilefield extends user_filter_type {
      * @return array of profile fields
      */
     public function get_profile_fields() {
-        global $DB;
-        if (!$fields = $DB->get_records('user_info_field', null, 'shortname', 'id,shortname')) {
-            return null;
-        }
+        global $CFG;
+        require_once($CFG->dirroot . '/user/profile/lib.php');
+
+        $fieldrecords = profile_get_custom_fields();
+        $fields = array_combine(array_keys($fieldrecords), array_column($fieldrecords, 'name'));
+        core_collator::asort($fields);
         $res = array(0 => get_string('anyfield', 'filters'));
-        foreach ($fields as $k => $v) {
-            $res[$k] = $v->shortname;
-        }
-        return $res;
+
+        return $res + $fields;
     }
 
     /**
@@ -113,7 +123,7 @@ class user_filter_profilefield extends user_filter_type {
         $operator = $field.'_op';
         $profile  = $field.'_fld';
 
-        if (array_key_exists($profile, $formdata)) {
+        if (property_exists($formdata, $profile)) {
             if ($formdata->$operator < 5 and $formdata->$field === '') {
                 return false;
             }

@@ -14,9 +14,9 @@
  * @constructor
  * @extends Base
  */
-function Console() {
+Console = function() {
     Console.superclass.constructor.apply(this, arguments);
-}
+};
 Console.NAME = 'moodle-course-management';
 Console.CSS_PREFIX = 'management';
 Console.ATTRS = {
@@ -25,10 +25,10 @@ Console.ATTRS = {
      * @attribute element
      * @type Node
      */
-    element : {
-        setter : function(node) {
+    element: {
+        setter: function(node) {
             if (typeof node === 'string') {
-                node = Y.one('#'+node);
+                node = Y.one('#' + node);
             }
             return node;
         }
@@ -40,8 +40,8 @@ Console.ATTRS = {
      * @type Node
      * @default null
      */
-    categorylisting : {
-        value : null
+    categorylisting: {
+        value: null
     },
 
     /**
@@ -50,8 +50,8 @@ Console.ATTRS = {
      * @type Node
      * @default null
      */
-    courselisting : {
-        value : null
+    courselisting: {
+        value: null
     },
 
     /**
@@ -60,8 +60,8 @@ Console.ATTRS = {
      * @type Node|null
      * @default null
      */
-    coursedetails : {
-        value : null
+    coursedetails: {
+        value: null
     },
 
     /**
@@ -70,8 +70,8 @@ Console.ATTRS = {
      * @type Number
      * @default null
      */
-    activecategoryid : {
-        value : null
+    activecategoryid: {
+        value: null
     },
 
     /**
@@ -80,8 +80,8 @@ Console.ATTRS = {
      * @type Number
      * @default Null
      */
-    activecourseid : {
-        value : null
+    activecourseid: {
+        value: null
     },
 
     /**
@@ -90,8 +90,8 @@ Console.ATTRS = {
      * @type Array
      * @default []
      */
-    categories : {
-        setter : function(item, name) {
+    categories: {
+        setter: function(item, name) {
             if (Y.Lang.isArray(item)) {
                 return item;
             }
@@ -99,7 +99,7 @@ Console.ATTRS = {
             items.push(item);
             return items;
         },
-        value : []
+        value: []
     },
 
     /**
@@ -108,11 +108,11 @@ Console.ATTRS = {
      * @type Course[]
      * @default Array
      */
-    courses : {
-        validator : function(val) {
+    courses: {
+        validator: function(val) {
             return Y.Lang.isArray(val);
         },
-        value : []
+        value: []
     },
 
     /**
@@ -121,15 +121,15 @@ Console.ATTRS = {
      * @type Number
      * @default null
      */
-    page : {
-        getter : function(value, name) {
+    page: {
+        getter: function(value, name) {
             if (value === null) {
                 value = this.get('element').getData(name);
                 this.set(name, value);
             }
             return value;
         },
-        value : null
+        value: null
     },
 
     /**
@@ -138,15 +138,15 @@ Console.ATTRS = {
      * @type Number
      * @default null
      */
-    totalpages : {
-        getter : function(value, name) {
+    totalpages: {
+        getter: function(value, name) {
             if (value === null) {
                 value = this.get('element').getData(name);
                 this.set(name, value);
             }
             return value;
         },
-        value : null
+        value: null
     },
 
     /**
@@ -155,15 +155,15 @@ Console.ATTRS = {
      * @type Number
      * @default null
      */
-    totalcourses : {
-        getter : function(value, name) {
+    totalcourses: {
+        getter: function(value, name) {
             if (value === null) {
                 value = this.get('element').getData(name);
                 this.set(name, value);
             }
             return value;
         },
-        value : null
+        value: null
     },
 
     /**
@@ -172,14 +172,14 @@ Console.ATTRS = {
      * @type String
      * @default /course/ajax/management.php
      */
-    ajaxurl : {
-        getter : function(value) {
+    ajaxurl: {
+        getter: function(value) {
             if (value === null) {
                 value = M.cfg.wwwroot + '/course/ajax/management.php';
             }
             return value;
         },
-        value : null
+        value: null
     },
 
     /**
@@ -188,8 +188,8 @@ Console.ATTRS = {
      * @type DragDrop
      * @default null
      */
-    dragdrop : {
-        value : null
+    dragdrop: {
+        value: null
     }
 };
 Console.prototype = {
@@ -200,13 +200,13 @@ Console.prototype = {
      * @private
      * @type {boolean}
      */
-    categoriesinit : false,
+    categoriesinit: false,
 
     /**
      * Initialises a new instance of the Console.
      * @method initializer
      */
-    initializer : function() {
+    initializer: function() {
         Y.log('Initialising course category management console', 'info', 'moodle-course-management');
         this.set('element', 'coursecat-management');
         var element = this.get('element'),
@@ -235,7 +235,7 @@ Console.prototype = {
 
         if (courselisting) {
             // No need for dragdrop if we don't have a course listing.
-            this.set('dragdrop', new DragDrop({console:this}));
+            this.set('dragdrop', new DragDrop({console: this}));
         }
     },
 
@@ -245,7 +245,7 @@ Console.prototype = {
      * @private
      * @return {boolean}
      */
-    initialiseCategories : function(listing) {
+    initialiseCategories: function(listing) {
         var count = 0;
         if (!listing) {
             return false;
@@ -265,21 +265,21 @@ Console.prototype = {
             menuresortcoursesby.setAttribute('disabled', true);
         }
 
-        listing.all('.listitem[data-id]').each(function(node){
+        listing.all('.listitem[data-id]').each(function(node) {
             this.set('categories', new Category({
-                node : node,
-                console : this
+                node: node,
+                console: this
             }));
             count++;
         }, this);
         if (!this.categoriesinit) {
             this.get('categorylisting').delegate('click', this.handleCategoryDelegation, 'a[data-action]', this);
             this.get('categorylisting').delegate('click', this.handleCategoryDelegation, 'input[name="bcat[]"]', this);
-            this.get('categorylisting').delegate('click', this.handleBulkSortByaction, '#menuselectsortby', this);
+            this.get('categorylisting').delegate('change', this.handleBulkSortByaction, '#menuselectsortby', this);
             this.categoriesinit = true;
-            Y.log(count+' categories being managed', 'info', 'moodle-course-management');
+            Y.log(count + ' categories being managed', 'info', 'moodle-course-management');
         } else {
-            Y.log(count+' new categories being managed', 'info', 'moodle-course-management');
+            Y.log(count + ' new categories being managed', 'info', 'moodle-course-management');
         }
     },
 
@@ -289,7 +289,7 @@ Console.prototype = {
      * @private
      * @return {boolean}
      */
-    initialiseCourses : function() {
+    initialiseCourses: function() {
         var category = this.getCategoryById(this.get('activecategoryid')),
             listing = this.get('courselisting'),
             count = 0;
@@ -303,17 +303,17 @@ Console.prototype = {
             menumovecoursesto.setAttribute('disabled', true);
         }
 
-        listing.all('.listitem[data-id]').each(function(node){
+        listing.all('.listitem[data-id]').each(function(node) {
             this.registerCourse(new Course({
-                node : node,
-                console : this,
-                category : category
+                node: node,
+                console: this,
+                category: category
             }));
             count++;
         }, this);
         listing.delegate('click', this.handleCourseDelegation, 'a[data-action]', this);
         listing.delegate('click', this.handleCourseDelegation, 'input[name="bc[]"]', this);
-        Y.log(count+' courses being managed', 'info', 'moodle-course-management');
+        Y.log(count + ' courses being managed', 'info', 'moodle-course-management');
     },
 
     /**
@@ -321,7 +321,7 @@ Console.prototype = {
      * @method registerCourse
      * @param {Course} course
      */
-    registerCourse : function(course) {
+    registerCourse: function(course) {
         var courses = this.get('courses');
         courses.push(course);
         this.set('courses', courses);
@@ -334,7 +334,7 @@ Console.prototype = {
      * @protected
      * @param {EventFacade} e
      */
-    handleCourseDelegation : function(e) {
+    handleCourseDelegation: function(e) {
         var target = e.currentTarget,
             action = target.getData('action'),
             courseid = target.ancestor('.listitem').getData('id'),
@@ -342,7 +342,7 @@ Console.prototype = {
         if (course) {
             course.handle(action, e);
         } else {
-            Y.log('Course with ID '+courseid+' could not be found for delegation', 'error', 'moodle-course-management');
+            Y.log('Course with ID ' + courseid + ' could not be found for delegation', 'error', 'moodle-course-management');
         }
     },
 
@@ -353,7 +353,7 @@ Console.prototype = {
      * @protected
      * @param {EventFacade} e
      */
-    handleCategoryDelegation : function(e) {
+    handleCategoryDelegation: function(e) {
         var target = e.currentTarget,
             action = target.getData('action'),
             categoryid = target.ancestor('.listitem').getData('id'),
@@ -372,7 +372,7 @@ Console.prototype = {
      * @param {Node} checkboxnode Checkbox node on which action happened.
      * @return bool
      */
-    isCourseSelected : function(checkboxnode) {
+    isCourseSelected: function(checkboxnode) {
         var selected = false;
 
         // If any course selected then show move to category select box.
@@ -403,7 +403,7 @@ Console.prototype = {
      * @param {Node} checkboxnode Checkbox node on which action happened.
      * @return bool
      */
-    isCategorySelected : function(checkboxnode) {
+    isCategorySelected: function(checkboxnode) {
         var selected = false;
 
         // If any category selected then show move to category select box.
@@ -434,7 +434,7 @@ Console.prototype = {
      * @protected
      * @param {EventFacade} e
      */
-    handleBulkSortByaction : function(e) {
+    handleBulkSortByaction: function(e) {
         var sortcategoryby = this.get('categorylisting').one('#menuresortcategoriesby'),
             sortcourseby = this.get('categorylisting').one('#menuresortcoursesby'),
             sortbybutton = this.get('categorylisting').one('input[name="bulksort"]'),
@@ -483,7 +483,7 @@ Console.prototype = {
      * @param {Number} id
      * @return {Category|Boolean} The category or false if it can't be found.
      */
-    getCategoryById : function(id) {
+    getCategoryById: function(id) {
         var i,
             category,
             categories = this.get('categories'),
@@ -505,7 +505,7 @@ Console.prototype = {
      * @param {Number} id
      * @return {Course|Boolean} The course or false if not found/
      */
-    getCourseById : function(id) {
+    getCourseById: function(id) {
         var i,
             course,
             courses = this.get('courses'),
@@ -526,7 +526,7 @@ Console.prototype = {
      * @method removeCourseById
      * @param {Number} id
      */
-    removeCourseById : function(id) {
+    removeCourseById: function(id) {
         var courses = this.get('courses'),
             length = courses.length,
             course,
@@ -549,24 +549,24 @@ Console.prototype = {
      * @param {Function} callback The function to call when all is done.
      * @param {Object} context The object to use as the context for the callback.
      */
-    performAjaxAction : function(action, args, callback, context) {
+    performAjaxAction: function(action, args, callback, context) {
         var io = new Y.IO();
         args.action = action;
         args.ajax = '1';
         args.sesskey = M.cfg.sesskey;
         if (callback === null) {
             callback = function() {
-                Y.log("'Action '"+action+"' completed", 'debug', 'moodle-course-management');
+                Y.log("'Action '" + action + "' completed", 'debug', 'moodle-course-management');
             };
         }
         io.send(this.get('ajaxurl'), {
-            method : 'POST',
-            on : {
-                complete : callback
+            method: 'POST',
+            on: {
+                complete: callback
             },
-            context : context,
-            data : args,
-            'arguments' : args
+            context: context,
+            data: args,
+            'arguments': args
         });
     }
 };

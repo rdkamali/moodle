@@ -23,13 +23,17 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+namespace filter_urltolink;
+
+use filter_urltolink;
+
 defined('MOODLE_INTERNAL') || die();
 
 global $CFG;
 require_once($CFG->dirroot . '/filter/urltolink/filter.php'); // Include the code to test
 
 
-class filter_urltolink_filter_testcase extends basic_testcase {
+class filter_test extends \basic_testcase {
 
     function get_convert_urls_into_links_test_cases() {
         // Create a 4095 and 4096 long URLs.
@@ -174,6 +178,9 @@ class filter_urltolink_filter_testcase extends basic_testcase {
             '<link rel="search" type="application/opensearchdescription+xml" href="/osd.jsp" title="Peer review - Moodle Tracker"/>' => '<link rel="search" type="application/opensearchdescription+xml" href="/osd.jsp" title="Peer review - Moodle Tracker"/>',
             '<a href="https://docs.moodle.org/dev/Main_Page"></a><span>www.google.com</span><span class="placeholder"></span>' => '<a href="https://docs.moodle.org/dev/Main_Page"></a><span><a href="http://www.google.com" class="_blanktarget">www.google.com</a></span><span class="placeholder"></span>',
             'http://nolandforzombies.com <a href="zombiesFTW.com">Zombies FTW</a> http://aliens.org' => '<a href="http://nolandforzombies.com" class="_blanktarget">http://nolandforzombies.com</a> <a href="zombiesFTW.com">Zombies FTW</a> <a href="http://aliens.org" class="_blanktarget">http://aliens.org</a>',
+            // Test 'nolink' class.
+            'URL: <span class="nolink">http://moodle.org</span>' => 'URL: <span class="nolink">http://moodle.org</span>',
+            '<span class="nolink">URL: http://moodle.org</span>' => '<span class="nolink">URL: http://moodle.org</span>',
             //URLs in Javascript. Commented out as part of MDL-21183
             //'var url="http://moodle.org";'=>'var url="http://moodle.org";',
             //'var url = "http://moodle.org";'=>'var url = "http://moodle.org";',

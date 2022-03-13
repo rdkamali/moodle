@@ -112,7 +112,13 @@ class cache_factory {
     protected $state = 0;
 
     /**
-     * Returns an instance of the cache_factor method.
+     * The current cache display helper.
+     * @var core_cache\local\administration_display_helper
+     */
+    protected static $displayhelper = null;
+
+    /**
+     * Returns an instance of the cache_factory class.
      *
      * @param bool $forcereload If set to true a new cache_factory instance will be created and used.
      * @return cache_factory
@@ -134,6 +140,10 @@ class cache_factory {
                     // The cache stores have been disabled.
                     self::$instance->set_state(self::STATE_STORES_DISABLED);
                 }
+
+            } else if (!empty($CFG->alternative_cache_factory_class)) {
+                $factoryclass = $CFG->alternative_cache_factory_class;
+                self::$instance = new $factoryclass();
             } else {
                 // We're using the regular factory.
                 self::$instance = new cache_factory();
@@ -161,6 +171,7 @@ class cache_factory {
         $factory->reset_cache_instances();
         $factory->configs = array();
         $factory->definitions = array();
+        $factory->definitionstores = array();
         $factory->lockplugins = array(); // MUST be null in order to force its regeneration.
         // Reset the state to uninitialised.
         $factory->state = self::STATE_UNINITIALISED;
@@ -190,15 +201,18 @@ class cache_factory {
      * @return cache_application|cache_session|cache_request
      */
     public function create_cache_from_definition($component, $area, array $identifiers = array(), $unused = null) {
-        $definitionname = $component.'/'.$area;
+        $identifierstring = empty($identifiers) ? '' : '/'.http_build_query($identifiers);
+        $definitionname = $component.'/'.$area.$identifierstring;
         if (isset($this->cachesfromdefinitions[$definitionname])) {
             $cache = $this->cachesfromdefinitions[$definitionname];
-            $cache->set_identifiers($identifiers);
             return $cache;
         }
         $definition = $this->create_definition($component, $area);
-        $definition->set_identifiers($identifiers);
-        $cache = $this->create_cache($definition, $identifiers);
+        // Identifiers are cached as part of the cache creation, so we store a cloned version of the cache.
+        $cacheddefinition = clone($definition);
+        $cacheddefinition->set_identifiers($identifiers);
+        $cache = $this->create_cache($cacheddefinition);
+
         // Loaders are always held onto to speed up subsequent requests.
         $this->cachesfromdefinitions[$definitionname] = $cache;
         return $cache;
@@ -221,13 +235,17 @@ class cache_factory {
      * @return cache_application|cache_session|cache_request
      */
     public function create_cache_from_params($mode, $component, $area, array $identifiers = array(), array $options = array()) {
-        $key = "{$mode}_{$component}_{$area}";
-        if (array_key_exists($key, $this->cachesfromparams)) {
+        $identifierstring = empty($identifiers) ? '' : '_'.http_build_query($identifiers);
+        $key = "{$mode}_{$component}_{$area}{$identifierstring}";
+        if (isset($this->cachesfromparams[$key])) {
             return $this->cachesfromparams[$key];
         }
+        // Regular cache definitions are cached inside create_definition().  This is not the case for Adhoc definitions
+        // using load_adhoc().  They are built as a new object on each call.
+        // We do not need to clone the definition because we know it's new.
         $definition = cache_definition::load_adhoc($mode, $component, $area, $options);
         $definition->set_identifiers($identifiers);
-        $cache = $this->create_cache($definition, $identifiers);
+        $cache = $this->create_cache($definition);
         $this->cachesfromparams[$key] = $cache;
         return $cache;
     }
@@ -277,6 +295,9 @@ class cache_factory {
         if (!array_key_exists($name, $this->stores)) {
             // Properties: name, plugin, configuration, class.
             $class = $details['class'];
+            if (!$class::are_requirements_met()) {
+                return false;
+            }
             $store = new $class($details['name'], $details['configuration']);
             $this->stores[$name] = $store;
         }
@@ -322,6 +343,15 @@ class cache_factory {
      */
     public function get_caches_in_use() {
         return $this->cachesfromdefinitions;
+    }
+
+    /**
+     * Gets all adhoc caches that have been used within this request.
+     *
+     * @return cache_store[] Caches currently in use
+     */
+    public function get_adhoc_caches_in_use() {
+        return $this->cachesfromparams;
     }
 
     /**
@@ -429,7 +459,8 @@ class cache_factory {
                         $definition = $instance->get_definition_by_id($id);
                         if (!$definition) {
                             throw new coding_exception('The requested cache definition does not exist.'. $id, $id);
-                        } else if (!$this->is_disabled()) {
+                        }
+                        if (!$this->is_disabled()) {
                             debugging('Cache definitions reparsed causing cache reset in order to locate definition.
                                 You should bump the version number to ensure definitions are reprocessed.', DEBUG_DEVELOPER);
                         }
@@ -614,5 +645,49 @@ class cache_factory {
         $factory = self::instance();
         $factory->reset_cache_instances();
         $factory->set_state(self::STATE_STORES_DISABLED);
+    }
+
+    /**
+     * Returns an instance of the current display_helper.
+     *
+     * @return core_cache\administration_helper
+     */
+    public static function get_administration_display_helper() : core_cache\administration_helper {
+        if (is_null(self::$displayhelper)) {
+            self::$displayhelper = new \core_cache\local\administration_display_helper();
+        }
+        return self::$displayhelper;
+    }
+
+    /**
+     * Gets the cache_config_writer to use when caching is disabled.
+     * This should only be called from cache_factory_disabled.
+     *
+     * @return cache_config_writer
+     */
+    public static function get_disabled_writer(): cache_config_writer {
+        global $CFG;
+
+        // Figure out if we are in a recursive loop using late static binding.
+        // This happens when get_disabled_writer is not overridden. We just want the default.
+        $loop = false;
+        if (!empty($CFG->alternative_cache_factory_class)) {
+            $loop = get_called_class() === $CFG->alternative_cache_factory_class;
+        }
+
+        if (!$loop && !empty($CFG->alternative_cache_factory_class)) {
+            // Get the class to use from the alternative factory.
+            $factoryinstance = new $CFG->alternative_cache_factory_class();
+            return $factoryinstance::get_disabled_writer();
+        } else {
+            // We got here from cache_factory_disabled.
+            // We should use the default writer here.
+            // Make sure we have a default config if needed.
+            if (!cache_config::config_file_exists()) {
+                cache_config_writer::create_default_configuration(true);
+            }
+
+            return new cache_config_writer();
+        }
     }
 }

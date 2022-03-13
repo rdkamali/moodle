@@ -15,23 +15,30 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
+ * Structure step to restore one quiz activity
+ *
  * @package    mod_quiz
  * @subpackage backup-moodle2
  * @copyright  2010 onwards Eloy Lafuente (stronk7) {@link http://stronk7.com}
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-
-
-defined('MOODLE_INTERNAL') || die();
-
-
-/**
- * Structure step to restore one quiz activity
- *
- * @copyright  2010 onwards Eloy Lafuente (stronk7) {@link http://stronk7.com}
- * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- */
 class restore_quiz_activity_structure_step extends restore_questions_activity_structure_step {
+
+    /**
+     * @var bool tracks whether the quiz contains at least one section. Before
+     * Moodle 2.9 quiz sections did not exist, so if the file being restored
+     * did not contain any, we need to create one in {@link after_execute()}.
+     */
+    protected $sectioncreated = false;
+
+    /** @var stdClass|null $currentquizattempt Track the current quiz attempt being restored. */
+    protected $currentquizattempt = null;
+
+    /**
+     * @var bool when restoring old quizzes (2.8 or before) this records the
+     * shufflequestionsoption quiz option which has moved to the quiz_sections table.
+     */
+    protected $legacyshufflequestionsoption = false;
 
     protected function define_structure() {
 
@@ -44,8 +51,17 @@ class restore_quiz_activity_structure_step extends restore_questions_activity_st
         // A chance for access subplugings to set up their quiz data.
         $this->add_subplugin_structure('quizaccess', $quiz);
 
-        $paths[] = new restore_path_element('quiz_question_instance',
-                '/activity/quiz/question_instances/question_instance');
+        $quizquestioninstance = new restore_path_element('quiz_question_instance',
+            '/activity/quiz/question_instances/question_instance');
+        $paths[] = $quizquestioninstance;
+        if ($this->task->get_old_moduleversion() < 2021091700) {
+            $paths[] = new restore_path_element('quiz_slot_tags',
+                '/activity/quiz/question_instances/question_instance/tags/tag');
+        } else {
+            $this->add_question_references($quizquestioninstance, $paths);
+            $this->add_question_set_references($quizquestioninstance, $paths);
+        }
+        $paths[] = new restore_path_element('quiz_section', '/activity/quiz/sections/section');
         $paths[] = new restore_path_element('quiz_feedback', '/activity/quiz/feedbacks/feedback');
         $paths[] = new restore_path_element('quiz_override', '/activity/quiz/overrides/override');
 
@@ -80,17 +96,23 @@ class restore_quiz_activity_structure_step extends restore_questions_activity_st
         return $this->prepare_activity_structure($paths);
     }
 
+    /**
+     * Process the quiz data.
+     *
+     * @param stdClass|array $data
+     */
     protected function process_quiz($data) {
-        global $CFG, $DB;
+        global $CFG, $DB, $USER;
 
         $data = (object)$data;
         $oldid = $data->id;
         $data->course = $this->get_courseid();
 
+        // Any changes to the list of dates that needs to be rolled should be same during course restore and course reset.
+        // See MDL-9367.
+
         $data->timeopen = $this->apply_date_offset($data->timeopen);
         $data->timeclose = $this->apply_date_offset($data->timeclose);
-        $data->timecreated = $this->apply_date_offset($data->timecreated);
-        $data->timemodified = $this->apply_date_offset($data->timemodified);
 
         if (property_exists($data, 'questions')) {
             // Needed by {@link process_quiz_attempt_legacy}, in which case it will be present.
@@ -214,27 +236,138 @@ class restore_quiz_activity_structure_step extends restore_questions_activity_st
             } else if ($data->popup == 1) {
                 $data->browsersecurity = 'securewindow';
             } else if ($data->popup == 2) {
-                $data->browsersecurity = 'safebrowser';
+                // Since 3.9 quizaccess_safebrowser replaced with a new quizaccess_seb.
+                $data->browsersecurity = '-';
+                $addsebrule = true;
             } else {
                 $data->preferredbehaviour = '-';
             }
             unset($data->popup);
+        } else if ($data->browsersecurity == 'safebrowser') {
+            // Since 3.9 quizaccess_safebrowser replaced with a new quizaccess_seb.
+            $data->browsersecurity = '-';
+            $addsebrule = true;
         }
 
         if (!isset($data->overduehandling)) {
             $data->overduehandling = get_config('quiz', 'overduehandling');
         }
 
+        // Old shufflequestions setting is now stored in quiz sections,
+        // so save it here if necessary so it is available when we need it.
+        $this->legacyshufflequestionsoption = !empty($data->shufflequestions);
+
         // Insert the quiz record.
         $newitemid = $DB->insert_record('quiz', $data);
         // Immediately after inserting "activity" record, call this.
         $this->apply_activity_instance($newitemid);
+
+        // Process Safe Exam Browser settings for backups taken in Moodle < 3.9.
+        if (!empty($addsebrule)) {
+            $sebsettings = new stdClass();
+
+            $sebsettings->quizid = $newitemid;
+            $sebsettings->cmid = $this->task->get_moduleid();
+            $sebsettings->templateid = 0;
+            $sebsettings->requiresafeexambrowser = \quizaccess_seb\settings_provider::USE_SEB_CLIENT_CONFIG;
+            $sebsettings->showsebtaskbar = null;
+            $sebsettings->showwificontrol = null;
+            $sebsettings->showreloadbutton = null;
+            $sebsettings->showtime = null;
+            $sebsettings->showkeyboardlayout = null;
+            $sebsettings->allowuserquitseb = null;
+            $sebsettings->quitpassword = null;
+            $sebsettings->linkquitseb = null;
+            $sebsettings->userconfirmquit = null;
+            $sebsettings->enableaudiocontrol = null;
+            $sebsettings->muteonstartup = null;
+            $sebsettings->allowspellchecking = null;
+            $sebsettings->allowreloadinexam = null;
+            $sebsettings->activateurlfiltering = null;
+            $sebsettings->filterembeddedcontent = null;
+            $sebsettings->expressionsallowed = null;
+            $sebsettings->regexallowed = null;
+            $sebsettings->expressionsblocked = null;
+            $sebsettings->regexblocked = null;
+            $sebsettings->allowedbrowserexamkeys = null;
+            $sebsettings->showsebdownloadlink = 1;
+            $sebsettings->usermodified = $USER->id;
+            $sebsettings->timecreated = time();
+            $sebsettings->timemodified = time();
+
+            $DB->insert_record('quizaccess_seb_quizsettings', $sebsettings);
+        }
+
+        // If we are dealing with a backup from < 4.0 then we need to move completionpass to core.
+        if (!empty($data->completionpass)) {
+            $params = ['id' => $this->task->get_moduleid()];
+            $DB->set_field('course_modules', 'completionpassgrade', $data->completionpass, $params);
+        }
     }
 
-    protected function process_quiz_question_instance($data) {
+    /**
+     * Process the data for pre 4.0 quiz data where the question_references and question_set_references table introduced.
+     *
+     * @param stdClass|array $data
+     */
+    protected function process_quiz_question_legacy_instance($data) {
         global $DB;
 
+        $questionid = $this->get_mappingid('question', $data->questionid);
+        $sql = 'SELECT qbe.id as questionbankentryid,
+                       qc.contextid as questioncontextid,
+                       qc.id as category,
+                       qv.version,
+                       q.qtype,
+                       q.id as questionid
+                  FROM {question} q
+                  JOIN {question_versions} qv ON qv.questionid = q.id
+                  JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                  JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+                 WHERE q.id = ?';
+        $question = $DB->get_record_sql($sql, [$questionid]);
+        $module = $DB->get_record('quiz', ['id' => $data->quizid]);
+
+        if ($question->qtype === 'random') {
+            // Set reference data.
+            $questionsetreference = new \stdClass();
+            $questionsetreference->usingcontextid = context_module::instance(get_coursemodule_from_instance(
+                "quiz", $module->id, $module->course)->id)->id;
+            $questionsetreference->component = 'mod_quiz';
+            $questionsetreference->questionarea = 'slot';
+            $questionsetreference->itemid = $data->id;
+            $questionsetreference->questionscontextid = $question->questioncontextid;
+            $filtercondition = new stdClass();
+            $filtercondition->questioncategoryid = $question->category;
+            $filtercondition->includingsubcategories = $data->includingsubcategories;
+            $questionsetreference->filtercondition = json_encode($filtercondition);
+            $DB->insert_record('question_set_references', $questionsetreference);
+            // Cleanup leftover random qtype data from question table.
+            question_delete_question($question->questionid);
+        } else {
+            // Reference data.
+            $questionreference = new \stdClass();
+            $questionreference->usingcontextid = context_module::instance(get_coursemodule_from_instance(
+                "quiz", $module->id, $module->course)->id)->id;
+            $questionreference->component = 'mod_quiz';
+            $questionreference->questionarea = 'slot';
+            $questionreference->itemid = $data->id;
+            $questionreference->questionbankentryid = $question->questionbankentryid;
+            $questionreference->version = $question->version;
+            $DB->insert_record('question_references', $questionreference);
+        }
+    }
+
+    /**
+     * Process quiz slots.
+     *
+     * @param stdClass|array $data
+     */
+    protected function process_quiz_question_instance($data) {
+        global $CFG, $DB;
+
         $data = (object)$data;
+        $oldid = $data->id;
 
         // Backwards compatibility for old field names (MDL-43670).
         if (!isset($data->questionid) && isset($data->question)) {
@@ -252,7 +385,7 @@ class restore_quiz_activity_structure_step extends restore_questions_activity_st
                     $page += 1;
                     continue;
                 }
-                if ($item == $data->questionid) {
+                if (isset($data->questionid) && $item == $data->questionid) {
                     $data->slot = $slot;
                     $data->page = $page;
                     break;
@@ -263,7 +396,7 @@ class restore_quiz_activity_structure_step extends restore_questions_activity_st
 
         if (!property_exists($data, 'slot')) {
             // There was a question_instance in the backup file for a question
-            // that was not acutally in the quiz. Drop it.
+            // that was not actually in the quiz. Drop it.
             $this->log('question ' . $data->questionid . ' was associated with quiz ' .
                     $this->get_new_parentid('quiz') . ' but not actually used. ' .
                     'The instance has been ignored.', backup::LOG_INFO);
@@ -271,9 +404,63 @@ class restore_quiz_activity_structure_step extends restore_questions_activity_st
         }
 
         $data->quizid = $this->get_new_parentid('quiz');
-        $data->questionid = $this->get_mappingid('question', $data->questionid);
 
-        $DB->insert_record('quiz_slots', $data);
+        $newitemid = $DB->insert_record('quiz_slots', $data);
+        // Add mapping, restore of slot tags (for random questions) need it.
+        $this->set_mapping('quiz_question_instance', $oldid, $newitemid);
+
+        if ($this->task->get_old_moduleversion() < 2022020300) {
+            $data->id = $newitemid;
+            $this->process_quiz_question_legacy_instance($data);
+        }
+    }
+
+    /**
+     * Process a quiz_slot_tags restore
+     *
+     * @param stdClass|array $data The quiz_slot_tags data
+     */
+    protected function process_quiz_slot_tags($data) {
+        global $DB;
+
+        $data = (object)$data;
+
+        $slotid = $this->get_new_parentid('quiz_question_instance');
+        if ($this->task->is_samesite() && $tag = core_tag_tag::get($data->tagid, 'id, name')) {
+            $data->tagname = $tag->name;
+        } else if ($tag = core_tag_tag::get_by_name(0, $data->tagname, 'id, name')) {
+            $data->tagid = $tag->id;
+        } else {
+            $data->tagid = null;
+            $data->tagname = $tag->name;
+        }
+        $tagstring = "{$data->tagid},{$data->tagname}";
+        $setreferencedata = $DB->get_record('question_set_references', ['itemid' => $slotid]);
+
+        $filtercondition = json_decode($setreferencedata->filtercondition);
+        $tagstrings = [];
+        if (isset($filtercondition->tags)) {
+            $tags = explode(',', $filtercondition->tags);
+            foreach ($tags as $tag) {
+                $tagstrings [] = $tag;
+            }
+        }
+        $tagstrings [] = $tagstring;
+        $filtercondition->tags = $tagstrings;
+        $setreferencedata->filtercondition = json_encode($filtercondition);
+
+        $DB->update_record('question_set_references', $setreferencedata);
+    }
+
+    protected function process_quiz_section($data) {
+        global $DB;
+
+        $data = (object) $data;
+        $data->quizid = $this->get_new_parentid('quiz');
+        $oldid = $data->id;
+        $newitemid = $DB->insert_record('quiz_sections', $data);
+        $this->sectioncreated = true;
+        $this->set_mapping('quiz_section', $oldid, $newitemid, true);
     }
 
     protected function process_quiz_feedback($data) {
@@ -304,8 +491,18 @@ class restore_quiz_activity_structure_step extends restore_questions_activity_st
 
         $data->quiz = $this->get_new_parentid('quiz');
 
-        $data->userid = $this->get_mappingid('user', $data->userid);
-        $data->groupid = $this->get_mappingid('group', $data->groupid);
+        if ($data->userid !== null) {
+            $data->userid = $this->get_mappingid('user', $data->userid);
+        }
+
+        if ($data->groupid !== null) {
+            $data->groupid = $this->get_mappingid('group', $data->groupid);
+        }
+
+        // Skip if there is no user and no group data.
+        if (empty($data->userid) && empty($data->groupid)) {
+            return;
+        }
 
         $data->timeopen = $this->apply_date_offset($data->timeopen);
         $data->timeclose = $this->apply_date_offset($data->timeclose);
@@ -327,8 +524,6 @@ class restore_quiz_activity_structure_step extends restore_questions_activity_st
         $data->userid = $this->get_mappingid('user', $data->userid);
         $data->grade = $data->gradeval;
 
-        $data->timemodified = $this->apply_date_offset($data->timemodified);
-
         $DB->insert_record('quiz_grades', $data);
     }
 
@@ -338,15 +533,27 @@ class restore_quiz_activity_structure_step extends restore_questions_activity_st
         $data->quiz = $this->get_new_parentid('quiz');
         $data->attempt = $data->attemptnum;
 
-        $data->userid = $this->get_mappingid('user', $data->userid);
+        // Get user mapping, return early if no mapping found for the quiz attempt.
+        $olduserid = $data->userid;
+        $data->userid = $this->get_mappingid('user', $olduserid, 0);
+        if ($data->userid === 0) {
+            $this->log('Mapped user ID not found for user ' . $olduserid . ', quiz ' . $this->get_new_parentid('quiz') .
+                ', attempt ' . $data->attempt . '. Skipping quiz attempt', backup::LOG_INFO);
 
-        $data->timestart = $this->apply_date_offset($data->timestart);
-        $data->timefinish = $this->apply_date_offset($data->timefinish);
-        $data->timemodified = $this->apply_date_offset($data->timemodified);
+            $this->currentquizattempt = null;
+            return;
+        }
+
         if (!empty($data->timecheckstate)) {
             $data->timecheckstate = $this->apply_date_offset($data->timecheckstate);
         } else {
             $data->timecheckstate = 0;
+        }
+
+        if (!isset($data->gradednotificationsenttime)) {
+            // For attempts restored from old Moodle sites before this field
+            // existed, we never want to send emails.
+            $data->gradednotificationsenttime = $data->timefinish;
         }
 
         // Deals with up-grading pre-2.3 back-ups to 2.3+.
@@ -376,6 +583,9 @@ class restore_quiz_activity_structure_step extends restore_questions_activity_st
         global $DB;
 
         $data = $this->currentquizattempt;
+        if ($data === null) {
+            return;
+        }
 
         $oldid = $data->id;
         $data->uniqueid = $newusageid;
@@ -387,10 +597,19 @@ class restore_quiz_activity_structure_step extends restore_questions_activity_st
     }
 
     protected function after_execute() {
+        global $DB;
+
         parent::after_execute();
         // Add quiz related files, no need to match by itemname (just internally handled context).
         $this->add_related_files('mod_quiz', 'intro', null);
         // Add feedback related files, matching by itemname = 'quiz_feedback'.
         $this->add_related_files('mod_quiz', 'feedback', 'quiz_feedback');
+
+        if (!$this->sectioncreated) {
+            $DB->insert_record('quiz_sections', array(
+                    'quizid' => $this->get_new_parentid('quiz'),
+                    'firstslot' => 1, 'heading' => '',
+                    'shufflequestions' => $this->legacyshufflequestionsoption));
+        }
     }
 }

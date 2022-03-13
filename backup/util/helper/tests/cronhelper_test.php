@@ -27,31 +27,23 @@ defined('MOODLE_INTERNAL') || die();
 
 global $CFG;
 require_once($CFG->dirroot . '/backup/util/helper/backup_cron_helper.class.php');
+require_once($CFG->dirroot . '/backup/util/interfaces/checksumable.class.php');
+require_once("$CFG->dirroot/backup/backup.class.php");
 
 /**
  * Unit tests for backup cron helper
  */
 class backup_cron_helper_testcase extends advanced_testcase {
-
-    /**
-     * @var String keep system default timezone.
-     */
-    protected $systemdefaulttimezone;
-
-    /**
-     * Setup.
-     */
-    protected function setUp() {
-        parent::setUp();
-        $this->systemdefaulttimezone = date_default_timezone_get();
-    }
-
     /**
      * Test {@link backup_cron_automated_helper::calculate_next_automated_backup}.
      */
     public function test_next_automated_backup() {
+        global $CFG;
+
         $this->resetAfterTest();
         set_config('backup_auto_active', '1', 'backup');
+
+        $this->setTimezone('Australia/Perth');
 
         // Notes
         // - backup_auto_weekdays starts on Sunday
@@ -62,7 +54,8 @@ class backup_cron_helper_testcase extends advanced_testcase {
         set_config('backup_auto_weekdays', '0010010', 'backup');
         set_config('backup_auto_hour', '23', 'backup');
         set_config('backup_auto_minute', '0', 'backup');
-        $timezone = 99;
+
+        $timezone = 99; // Ignored, everything is calculated in server timezone!!!
 
         $now = strtotime('next Monday 17:00:00');
         $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
@@ -96,7 +89,6 @@ class backup_cron_helper_testcase extends advanced_testcase {
         set_config('backup_auto_weekdays', '1000001', 'backup');
         set_config('backup_auto_hour', '0', 'backup');
         set_config('backup_auto_minute', '0', 'backup');
-        $timezone = 99;
 
         $now = strtotime('next Monday 17:00:00');
         $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
@@ -130,7 +122,6 @@ class backup_cron_helper_testcase extends advanced_testcase {
         set_config('backup_auto_weekdays', '1000000', 'backup');
         set_config('backup_auto_hour', '4', 'backup');
         set_config('backup_auto_minute', '0', 'backup');
-        $timezone = 99;
 
         $now = strtotime('next Monday 17:00:00');
         $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
@@ -164,7 +155,6 @@ class backup_cron_helper_testcase extends advanced_testcase {
         set_config('backup_auto_weekdays', '1110111', 'backup');
         set_config('backup_auto_hour', '20', 'backup');
         set_config('backup_auto_minute', '30', 'backup');
-        $timezone = 99;
 
         $now = strtotime('next Monday 17:00:00');
         $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
@@ -198,7 +188,6 @@ class backup_cron_helper_testcase extends advanced_testcase {
         set_config('backup_auto_weekdays', '1010101', 'backup');
         set_config('backup_auto_hour', '0', 'backup');
         set_config('backup_auto_minute', '0', 'backup');
-        $timezone = 99;
 
         $now = strtotime('next Monday 13:00:00');
         $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
@@ -232,7 +221,6 @@ class backup_cron_helper_testcase extends advanced_testcase {
         set_config('backup_auto_weekdays', '0000000', 'backup');
         set_config('backup_auto_hour', '15', 'backup');
         set_config('backup_auto_minute', '30', 'backup');
-        $timezone = 99;
 
         $now = strtotime('next Sunday 13:00:00');
         $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
@@ -243,239 +231,280 @@ class backup_cron_helper_testcase extends advanced_testcase {
         set_config('backup_auto_hour', '20', 'backup');
         set_config('backup_auto_minute', '00', 'backup');
 
-        $timezone = 99;
-        date_default_timezone_set('Australia/Perth');
+        $this->setTimezone('Australia/Perth');
         $now = strtotime('18:00:00');
         $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
         $this->assertEquals(date('w-20:00'), date('w-H:i', $next));
 
-        $timezone = 99;
-        date_default_timezone_set('Europe/Brussels');
+        $this->setTimezone('Europe/Brussels');
         $now = strtotime('18:00:00');
         $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
         $this->assertEquals(date('w-20:00'), date('w-H:i', $next));
 
-        $timezone = 99;
-        date_default_timezone_set('America/New_York');
+        $this->setTimezone('America/New_York');
         $now = strtotime('18:00:00');
         $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
         $this->assertEquals(date('w-20:00'), date('w-H:i', $next));
-
-        // Viva Australia! (UTC+8).
-        date_default_timezone_set('Australia/Perth');
-        $now = strtotime('18:00:00');
-
-        $timezone = -10.0; // 12am for the user.
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $this->assertEquals(date('w-14:00', strtotime('tomorrow')), date('w-H:i', $next));
-
-        $timezone = -5.0; // 5am for the user.
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $this->assertEquals(date('w-09:00', strtotime('tomorrow')), date('w-H:i', $next));
-
-        $timezone = 0.0;  // 10am for the user.
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $this->assertEquals(date('w-04:00', strtotime('tomorrow')), date('w-H:i', $next));
-
-        $timezone = 3.0; // 1pm for the user.
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $this->assertEquals(date('w-01:00', strtotime('tomorrow')), date('w-H:i', $next));
-
-        $timezone = 8.0; // 6pm for the user (same than the server).
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $this->assertEquals(date('w-20:00'), date('w-H:i', $next));
-
-        $timezone = 9.0; // 7pm for the user.
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $this->assertEquals(date('w-19:00'), date('w-H:i', $next));
-
-        $timezone = 13.0; // 12am for the user.
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $this->assertEquals(date('w-15:00', strtotime('tomorrow')), date('w-H:i', $next));
-
-        // Let's have a Belgian beer! (UTC+1 / UTC+2 DST).
-        // Warning: Some of these tests will fail if executed "around"
-        // 'Europe/Brussels' DST changes (last Sunday in March and
-        // last Sunday in October right now - 2012). Once Moodle
-        // moves to PHP TZ support this could be fixed properly.
-        date_default_timezone_set('Europe/Brussels');
-        $now = strtotime('18:00:00');
-        $dst = date('I', $now);
-
-        $timezone = -10.0; // 7am for the user.
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $expected = !$dst ? date('w-07:00', strtotime('tomorrow')) : date('w-08:00', strtotime('tomorrow'));
-        $this->assertEquals($expected, date('w-H:i', $next));
-
-        $timezone = -5.0; // 12pm for the user.
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $expected = !$dst ? date('w-02:00', strtotime('tomorrow')) : date('w-03:00', strtotime('tomorrow'));
-        $this->assertEquals($expected, date('w-H:i', $next));
-
-        $timezone = 0.0;  // 5pm for the user.
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $expected = !$dst ? date('w-21:00') : date('w-22:00');
-        $this->assertEquals($expected, date('w-H:i', $next));
-
-        $timezone = 3.0; // 8pm for the user (note the expected time is today while in DST).
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $expected = !$dst ? date('w-18:00', strtotime('tomorrow')) : date('w-19:00');
-        $this->assertEquals($expected, date('w-H:i', $next));
-
-        $timezone = 8.0; // 1am for the user.
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $expected = !$dst ? date('w-13:00', strtotime('tomorrow')) : date('w-14:00', strtotime('tomorrow'));
-        $this->assertEquals($expected, date('w-H:i', $next));
-
-        $timezone = 9.0; // 2am for the user.
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $expected = !$dst ? date('w-12:00', strtotime('tomorrow')) : date('w-13:00', strtotime('tomorrow'));
-        $this->assertEquals($expected, date('w-H:i', $next));
-
-        $timezone = 13.0; // 6am for the user.
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $expected = !$dst ? date('w-08:00', strtotime('tomorrow')) : date('w-09:00', strtotime('tomorrow'));
-        $this->assertEquals($expected, date('w-H:i', $next));
-
-        // The big apple! (UTC-5 / UTC-4 DST).
-        // Warning: Some of these tests will fail if executed "around"
-        // 'America/New_York' DST changes (2nd Sunday in March and
-        // 1st Sunday in November right now - 2012). Once Moodle
-        // moves to PHP TZ support this could be fixed properly.
-        date_default_timezone_set('America/New_York');
-        $now = strtotime('18:00:00');
-        $dst = date('I', $now);
-
-        $timezone = -10.0; // 1pm for the user.
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $expected = !$dst ? date('w-01:00', strtotime('tomorrow')) : date('w-02:00', strtotime('tomorrow'));
-        $this->assertEquals($expected, date('w-H:i', $next));
-
-        $timezone = -5.0; // 6pm for the user (server time).
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $expected = !$dst ? date('w-20:00') : date('w-21:00');
-        $this->assertEquals($expected, date('w-H:i', $next));
-
-        $timezone = 0.0;  // 11pm for the user.
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $expected = !$dst ? date('w-15:00', strtotime('tomorrow')) : date('w-16:00', strtotime('tomorrow'));
-        $this->assertEquals($expected, date('w-H:i', $next));
-
-        $timezone = 3.0; // 2am for the user.
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $expected = !$dst ? date('w-12:00', strtotime('tomorrow')) : date('w-13:00', strtotime('tomorrow'));
-        $this->assertEquals($expected, date('w-H:i', $next));
-
-        $timezone = 8.0; // 7am for the user.
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $expected = !$dst ? date('w-07:00', strtotime('tomorrow')) : date('w-08:00', strtotime('tomorrow'));
-        $this->assertEquals($expected, date('w-H:i', $next));
-
-        $timezone = 9.0; // 8am for the user.
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $expected = !$dst ? date('w-06:00', strtotime('tomorrow')) : date('w-07:00', strtotime('tomorrow'));
-        $this->assertEquals($expected, date('w-H:i', $next));
-
-        $timezone = 13.0; // 6am for the user.
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $expected = !$dst ? date('w-02:00', strtotime('tomorrow')) : date('w-03:00', strtotime('tomorrow'));
-        $this->assertEquals($expected, date('w-H:i', $next));
-
-        // Some more timezone tests
-        set_config('backup_auto_weekdays', '0100001', 'backup');
-        set_config('backup_auto_hour', '20', 'backup');
-        set_config('backup_auto_minute', '00', 'backup');
-
-        // Note: These tests should not fail because they are "unnafected"
-        // by DST changes, as far as execution always happens on Monday and
-        // Saturday and those week days are not, right now, the ones rulez
-        // to peform the DST changes (Sunday is). This may change if rules
-        // are modified in the future.
-        date_default_timezone_set('Europe/Brussels');
-        $now = strtotime('next Monday 18:00:00');
-        $dst = date('I', $now);
-
-        $timezone = -12.0;  // 1pm for the user.
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $expected = !$dst ? '2-09:00' : '2-10:00';
-        $this->assertEquals($expected, date('w-H:i', $next));
-
-        $timezone = -4.0;  // 1pm for the user.
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $expected = !$dst ? '2-01:00' : '2-02:00';
-        $this->assertEquals($expected, date('w-H:i', $next));
-
-        $timezone = 0.0;  // 5pm for the user.
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $expected = !$dst ? '1-21:00' : '1-22:00';
-        $this->assertEquals($expected, date('w-H:i', $next));
-
-        $timezone = 2.0;  // 7pm for the user.
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $expected = !$dst ? '1-19:00' : '1-20:00';
-        $this->assertEquals($expected, date('w-H:i', $next));
-
-        $timezone = 4.0;  // 9pm for the user.
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $expected = !$dst ? '6-17:00' : '6-18:00';
-        $this->assertEquals($expected, date('w-H:i', $next));
-
-        $timezone = 12.0;  // 6am for the user.
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $expected = !$dst ? '6-09:00' : '6-10:00';
-        $this->assertEquals($expected, date('w-H:i', $next));
-
-        // Some more timezone tests
-        set_config('backup_auto_weekdays', '0100001', 'backup');
-        set_config('backup_auto_hour', '02', 'backup');
-        set_config('backup_auto_minute', '00', 'backup');
-
-        // Note: These tests should not fail because they are "unnafected"
-        // by DST changes, as far as execution always happens on Monday and
-        // Saturday and those week days are not, right now, the ones rulez
-        // to peform the DST changes (Sunday is). This may change if rules
-        // are modified in the future.
-        date_default_timezone_set('America/New_York');
-        $now = strtotime('next Monday 04:00:00');
-        $dst = date('I', $now);
-
-        $timezone = -12.0;  // 8pm for the user.
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $expected = !$dst ? '1-09:00' : '1-10:00';
-        $this->assertEquals($expected, date('w-H:i', $next));
-
-        $timezone = -4.0;  // 4am for the user.
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $expected = !$dst ? '6-01:00' : '6-02:00';
-        $this->assertEquals($expected, date('w-H:i', $next));
-
-        $timezone = 0.0;  // 8am for the user.
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $expected = !$dst ? '5-21:00' : '5-22:00';
-        $this->assertEquals($expected, date('w-H:i', $next));
-
-        $timezone = 2.0;  // 10am for the user.
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $expected = !$dst ? '5-19:00' : '5-20:00';
-        $this->assertEquals($expected, date('w-H:i', $next));
-
-        $timezone = 4.0;  // 12pm for the user.
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $expected = !$dst ? '5-17:00' : '5-18:00';
-        $this->assertEquals($expected, date('w-H:i', $next));
-
-        $timezone = 12.0;  // 8pm for the user.
-        $next = backup_cron_automated_helper::calculate_next_automated_backup($timezone, $now);
-        $expected = !$dst ? '5-09:00' : '5-10:00';
-        $this->assertEquals($expected, date('w-H:i', $next));
-
     }
 
     /**
-     * Set timezone back to default.
+     * Test {@link backup_cron_automated_helper::get_backups_to_delete}.
      */
-    protected function tearDown() {
-        date_default_timezone_set($this->systemdefaulttimezone);
-        parent::tearDown();
+    public function test_get_backups_to_delete() {
+        $this->resetAfterTest();
+        // Active only backup_auto_max_kept config to 2 days.
+        set_config('backup_auto_max_kept', '2', 'backup');
+        set_config('backup_auto_delete_days', '0', 'backup');
+        set_config('backup_auto_min_kept', '0', 'backup');
+
+        // No backups to delete.
+        $backupfiles = array(
+            '1000000000' => 'file1.mbz',
+            '1000432000' => 'file3.mbz'
+        );
+        $deletedbackups = testable_backup_cron_automated_helper::testable_get_backups_to_delete($backupfiles, 1000432000);
+        $this->assertFalse($deletedbackups);
+
+        // Older backup to delete.
+        $backupfiles['1000172800'] = 'file2.mbz';
+        $deletedbackups = testable_backup_cron_automated_helper::testable_get_backups_to_delete($backupfiles, 1000432000);
+        $this->assertEquals(1, count($deletedbackups));
+        $this->assertArrayHasKey('1000000000', $backupfiles);
+        $this->assertEquals('file1.mbz', $backupfiles['1000000000']);
+
+        // Activate backup_auto_max_kept to 5 days and backup_auto_delete_days to 10 days.
+        set_config('backup_auto_max_kept', '5', 'backup');
+        set_config('backup_auto_delete_days', '10', 'backup');
+        set_config('backup_auto_min_kept', '0', 'backup');
+
+        // No backups to delete. Timestamp is 1000000000 + 10 days.
+        $backupfiles['1000432001'] = 'file4.mbz';
+        $backupfiles['1000864000'] = 'file5.mbz';
+        $deletedbackups = testable_backup_cron_automated_helper::testable_get_backups_to_delete($backupfiles, 1000864000);
+        $this->assertFalse($deletedbackups);
+
+        // One old backup to delete. Timestamp is 1000000000 + 10 days + 1 second.
+        $deletedbackups = testable_backup_cron_automated_helper::testable_get_backups_to_delete($backupfiles, 1000864001);
+        $this->assertEquals(1, count($deletedbackups));
+        $this->assertArrayHasKey('1000000000', $backupfiles);
+        $this->assertEquals('file1.mbz', $backupfiles['1000000000']);
+
+        // Two old backups to delete. Timestamp is 1000000000 + 12 days + 1 second.
+        $deletedbackups = testable_backup_cron_automated_helper::testable_get_backups_to_delete($backupfiles, 1001036801);
+        $this->assertEquals(2, count($deletedbackups));
+        $this->assertArrayHasKey('1000000000', $backupfiles);
+        $this->assertEquals('file1.mbz', $backupfiles['1000000000']);
+        $this->assertArrayHasKey('1000172800', $backupfiles);
+        $this->assertEquals('file2.mbz', $backupfiles['1000172800']);
+
+        // Activate backup_auto_max_kept to 5 days, backup_auto_delete_days to 10 days and backup_auto_min_kept to 2.
+        set_config('backup_auto_max_kept', '5', 'backup');
+        set_config('backup_auto_delete_days', '10', 'backup');
+        set_config('backup_auto_min_kept', '2', 'backup');
+
+        // Three instead of four old backups are deleted. Timestamp is 1000000000 + 16 days.
+        $deletedbackups = testable_backup_cron_automated_helper::testable_get_backups_to_delete($backupfiles, 1001382400);
+        $this->assertEquals(3, count($deletedbackups));
+        $this->assertArrayHasKey('1000000000', $backupfiles);
+        $this->assertEquals('file1.mbz', $backupfiles['1000000000']);
+        $this->assertArrayHasKey('1000172800', $backupfiles);
+        $this->assertEquals('file2.mbz', $backupfiles['1000172800']);
+        $this->assertArrayHasKey('1000432000', $backupfiles);
+        $this->assertEquals('file3.mbz', $backupfiles['1000432000']);
+
+        // Three instead of all five backups are deleted. Timestamp is 1000000000 + 60 days.
+        $deletedbackups = testable_backup_cron_automated_helper::testable_get_backups_to_delete($backupfiles, 1005184000);
+        $this->assertEquals(3, count($deletedbackups));
+        $this->assertArrayHasKey('1000000000', $backupfiles);
+        $this->assertEquals('file1.mbz', $backupfiles['1000000000']);
+        $this->assertArrayHasKey('1000172800', $backupfiles);
+        $this->assertEquals('file2.mbz', $backupfiles['1000172800']);
+        $this->assertArrayHasKey('1000432000', $backupfiles);
+        $this->assertEquals('file3.mbz', $backupfiles['1000432000']);
     }
+
+    /**
+     * Test {@link backup_cron_automated_helper::is_course_modified}.
+     */
+    public function test_is_course_modified() {
+        $this->resetAfterTest();
+        $this->preventResetByRollback();
+
+        set_config('enabled_stores', 'logstore_standard', 'tool_log');
+        set_config('buffersize', 0, 'logstore_standard');
+        set_config('logguests', 1, 'logstore_standard');
+
+        $course = $this->getDataGenerator()->create_course();
+
+        // New courses should be backed up.
+        $this->assertTrue(testable_backup_cron_automated_helper::testable_is_course_modified($course->id, 0));
+
+        $timepriortobackup = time();
+        $this->waitForSecond();
+        $otherarray = [
+            'format' => backup::FORMAT_MOODLE,
+            'mode' => backup::MODE_GENERAL,
+            'interactive' => backup::INTERACTIVE_YES,
+            'type' => backup::TYPE_1COURSE,
+        ];
+        $event = \core\event\course_backup_created::create([
+            'objectid' => $course->id,
+            'context'  => context_course::instance($course->id),
+            'other'    => $otherarray
+        ]);
+        $event->trigger();
+
+        // If the only action since last backup was a backup then no backup.
+        $this->assertFalse(testable_backup_cron_automated_helper::testable_is_course_modified($course->id, $timepriortobackup));
+
+        $course->groupmode = SEPARATEGROUPS;
+        $course->groupmodeforce = true;
+        update_course($course);
+
+        // Updated courses should be backed up.
+        $this->assertTrue(testable_backup_cron_automated_helper::testable_is_course_modified($course->id, $timepriortobackup));
+    }
+
+    /**
+     * Create courses and backup records for tests.
+     *
+     * @return array Created courses.
+     */
+    private function course_setup() {
+        global $DB;
+
+        // Create test courses.
+        $course1 = $this->getDataGenerator()->create_course(array('timecreated' => 1553402000)); // Newest.
+        $course2 = $this->getDataGenerator()->create_course(array('timecreated' => 1552179600));
+        $course3 = $this->getDataGenerator()->create_course(array('timecreated' => 1552179600));
+        $course4 = $this->getDataGenerator()->create_course(array('timecreated' => 1552179600));
+
+        // Create backup course records for the courses that need them.
+        $backupcourse3 = new stdClass;
+        $backupcourse3->courseid = $course3->id;
+        $backupcourse3->laststatus = testable_backup_cron_automated_helper::BACKUP_STATUS_OK;
+        $backupcourse3->nextstarttime = 1554858160;
+        $DB->insert_record('backup_courses', $backupcourse3);
+
+        $backupcourse4 = new stdClass;
+        $backupcourse4->courseid = $course4->id;
+        $backupcourse4->laststatus = testable_backup_cron_automated_helper::BACKUP_STATUS_OK;
+        $backupcourse4->nextstarttime = 1554858160;
+        $DB->insert_record('backup_courses', $backupcourse4);
+
+        return array($course1, $course2, $course3, $course4);
+    }
+
+    /**
+     * Test the selection and ordering of courses to be backed up.
+     */
+    public function test_get_courses() {
+        $this->resetAfterTest();
+
+        list($course1, $course2, $course3, $course4) = $this->course_setup();
+
+        $now = 1559215025;
+
+        // Get the courses in order.
+        $courseset = testable_backup_cron_automated_helper::testable_get_courses($now);
+
+        $coursearray = array();
+        foreach ($courseset as $course) {
+            if ($course->id != SITEID) { // Skip system course for test.
+                $coursearray[] = $course->id;
+            }
+
+        }
+        $courseset->close();
+
+        // First should be course 1, it is the more recently modified without a backup.
+        $this->assertEquals($course1->id, $coursearray[0]);
+
+        // Second should be course 2, it is the next more recently modified without a backup.
+        $this->assertEquals($course2->id, $coursearray[1]);
+
+        // Third should be course 3, it is the course with the oldest backup.
+        $this->assertEquals($course3->id, $coursearray[2]);
+
+        // Fourth should be course 4, it is the course with the newest backup.
+        $this->assertEquals($course4->id, $coursearray[3]);
+    }
+
+    /**
+     * Test the selection and ordering of courses to be backed up.
+     * Where it is not yet time to start backups for courses with existing backups.
+     */
+    public function test_get_courses_starttime() {
+        $this->resetAfterTest();
+
+        list($course1, $course2, $course3, $course4) = $this->course_setup();
+
+        $now = 1554858000;
+
+        // Get the courses in order.
+        $courseset = testable_backup_cron_automated_helper::testable_get_courses($now);
+
+        $coursearray = array();
+        foreach ($courseset as $course) {
+            if ($course->id != SITEID) { // Skip system course for test.
+                $coursearray[] = $course->id;
+            }
+
+        }
+        $courseset->close();
+
+        // Should only be two courses.
+        // First should be course 1, it is the more recently modified without a backup.
+        $this->assertEquals($course1->id, $coursearray[0]);
+
+        // Second should be course 2, it is the next more recently modified without a backup.
+        $this->assertEquals($course2->id, $coursearray[1]);
+    }
+
+}
+
+
+
+/**
+ * Provides access to protected methods we want to explicitly test
+ *
+ * @copyright 2015 Jean-Philippe Gaudreau <jp.gaudreau@umontreal.ca>
+ * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
+class testable_backup_cron_automated_helper extends backup_cron_automated_helper {
+
+    /**
+     * Provides access to protected method get_backups_to_remove.
+     *
+     * @param array $backupfiles Existing backup files
+     * @param int $now Starting time of the process
+     * @return array Backup files to remove
+     */
+    public static function testable_get_backups_to_delete($backupfiles, $now) {
+        return parent::get_backups_to_delete($backupfiles, $now);
+    }
+
+    /**
+     * Provides access to protected method get_backups_to_remove.
+     *
+     * @param int $courseid course id to check
+     * @param int $since timestamp, from which to check
+     *
+     * @return bool true if the course was modified, false otherwise. This also returns false if no readers are enabled. This is
+     * intentional, since we cannot reliably determine if any modification was made or not.
+     */
+    public static function testable_is_course_modified($courseid, $since) {
+        return parent::is_course_modified($courseid, $since);
+    }
+
+    /**
+     * Provides access to protected method get_courses.
+     *
+     * @param int $now Timestamp to use.
+     * @return moodle_recordset The returned courses as a Moodle recordest.
+     */
+    public static function testable_get_courses($now) {
+        return parent::get_courses($now);
+    }
+
 }

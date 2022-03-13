@@ -27,6 +27,7 @@ defined('MOODLE_INTERNAL') || die();
 
 require_once($CFG->dirroot . '/mod/quiz/lib.php');
 require_once($CFG->libdir . '/filelib.php');
+require_once($CFG->dirroot . '/mod/quiz/accessmanager.php');
 
 /**
  * Takes an array of objects and constructs a multidimensional array keyed by
@@ -94,27 +95,31 @@ function quiz_has_questions($quizid) {
  */
 function quiz_report_get_significant_questions($quiz) {
     global $DB;
-
-    $qsbyslot = $DB->get_records_sql("
-            SELECT slot.slot,
-                   q.id,
-                   q.length,
-                   slot.maxmark
-
-              FROM {question} q
-              JOIN {quiz_slots} slot ON slot.questionid = q.id
-
-             WHERE slot.quizid = ?
-               AND q.length > 0
-
-          ORDER BY slot.slot", array($quiz->id));
-
+    $qsbyslot = [];
+    $quizobj = \quiz::create($quiz->id);
+    $structure = \mod_quiz\structure::create_for_quiz($quizobj);
+    $slots = $structure->get_slots();
+    foreach ($slots as $slot) {
+        $slotreport = new \stdClass();
+        $slotreport->slot = $slot->slot;
+        $slotreport->id = $slot->questionid;
+        $slotreport->qtype = $slot->qtype;
+        $slotreport->length = $slot->length;
+        $slotreport->maxmark = $slot->maxmark;
+        $slotreport->type = $slot->qtype;
+        if ($slot->qtype === 'random') {
+            $categoryobject = $DB->get_record('question_categories', ['id' => $slot->category]);
+            $slotreport->categoryobject = $categoryobject;
+            $slotreport->category = $slot->category;
+        }
+        $qsbyslot[$slotreport->slot] = $slotreport;
+    }
+    $qsbyslot = \mod_quiz\question\bank\qbank_helper::question_array_sort($qsbyslot, 'slot');
     $number = 1;
     foreach ($qsbyslot as $question) {
         $question->number = $number;
-        $number += $question->length;
+        $number ++;
     }
-
     return $qsbyslot;
 }
 
@@ -191,10 +196,10 @@ function quiz_report_grade_method_sql($grademethod, $quizattemptsalias = 'quiza'
  * @param number $bandwidth the width of each band.
  * @param int $bands the number of bands
  * @param int $quizid the quiz id.
- * @param array $userids list of user ids.
+ * @param \core\dml\sql_join $usersjoins (joins, wheres, params) to get enrolled users
  * @return array band number => number of users with scores in that band.
  */
-function quiz_report_grade_bands($bandwidth, $bands, $quizid, $userids = array()) {
+function quiz_report_grade_bands($bandwidth, $bands, $quizid, \core\dml\sql_join $usersjoins = null) {
     global $DB;
     if (!is_int($bands)) {
         debugging('$bands passed to quiz_report_grade_bands must be an integer. (' .
@@ -202,11 +207,14 @@ function quiz_report_grade_bands($bandwidth, $bands, $quizid, $userids = array()
         $bands = (int) $bands;
     }
 
-    if ($userids) {
-        list($usql, $params) = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED, 'u');
-        $usql = "qg.userid $usql AND";
+    if ($usersjoins && !empty($usersjoins->joins)) {
+        $userjoin = "JOIN {user} u ON u.id = qg.userid
+                {$usersjoins->joins}";
+        $usertest = $usersjoins->wheres;
+        $params = $usersjoins->params;
     } else {
-        $usql = '';
+        $userjoin = '';
+        $usertest = '1=1';
         $params = array();
     }
     $sql = "
@@ -215,7 +223,8 @@ SELECT band, COUNT(1)
 FROM (
     SELECT FLOOR(qg.grade / :bandwidth) AS band
       FROM {quiz_grades} qg
-     WHERE $usql qg.quiz = :quizid
+    $userjoin
+    WHERE $usertest AND qg.quiz = :quizid
 ) subquery
 
 GROUP BY
@@ -321,7 +330,8 @@ function quiz_report_scale_summarks_as_percentage($rawmark, $quiz, $round = true
     if ($round) {
         $mark = quiz_format_grade($quiz, $mark);
     }
-    return $mark . '%';
+
+    return get_string('percents', 'moodle', $mark);
 }
 
 /**

@@ -39,30 +39,44 @@ class award_criteria_profile extends award_criteria {
     public $required_param = 'field';
     public $optional_params = array();
 
+    /* @var array The default profile fields allowed to be used as award criteria.
+     *
+     * Note: This is used instead of user_get_default_fields(), because it is not possible to
+     * determine which fields the user can modify.
+     */
+    protected $allowed_default_fields = [
+        'firstname',
+        'lastname',
+        'email',
+        'address',
+        'phone1',
+        'phone2',
+        'department',
+        'institution',
+        'description',
+        'picture',
+        'city',
+        'country',
+    ];
+
     /**
      * Add appropriate new criteria options to the form
      *
      */
     public function get_options(&$mform) {
-        global $DB;
+        global $CFG, $DB;
+        require_once($CFG->dirroot . '/user/profile/lib.php');
 
         $none = true;
         $existing = array();
         $missing = array();
-
-        // Note: cannot use user_get_default_fields() here because it is not possible to decide which fields user can modify.
-        $dfields = array('firstname', 'lastname', 'email', 'address', 'phone1', 'phone2', 'icq', 'skype', 'yahoo',
-                         'aim', 'msn', 'department', 'institution', 'description', 'city', 'url', 'country');
-
-        $sql = "SELECT uf.id as fieldid, uf.name as name, ic.id as categoryid, ic.name as categoryname, uf.datatype
-                FROM {user_info_field} uf
-                JOIN {user_info_category} ic
-                ON uf.categoryid = ic.id AND uf.visible <> 0
-                ORDER BY ic.sortorder ASC, uf.sortorder ASC";
+        $dfields = $this->allowed_default_fields;
 
         // Get custom fields.
-        $cfields = $DB->get_records_sql($sql);
-        $cfids = array_map(create_function('$o', 'return $o->fieldid;'), $cfields);
+        $cfields = array_filter(profile_get_custom_fields(), function($field) {
+            return $field->visible <> 0;
+        });
+        $cfids = array_keys($cfields);
 
         if ($this->id !== 0) {
             $existing = array_keys($this->params);
@@ -86,7 +100,8 @@ class award_criteria_profile extends award_criteria {
                 if (in_array($field, $existing)) {
                     $checked = true;
                 }
-                $this->config_options($mform, array('id' => $field, 'checked' => $checked, 'name' => get_user_field_name($field), 'error' => false));
+                $this->config_options($mform, array('id' => $field, 'checked' => $checked,
+                        'name' => \core_user\fields::get_display_name($field), 'error' => false));
                 $none = false;
             }
         }
@@ -95,13 +110,14 @@ class award_criteria_profile extends award_criteria {
             foreach ($cfields as $field) {
                 if (!isset($currentcat) || $currentcat != $field->categoryid) {
                     $currentcat = $field->categoryid;
-                    $mform->addElement('header', 'category_' . $currentcat, format_string($field->categoryname));
+                    $categoryname = $DB->get_field('user_info_category', 'name', ['id' => $field->categoryid]);
+                    $mform->addElement('header', 'category_' . $currentcat, format_string($categoryname));
                 }
                 $checked = false;
-                if (in_array($field->fieldid, $existing)) {
+                if (in_array($field->id, $existing)) {
                     $checked = true;
                 }
-                $this->config_options($mform, array('id' => $field->fieldid, 'checked' => $checked, 'name' => $field->name, 'error' => false));
+                $this->config_options($mform, array('id' => $field->id, 'checked' => $checked, 'name' => $field->name, 'error' => false));
                 $none = false;
             }
         }
@@ -130,13 +146,18 @@ class award_criteria_profile extends award_criteria {
      * @return string
      */
     public function get_details($short = '') {
-        global $DB, $OUTPUT;
+        global $OUTPUT, $CFG;
+        require_once($CFG->dirroot.'/user/profile/lib.php');
+
         $output = array();
         foreach ($this->params as $p) {
             if (is_numeric($p['field'])) {
-                $str = $DB->get_field('user_info_field', 'name', array('id' => $p['field']));
+                $fields = profile_get_custom_fields();
+                // Get formatted field name if such field exists.
+                $str = isset($fields[$p['field']]->name) ?
+                    format_string($fields[$p['field']]->name) : null;
             } else {
-                $str = get_user_field_name($p['field']);
+                $str = \core_user\fields::get_display_name($p['field']);
             }
             if (!$str) {
                 $output[] = $OUTPUT->error_text(get_string('error:nosuchfield', 'badges'));
@@ -170,33 +191,36 @@ class award_criteria_profile extends award_criteria {
         }
 
         $join = '';
-        $where = '';
+        $whereparts = array();
         $sqlparams = array();
         $rule = ($this->method == BADGE_CRITERIA_AGGREGATION_ANY) ? ' OR ' : ' AND ';
 
         foreach ($this->params as $param) {
             if (is_numeric($param['field'])) {
-                $infodata[] = " uid.fieldid = :fieldid{$param['field']} ";
-                $sqlparams["fieldid{$param['field']}"] = $param['field'];
+                // This is a custom field.
+                $idx = count($whereparts) + 1;
+                $join .= " LEFT JOIN {user_info_data} uid{$idx} ON uid{$idx}.userid = u.id AND uid{$idx}.fieldid = :fieldid{$idx} ";
+                $sqlparams["fieldid{$idx}"] = $param['field'];
+                $whereparts[] = "uid{$idx}.id IS NOT NULL";
             } else {
-                $userdata[] = $DB->sql_isnotempty('u', "u.{$param['field']}", false, true);
+                // This is a field from {user} table.
+                if ($param['field'] == 'picture') {
+                    // The picture field is numeric and requires special handling.
+                    $whereparts[] = "u.{$param['field']} != 0";
+                } else {
+                    $whereparts[] = $DB->sql_isnotempty('u', "u.{$param['field']}", false, true);
+                }
             }
         }
 
-        // Add user custom field parameters if there are any.
-        if (!empty($infodata)) {
-            $extraon = implode($rule, $infodata);
-            $join = " LEFT JOIN {user_info_data} uid ON uid.userid = u.id AND ({$extraon})";
-        }
-
-        // Add user table field parameters if there are any.
-        if (!empty($userdata)) {
-            $extraon = implode($rule, $userdata);
-            $where = " AND ({$extraon})";
-        }
-
         $sqlparams['userid'] = $userid;
-        $sql = "SELECT u.* FROM {user} u " . $join . " WHERE u.id = :userid " . $where;
+
+        if ($whereparts) {
+            $where = " AND (" . implode($rule, $whereparts) . ")";
+        } else {
+            $where = '';
+        }
+        $sql = "SELECT 1 FROM {user} u " . $join . " WHERE u.id = :userid $where";
         $overall = $DB->record_exists_sql($sql, $sqlparams);
 
         return $overall;
@@ -212,29 +236,32 @@ class award_criteria_profile extends award_criteria {
         global $DB;
 
         $join = '';
-        $where = '';
+        $whereparts = array();
         $params = array();
         $rule = ($this->method == BADGE_CRITERIA_AGGREGATION_ANY) ? ' OR ' : ' AND ';
 
         foreach ($this->params as $param) {
             if (is_numeric($param['field'])) {
-                $infodata[] = " uid.fieldid = :fieldid{$param['field']} ";
-                $params["fieldid{$param['field']}"] = $param['field'];
-            } else {
-                $userdata[] = $DB->sql_isnotempty('u', "u.{$param['field']}", false, true);
+                // This is a custom field.
+                $idx = count($whereparts);
+                $join .= " LEFT JOIN {user_info_data} uid{$idx} ON uid{$idx}.userid = u.id AND uid{$idx}.fieldid = :fieldid{$idx} ";
+                $params["fieldid{$idx}"] = $param['field'];
+                $whereparts[] = "uid{$idx}.id IS NOT NULL";
+            } else if (in_array($param['field'], $this->allowed_default_fields)) {
+                // This is a valid field from {user} table.
+                if ($param['field'] == 'picture') {
+                    // The picture field is numeric and requires special handling.
+                    $whereparts[] = "u.{$param['field']} != 0";
+                } else {
+                    $whereparts[] = $DB->sql_isnotempty('u', "u.{$param['field']}", false, true);
+                }
             }
         }
 
-        // Add user custom fields if there are any.
-        if (!empty($infodata)) {
-            $extraon = implode($rule, $infodata);
-            $join = " LEFT JOIN {user_info_data} uid ON uid.userid = u.id AND ({$extraon})";
-        }
-
-        // Add user table fields if there are any.
-        if (!empty($userdata)) {
-            $extraon = implode($rule, $userdata);
-            $where = " AND ({$extraon})";
+        if ($whereparts) {
+            $where = " AND (" . implode($rule, $whereparts) . ")";
+        } else {
+            $where = '';
         }
         return array($join, $where, $params);
     }

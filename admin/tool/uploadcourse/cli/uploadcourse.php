@@ -26,7 +26,6 @@ define('CLI_SCRIPT', true);
 
 require(__DIR__ . '/../../../../config.php');
 require_once($CFG->libdir . '/clilib.php');
-require_once($CFG->libdir . '/coursecatlib.php');
 require_once($CFG->libdir . '/csvlib.class.php');
 
 $courseconfig = get_config('moodlecourse');
@@ -46,7 +45,7 @@ list($options, $unrecognized) = cli_get_params(array(
     'allowrenames' => false,
     'allowresets' => false,
     'reset' => false,
-    'category' => coursecat::get_default()->id,
+    'category' => core_course_category::get_default()->id,
 ),
 array(
     'h' => 'help',
@@ -156,6 +155,7 @@ if (!isset($encodings[$options['encoding']])) {
 $defaults = array();
 $defaults['category'] = $options['category'];
 $defaults['startdate'] = time() + 3600 * 24;
+$defaults['enddate'] = $defaults['startdate'] + intval(get_config('moodlecourse', 'courseduration'));
 $defaults['newsitems'] = $courseconfig->newsitems;
 $defaults['showgrades'] = $courseconfig->showgrades;
 $defaults['showreports'] = $courseconfig->showreports;
@@ -165,6 +165,7 @@ $defaults['groupmode'] = $courseconfig->groupmode;
 $defaults['groupmodeforce'] = $courseconfig->groupmodeforce;
 $defaults['visible'] = $courseconfig->visible;
 $defaults['lang'] =  $courseconfig->lang;
+$defaults['enablecompletion'] = $courseconfig->enablecompletion;
 
 // Course template.
 if (isset($options['templatecourse'])) {

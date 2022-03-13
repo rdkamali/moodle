@@ -27,8 +27,9 @@
 
 require_once(__DIR__ . '/../../behat/behat_base.php');
 
-use Behat\Behat\Context\Step\Given as Given,
-    Behat\Mink\Exception\ExpectationException as ExpectationException;
+use Behat\Mink\Exception\ExpectationException as ExpectationException;
+use Behat\Mink\Exception\DriverException as DriverException;
+use Behat\Mink\Exception\ElementNotFoundException as ElementNotFoundException;
 
 /**
  * Steps definitions to navigate through the navigation tree nodes.
@@ -39,6 +40,20 @@ use Behat\Behat\Context\Step\Given as Given,
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class behat_navigation extends behat_base {
+
+    /**
+     * Checks whether a navigation node is active within the block navigation.
+     *
+     * @Given i should see :name is active in navigation
+     *
+     * @throws ElementNotFoundException
+     * @param string      $element The name of the nav elemnent to look for.
+     * @return void
+     */
+    public function i_should_see_is_active_in_navigation($element) {
+        $this->execute("behat_general::assert_element_contains_text",
+            [$element, '.block_navigation .active_tree_node', 'css_element']);
+    }
 
     /**
      * Helper function to get a navigation nodes text element given its text from within the navigation block.
@@ -60,11 +75,11 @@ class behat_navigation extends behat_base {
             $exception = new ExpectationException($exception, $this->getSession());
         }
 
-        $nodetextliteral = $this->getSession()->getSelectorsHandler()->xpathLiteral($text);
+        $nodetextliteral = behat_context_helper::escape($text);
         $hasblocktree = "[contains(concat(' ', normalize-space(@class), ' '), ' block_tree ')]";
         $hasbranch = "[contains(concat(' ', normalize-space(@class), ' '), ' branch ')]";
-        $hascollapsed = "li[contains(concat(' ', normalize-space(@class), ' '), ' collapsed ') or @data-expandable='1']";
-        $notcollapsed = "li[not(contains(concat(' ', normalize-space(@class), ' '), ' collapsed '))]";
+        $hascollapsed = "li[@aria-expanded='false']/p";
+        $notcollapsed = "li[@aria-expanded='true']/p";
         $match = "[normalize-space(.)={$nodetextliteral}]";
 
         // Avoid problems with quotes.
@@ -74,15 +89,18 @@ class behat_navigation extends behat_base {
         } else if ($collapsed === false) {
             $iscollapsed = $notcollapsed;
         } else {
-            $iscollapsed = 'li';
+            $iscollapsed = 'li/p';
         }
 
-        // First check root nodes.
-        $xpath  = "//ul{$hasblocktree}/$hascollapsed/p{$isbranch}/span{$match}|";
+        // First check root nodes, it can be a span or link.
+        $xpath  = "//ul{$hasblocktree}/{$hascollapsed}{$isbranch}/span{$match}|";
+        $xpath  .= "//ul{$hasblocktree}/{$hascollapsed}{$isbranch}/a{$match}|";
+
         // Next search for the node containing the text within a link.
-        $xpath .= "//ul{$hasblocktree}//{$notcollapsed}/ul/{$iscollapsed}/p{$isbranch}/a{$match}|";
+        $xpath .= "//ul{$hasblocktree}//ul/{$iscollapsed}{$isbranch}/a{$match}|";
+
         // Finally search for the node containing the text within a span.
-        $xpath .= "//ul{$hasblocktree}//{$notcollapsed}/ul/{$iscollapsed}/p{$isbranch}/span{$match}";
+        $xpath .= "//ul{$hasblocktree}//ul/{$iscollapsed}{$isbranch}/span{$match}";
 
         $node = $this->find('xpath', $xpath, $exception);
         $this->ensure_node_is_visible($node);
@@ -106,10 +124,11 @@ class behat_navigation extends behat_base {
 
         $node = $this->get_node_text_node($nodetext, true);
         $node = $node->getParent();
-        if ($node->hasAttribute('data-expandable') && $node->getAttribute('data-expandable')) {
-            return true;
+        if ($node->hasClass('emptybranch')) {
+            throw new ExpectationException('The "' . $nodetext . '" node is not expandable', $this->getSession());
         }
-        throw new ExpectationException('The "' . $nodetext . '" node is not expandable', $this->getSession());
+
+        return true;
     }
 
     /**
@@ -129,10 +148,34 @@ class behat_navigation extends behat_base {
 
         $node = $this->get_node_text_node($nodetext);
         $node = $node->getParent();
-        if ($node->hasAttribute('data-expandable') && $node->getAttribute('data-expandable')) {
-            throw new ExpectationException('The "' . $nodetext . '" node is expandable', $this->getSession());
+
+        if ($node->hasClass('emptybranch') || $node->hasClass('tree_item')) {
+            return true;
         }
-        return true;
+        throw new ExpectationException('The "' . $nodetext . '" node is expandable', $this->getSession());
+    }
+
+    /**
+     * Click on an entry in the user menu.
+     * @Given /^I follow "(?P<nodetext_string>(?:[^"]|\\")*)" in the user menu$/
+     *
+     * @param string $nodetext
+     */
+    public function i_follow_in_the_user_menu($nodetext) {
+
+        if ($this->running_javascript()) {
+            // The user menu must be expanded when JS is enabled.
+            $xpath = "//div[contains(concat(' ', @class, ' '), ' usermenu ')]//a[contains(concat(' ', @class, ' '), ' dropdown-toggle ')]";
+            $this->execute("behat_general::i_click_on", array($this->escape($xpath), "xpath_element"));
+        }
+
+        // Now select the link.
+        // The CSS path is always present, with or without JS.
+        $csspath = ".usermenu .dropdown-menu";
+
+        $this->execute('behat_general::i_click_on_in_the',
+                array($nodetext, "link", $csspath, "css_element")
+        );
     }
 
     /**
@@ -151,7 +194,10 @@ class behat_navigation extends behat_base {
         if (!$this->running_javascript()) {
             if ($nodetext === get_string('administrationsite')) {
                 // Administration menu is not loaded by default any more. Click the link to expand.
-                return new Given('I click on "'.$nodetext.'" "link" in the "'.get_string('administration').'" "block"');
+                $this->execute('behat_general::i_click_on_in_the',
+                    array($nodetext, "link", get_string('administration'), "block")
+                );
+                return true;
             }
             return true;
         }
@@ -162,7 +208,7 @@ class behat_navigation extends behat_base {
             // We just want to expand the node, we don't want to follow it.
             $node = $node->getParent();
         }
-        $node->click();
+        $this->execute('behat_general::i_click_on', [$node, 'NodeElement']);
     }
 
     /**
@@ -186,26 +232,23 @@ class behat_navigation extends behat_base {
             // We just want to expand the node, we don't want to follow it.
             $node = $node->getParent();
         }
-        $node->click();
+        $this->execute('behat_general::i_click_on', [$node, 'NodeElement']);
     }
 
     /**
-     * Click link in navigation tree that matches the text in parentnode/s (seperated using greater-than character if more than one)
+     * Finds a node in the Navigation or Administration tree
      *
-     * @Given /^I navigate to "(?P<nodetext_string>(?:[^"]|\\")*)" node in "(?P<parentnodes_string>(?:[^"]|\\")*)"$/
-     *
-     * @throws ExpectationException
-     * @param string $nodetext navigation node to click.
-     * @param string $parentnodes comma seperated list of parent nodes.
-     * @return void
+     * @param string $nodetext
+     * @param array $parentnodes
+     * @param string $nodetype node type (link or text)
+     * @return NodeElement|null
+     * @throws ExpectationException when one of the parent nodes is not found
      */
-    public function i_navigate_to_node_in($nodetext, $parentnodes) {
-
+    protected function find_node_in_navigation($nodetext, $parentnodes, $nodetype = 'link') {
         // Site admin is different and needs special treatment.
         $siteadminstr = get_string('administrationsite');
 
         // Create array of all parentnodes.
-        $parentnodes = array_map('trim', explode('>', $parentnodes));
         $countparentnode = count($parentnodes);
 
         // If JS is disabled and Site administration is not expanded we
@@ -214,67 +257,66 @@ class behat_navigation extends behat_base {
             if ($parentnodes[0] === $siteadminstr) {
                 // We don't know if there if Site admin is already expanded so
                 // don't wait, it is non-JS and we already waited for the DOM.
-                if ($siteadminlink = $this->getSession()->getPage()->find('named', array('link', "'" . $siteadminstr . "'"))) {
-                    $siteadminlink->click();
+                $siteadminlink = $this->getSession()->getPage()->find('named_exact', array('link', "'" . $siteadminstr . "'"));
+                if ($siteadminlink) {
+                    $this->execute('behat_general::i_click_on', [$siteadminlink, 'NodeElement']);
                 }
             }
         }
 
-        // Expand first node, and get it.
+        // Get top level node.
         $node = $this->get_top_navigation_node($parentnodes[0]);
 
-        // Expand parent, sub-parent nodes in navigation if js enabled.
-        if ($node->hasClass('collapsed') || ($node->hasAttribute('data-loaded') && $node->getAttribute('data-loaded') == 0)) {
-            $xpath = "/p[contains(concat(' ', normalize-space(@class), ' '), ' tree_item ')]/span";
-            $nodetoexpand = $node->find('xpath', $xpath);
-
-            if ($this->running_javascript()) {
-                $this->ensure_node_is_visible($nodetoexpand);
-                $nodetoexpand->click();
-
-                // Site administration node needs to be expanded.
-                if ($parentnodes[0] === $siteadminstr) {
-                    $this->getSession()->wait(self::TIMEOUT * 1000, self::PAGE_READY_JS);
-                }
-            }
-        }
-
-        // If sub-parent nodes then get to the last one.
-        if ($countparentnode > 1) {
-            for ($i = 1; $i < $countparentnode; $i++) {
+        // Expand all nodes.
+        for ($i = 0; $i < $countparentnode; $i++) {
+            if ($i > 0) {
+                // Sub nodes within top level node.
                 $node = $this->get_navigation_node($parentnodes[$i], $node);
+            }
 
-                // Keep expanding all sub-parents if js enabled.
-                if ($this->running_javascript()) {
-                    $xpath = "/p[contains(concat(' ', normalize-space(@class), ' '), ' tree_item ')]";
-                    if ($node->hasClass('collapsed')) {
-                        $nodetoexpand = $node->find('xpath', $xpath);
-                        if ($this->running_javascript()) {
-                            $this->ensure_node_is_visible($nodetoexpand);
-                            $nodetoexpand->click();
-                        }
-                    }
+            // The p node contains the aria jazz.
+            $pnodexpath = "/p[contains(concat(' ', normalize-space(@class), ' '), ' tree_item ')]";
+            $pnode = $node->find('xpath', $pnodexpath);
+            $linode = $pnode->getParent();
+
+            // Keep expanding all sub-parents if js enabled.
+            if ($pnode && $this->running_javascript() && $linode->hasAttribute('aria-expanded') &&
+                ($linode->getAttribute('aria-expanded') == "false")) {
+                $this->js_trigger_click($pnode);
+
+                // Wait for node to load, if not loaded before.
+                if ($linode->hasAttribute('data-loaded') && $linode->getAttribute('data-loaded') == "false") {
+                    $jscondition = '(document.evaluate("' . $linode->getXpath() . '", document, null, '.
+                        'XPathResult.ANY_TYPE, null).iterateNext().getAttribute(\'data-loaded\') == "true")';
+
+                    $this->getSession()->wait(behat_base::get_extended_timeout() * 1000, $jscondition);
                 }
             }
         }
 
         // Finally, click on requested node under navigation.
-        $nodetextliteral = $this->getSession()->getSelectorsHandler()->xpathLiteral($nodetext);
+        $nodetextliteral = behat_context_helper::escape($nodetext);
+        $tagname = ($nodetype === 'link') ? 'a' : 'span';
         $xpath = "/ul/li/p[contains(concat(' ', normalize-space(@class), ' '), ' tree_item ')]" .
-                "/a[normalize-space(.)=" . $nodetextliteral . "]";
-        $node = $node->find('xpath', $xpath);
+            "/{$tagname}[normalize-space(.)=" . $nodetextliteral . "]";
+        return $node->find('xpath', $xpath);
+    }
 
+    /**
+     * Finds a node in the Navigation or Administration tree and clicks on it.
+     *
+     * @param string $nodetext
+     * @param array $parentnodes
+     * @throws ExpectationException
+     */
+    protected function select_node_in_navigation($nodetext, $parentnodes) {
+        $nodetoclick = $this->find_node_in_navigation($nodetext, $parentnodes);
         // Throw exception if no node found.
-        if (!$node) {
+        if (!$nodetoclick) {
             throw new ExpectationException('Navigation node "' . $nodetext . '" not found under "' .
-                implode($parentnodes, ' > ') . '"', $this->getSession());
+                implode(' > ', $parentnodes) . '"', $this->getSession());
         }
-
-        if ($this->running_javascript()) {
-            $this->ensure_node_is_visible($node);
-        }
-
-        $node->click();
+        $this->execute('behat_general::i_click_on', [$nodetoclick, 'NodeElement']);
     }
 
     /**
@@ -287,29 +329,23 @@ class behat_navigation extends behat_base {
     protected function get_top_navigation_node($nodetext) {
 
         // Avoid problems with quotes.
-        $nodetextliteral = $this->getSession()->getSelectorsHandler()->xpathLiteral($nodetext);
+        $nodetextliteral = behat_context_helper::escape($nodetext);
         $exception = new ExpectationException('Top navigation node "' . $nodetext . ' not found in "', $this->getSession());
 
         // First find in navigation block.
-        $xpath = "//div[contains(concat(' ', normalize-space(@class), ' '), ' content ')]" .
-            "/ul[contains(concat(' ', normalize-space(@class), ' '), ' block_tree ')]" .
-            "/li[contains(concat(' ', normalize-space(@class), ' '), ' contains_branch ')]" .
-            "/ul/li[contains(concat(' ', normalize-space(@class), ' '), ' contains_branch ')]" .
-            "[p[contains(concat(' ', normalize-space(@class), ' '), ' branch ')]" .
-            "/span[normalize-space(.)=" . $nodetextliteral ."]]" .
-            "|" .
-            "//div[contains(concat(' ', normalize-space(@class), ' '), ' content ')]/div" .
-            "/ul[contains(concat(' ', normalize-space(@class), ' '), ' block_tree ')]" .
-            "/li[contains(concat(' ', normalize-space(@class), ' '), ' contains_branch ')]" .
-            "/ul/li[contains(concat(' ', normalize-space(@class), ' '), ' contains_branch ')]" .
-            "[p[contains(concat(' ', normalize-space(@class), ' '), ' branch ')]" .
-            "/span[normalize-space(.)=" . $nodetextliteral ."]]" .
-            "|" .
-            "//div[contains(concat(' ', normalize-space(@class), ' '), ' content ')]/div" .
-            "/ul[contains(concat(' ', normalize-space(@class), ' '), ' block_tree ')]" .
-            "/li[p[contains(concat(' ', normalize-space(@class), ' '), ' branch ')]" .
-            "/span[normalize-space(.)=" . $nodetextliteral ."]]";
-            $node = $this->find('xpath', $xpath, $exception);
+        $xpath = "//div[contains(concat(' ', normalize-space(@class), ' '), ' card-text ')]" .
+                "/ul[contains(concat(' ', normalize-space(@class), ' '), ' block_tree ')]" .
+                "/li[contains(concat(' ', normalize-space(@class), ' '), ' contains_branch ')]" .
+                "/ul/li[contains(concat(' ', normalize-space(@class), ' '), ' contains_branch ')]" .
+                "[p[contains(concat(' ', normalize-space(@class), ' '), ' branch ')]" .
+                "/*[contains(normalize-space(.), " . $nodetextliteral .")]]" .
+                "|" .
+                "//div[contains(concat(' ', normalize-space(@class), ' '), ' card-text ')]/div" .
+                "/ul[contains(concat(' ', normalize-space(@class), ' '), ' block_tree ')]" .
+                "/li[p[contains(concat(' ', normalize-space(@class), ' '), ' branch ')]" .
+                "/*[contains(normalize-space(.), " . $nodetextliteral .")]]";
+
+        $node = $this->find('xpath', $xpath, $exception);
 
         return $node;
     }
@@ -325,7 +361,7 @@ class behat_navigation extends behat_base {
     protected function get_navigation_node($nodetext, $parentnode = null) {
 
         // Avoid problems with quotes.
-        $nodetextliteral = $this->getSession()->getSelectorsHandler()->xpathLiteral($nodetext);
+        $nodetextliteral = behat_context_helper::escape($nodetext);
 
         $xpath = "/ul/li[contains(concat(' ', normalize-space(@class), ' '), ' contains_branch ')]" .
             "[child::p[contains(concat(' ', normalize-space(@class), ' '), ' branch ')]" .
@@ -343,5 +379,1033 @@ class behat_navigation extends behat_base {
                 $parentnode->getText() . '"', $this->getSession());
         }
         return $node;
+    }
+
+    /**
+     * Step to open the navigation bar if it is needed.
+     *
+     * The top log in and log out links are hidden when middle or small
+     * size windows (or devices) are used. This step returns a step definition
+     * clicking to expand the navbar if it is hidden.
+     *
+     * @Given /^I expand navigation bar$/
+     */
+    public function get_expand_navbar_step() {
+
+        // Checking if we need to click the navbar button to show the navigation menu, it
+        // is hidden by default when using clean theme and a medium or small screen size.
+
+        // The DOM and the JS should be all ready and loaded. Running without spinning
+        // as this is a widely used step and we can not spend time here trying to see
+        // a DOM node that is not always there (at the moment clean is not even the
+        // default theme...).
+        $navbuttonjs = "return (
+            Y.one('.btn-navbar') &&
+            Y.one('.btn-navbar').getComputedStyle('display') !== 'none'
+        )";
+
+        // Adding an extra click we need to show the 'Log in' link.
+        if (!$this->evaluate_script($navbuttonjs)) {
+            return false;
+        }
+
+        $this->execute('behat_general::i_click_on', array(".btn-navbar", "css_element"));
+    }
+
+    /**
+     * Go to current page setting item
+     *
+     * This can be used on front page, course, category or modules pages.
+     *
+     * @Given /^I navigate to "(?P<nodetext_string>(?:[^"]|\\")*)" in current page administration$/
+     *
+     * @throws ExpectationException
+     * @param string $nodetext navigation node to click, may contain path, for example "Reports > Overview"
+     * @return void
+     */
+    public function i_navigate_to_in_current_page_administration($nodetext) {
+        $nodelist = array_map('trim', explode('>', $nodetext));
+        $this->select_from_administration_menu($nodelist);
+    }
+
+    /**
+     * Checks that current page administration contains text
+     *
+     * @Given /^"(?P<element_string>(?:[^"]|\\")*)" "(?P<selector_string>[^"]*)" should exist in current page administration$/
+     *
+     * @throws ExpectationException
+     * @param string $element The locator of the specified selector.
+     *     This may be a path, for example "Subscription mode > Forced subscription"
+     * @param string $selectortype The selector type (link or text)
+     * @return void
+     */
+    public function should_exist_in_current_page_administration($element, $selectortype) {
+        $nodes = array_map('trim', explode('>', $element));
+        $nodetext = end($nodes);
+
+        // Find administration menu.
+        if (!$menuxpath = $this->find_page_action_menu()) {
+            $menuxpath = $this->find_header_administration_menu() ?: $this->find_page_administration_menu(true);
+        }
+
+        $this->toggle_page_administration_menu($menuxpath);
+        $this->execute('behat_general::should_exist_in_the', [$nodetext, $selectortype, $menuxpath, 'xpath_element']);
+        $this->toggle_page_administration_menu($menuxpath);
+    }
+
+    /**
+     * Checks that current page administration contains text
+     *
+     * @Given /^"(?P<element_string>(?:[^"]|\\")*)" "(?P<selector_string>[^"]*)" should not exist in current page administration$/
+     *
+     * @throws ExpectationException
+     * @param string $element The locator of the specified selector.
+     *     This may be a path, for example "Subscription mode > Forced subscription"
+     * @param string $selectortype The selector type (link or text)
+     * @return void
+     */
+    public function should_not_exist_in_current_page_administration($element, $selectortype) {
+        $nodes = array_map('trim', explode('>', $element));
+        $nodetext = end($nodes);
+
+        // Find administration menu.
+        $menuxpath = $this->find_header_administration_menu() ?: $this->find_page_administration_menu();
+        if (!$menuxpath) {
+            // Menu not found, exit.
+            return;
+        }
+
+        $this->toggle_page_administration_menu($menuxpath);
+        $this->execute('behat_general::should_not_exist_in_the', [$nodetext, $selectortype, $menuxpath, 'xpath_element']);
+        $this->toggle_page_administration_menu($menuxpath);
+    }
+
+    /**
+     * Go to site administration item
+     *
+     * @Given /^I navigate to "(?P<nodetext_string>(?:[^"]|\\")*)" in site administration$/
+     *
+     * @throws ExpectationException
+     * @param string $nodetext navigation node to click, may contain path, for example "Reports > Overview"
+     * @return void
+     */
+    public function i_navigate_to_in_site_administration($nodetext) {
+        $nodelist = array_map('trim', explode('>', $nodetext));
+        $this->i_select_from_primary_navigation(get_string('administrationsite'));
+        $this->select_on_administration_page($nodelist);
+    }
+
+    /**
+     * Opens the current users profile page in edit mode.
+     *
+     * @Given /^I open my profile in edit mode$/
+     * @throws coding_exception
+     * @return void
+     */
+    public function i_open_my_profile_in_edit_mode() {
+        global $USER;
+
+        $user = $this->get_session_user();
+        $globuser = $USER;
+        $USER = $user; // We need this set to the behat session user so we can call isloggedin.
+
+        $systemcontext = context_system::instance();
+
+        $bodynode = $this->find('xpath', 'body');
+        $bodyclass = $bodynode->getAttribute('class');
+        $matches = [];
+        if (preg_match('/(?<=^course-|\scourse-)\d+/', $bodyclass, $matches) && !empty($matches)) {
+            $courseid = intval($matches[0]);
+        } else {
+            $courseid = SITEID;
+        }
+
+        if (isloggedin() && !isguestuser($user) && !is_mnet_remote_user($user)) {
+            if (is_siteadmin($user) ||  has_capability('moodle/user:update', $systemcontext)) {
+                $url = new moodle_url('/user/editadvanced.php', array('id' => $user->id, 'course' => SITEID,
+                    'returnto' => 'profile'));
+            } else if (has_capability('moodle/user:editownprofile', $systemcontext)) {
+                $userauthplugin = false;
+                if (!empty($user->auth)) {
+                    $userauthplugin = get_auth_plugin($user->auth);
+                }
+                if ($userauthplugin && $userauthplugin->can_edit_profile()) {
+                    $url = $userauthplugin->edit_profile_url();
+                    if (empty($url)) {
+                        if (empty($course)) {
+                            $url = new moodle_url('/user/edit.php', array('id' => $user->id, 'returnto' => 'profile'));
+                        } else {
+                            $url = new moodle_url('/user/edit.php', array('id' => $user->id, 'course' => $courseid,
+                                'returnto' => 'profile'));
+                        }
+                    }
+
+                }
+            }
+            $this->execute('behat_general::i_visit', [$url]);
+        }
+
+        // Restore global user variable.
+        $USER = $globuser;
+    }
+
+    /**
+     * Open a given page, belonging to a plugin or core component.
+     *
+     * The page-type are interpreted by each plugin to work out the
+     * corresponding URL. See the resolve_url method in each class like
+     * behat_mod_forum. That method should document which page types are
+     * recognised, and how the name identifies them.
+     *
+     * For pages belonging to core, the 'core > ' bit is omitted.
+     *
+     * @When /^I am on the (?<page>[^ "]*) page$/
+     * @When /^I am on the "(?<page>[^"]*)" page$/
+     *
+     * @param string $page the component and page name.
+     *      E.g. 'Admin notifications' or 'core_user > Preferences'.
+     * @throws Exception if the specified page cannot be determined.
+     */
+    public function i_am_on_page(string $page) {
+        $this->execute('behat_general::i_visit', [$this->resolve_page_helper($page)]);
+    }
+
+    /**
+     * Open a given page logged in as a given user.
+     *
+     * This is like the combination
+     *   When I log in as "..."
+     *   And I am on the "..." page
+     * but with the advantage that you go straight to the desired page, without
+     * having to wait for the Dashboard to load.
+     *
+     * @When /^I am on the (?<page>[^ "]*) page logged in as (?<username>[^ "]*)$/
+     * @When /^I am on the "(?<page>[^"]*)" page logged in as (?<username>[^ "]*)$/
+     * @When /^I am on the (?<page>[^ "]*) page logged in as "(?<username>[^ "]*)"$/
+     * @When /^I am on the "(?<page>[^"]*)" page logged in as "(?<username>[^ "]*)"$/
+     *
+     * @param string $page the type of page. E.g. 'Admin notifications' or 'core_user > Preferences'.
+     * @param string $username the name of the user to log in as. E.g. 'admin'.
+     * @throws Exception if the specified page cannot be determined.
+     */
+    public function i_am_on_page_logged_in_as(string $page, string $username) {
+        self::execute('behat_auth::i_log_in_as', [$username, $this->resolve_page_helper($page)]);
+    }
+
+    /**
+     * Helper used by i_am_on_page() and i_am_on_page_logged_in_as().
+     *
+     * @param string $page the type of page. E.g. 'Admin notifications' or 'core_user > Preferences'.
+     * @return moodle_url the corresponding URL.
+     */
+    protected function resolve_page_helper(string $page): moodle_url {
+        list($component, $name) = $this->parse_page_name($page);
+        if ($component === 'core') {
+            return $this->resolve_core_page_url($name);
+        } else {
+            $context = behat_context_helper::get('behat_' . $component);
+            return $context->resolve_page_url($name);
+        }
+    }
+
+    /**
+     * Parse a full page name like 'Admin notifications' or 'core_user > Preferences'.
+     *
+     * E.g. parsing 'mod_quiz > View' gives ['mod_quiz', 'View'].
+     *
+     * @param string $page the full page name
+     * @return array with two elements, component and page name.
+     */
+    protected function parse_page_name(string $page): array {
+        $dividercount = substr_count($page, ' > ');
+        if ($dividercount === 0) {
+            return ['core', $page];
+        } else if ($dividercount === 1) {
+            list($component, $name) = explode(' > ', $page);
+            if ($component === 'core') {
+                throw new coding_exception('Do not specify the component "core > ..." for core pages.');
+            }
+            return [$component, $name];
+        } else {
+            throw new coding_exception('The page name most be in the form ' .
+                    '"{page-name}" for core pages, or "{component} > {page-name}" ' .
+                    'for pages belonging to other components. ' .
+                    'For example "Admin notifications" or "mod_quiz > View".');
+        }
+    }
+
+    /**
+     * Open a given instance of a page, belonging to a plugin or core component.
+     *
+     * The instance identifier and page-type are interpreted by each plugin to
+     * work out the corresponding URL. See the resolve_page_instance_url method
+     * in each class like behat_mod_forum. That method should document which page
+     * types are recognised, and how the name identifies them.
+     *
+     * For pages belonging to core, the 'core > ' bit is omitted.
+     *
+     * @When /^I am on the (?<identifier>[^ "]*) (?<type>[^ "]*) page$/
+     * @When /^I am on the "(?<identifier>[^"]*)" "(?<type>[^"]*)" page$/
+     * @When /^I am on the (?<identifier>[^ "]*) "(?<type>[^"]*)" page$/
+     * @When /^I am on the "(?<identifier>[^"]*)" (?<type>[^ "]*) page$/
+     *
+     * @param string $identifier identifies the particular page. E.g. 'Test quiz'.
+     * @param string $type the component and page type. E.g. 'mod_quiz > View'.
+     * @throws Exception if the specified page cannot be determined.
+     */
+    public function i_am_on_page_instance(string $identifier, string $type) {
+        $this->execute('behat_general::i_visit', [$this->resolve_page_instance_helper($identifier, $type)]);
+    }
+
+    /**
+     * Open a given page logged in as a given user.
+     *
+     * This is like the combination
+     *   When I log in as "..."
+     *   And I am on the "..." "..." page
+     * but with the advantage that you go straight to the desired page, without
+     * having to wait for the Dashboard to load.
+     *
+     * @When /^I am on the (?<identifier>[^ "]*) (?<type>[^ "]*) page logged in as (?<username>[^ "]*)$/
+     * @When /^I am on the "(?<identifier>[^"]*)" "(?<type>[^"]*)" page logged in as (?<username>[^ "]*)$/
+     * @When /^I am on the (?<identifier>[^ "]*) "(?<type>[^"]*)" page logged in as (?<username>[^ "]*)$/
+     * @When /^I am on the "(?<identifier>[^"]*)" (?<type>[^ "]*) page logged in as (?<username>[^ "]*)$/
+     * @When /^I am on the (?<identifier>[^ "]*) (?<type>[^ "]*) page logged in as "(?<username>[^"]*)"$/
+     * @When /^I am on the "(?<identifier>[^"]*)" "(?<type>[^"]*)" page logged in as "(?<username>[^"]*)"$/
+     * @When /^I am on the (?<identifier>[^ "]*) "(?<type>[^"]*)" page logged in as "(?<username>[^"]*)"$/
+     * @When /^I am on the "(?<identifier>[^"]*)" (?<type>[^ "]*) page logged in as "(?<username>[^"]*)"$/
+     *
+     * @param string $identifier identifies the particular page. E.g. 'Test quiz'.
+     * @param string $type the component and page type. E.g. 'mod_quiz > View'.
+     * @param string $username the name of the user to log in as. E.g. 'student'.
+     * @throws Exception if the specified page cannot be determined.
+     */
+    public function i_am_on_page_instance_logged_in_as(string $identifier,
+            string $type, string $username) {
+        self::execute('behat_auth::i_log_in_as',
+                [$username, $this->resolve_page_instance_helper($identifier, $type)]);
+    }
+
+    /**
+     * Helper used by i_am_on_page() and i_am_on_page_logged_in_as().
+     *
+     * @param string $identifier identifies the particular page. E.g. 'Test quiz'.
+     * @param string $pagetype the component and page type. E.g. 'mod_quiz > View'.
+     * @return moodle_url the corresponding URL.
+     */
+    protected function resolve_page_instance_helper(string $identifier, string $pagetype): moodle_url {
+        list($component, $type) = $this->parse_page_name($pagetype);
+        if ($component === 'core') {
+            return $this->resolve_core_page_instance_url($type, $identifier);
+        } else {
+            $context = behat_context_helper::get('behat_' . $component);
+            return $context->resolve_page_instance_url($type, $identifier);
+        }
+    }
+
+    /**
+     * Convert core page names to URLs for steps like 'When I am on the "[page name]" page'.
+     *
+     * Recognised page names are:
+     * | Homepage            | Homepage (normally dashboard).                                 |
+     * | Admin notifications | Admin notification screen.                                     |
+     *
+     * @param string $name identifies which identifies this page, e.g. 'Homepage', 'Admin notifications'.
+     * @return moodle_url the corresponding URL.
+     * @throws Exception with a meaningful error message if the specified page cannot be found.
+     */
+    protected function resolve_core_page_url(string $name): moodle_url {
+        switch ($name) {
+            case 'Homepage':
+                return new moodle_url('/');
+
+            case 'My courses':
+                return new moodle_url('/my/courses.php');
+
+            case 'Admin notifications':
+                return new moodle_url('/admin/');
+
+            default:
+                throw new Exception('Unrecognised core page type "' . $name . '."');
+        }
+    }
+
+    /**
+     * Convert page names to URLs for steps like 'When I am on the "[identifier]" "[page type]" page'.
+     *
+     * Recognised page names are:
+     * | Page type                  | Identifier meaning        | description                          |
+     * | Category                   | category idnumber         | List of courses in that category.    |
+     * | Course                     | course shortname          | Main course home page                |
+     * | Activity                   | activity idnumber         | Start page for that activity         |
+     * | Activity editing           | activity idnumber         | Edit settings page for that activity |
+     * | [modname] Activity         | activity name or idnumber | Start page for that activity         |
+     * | [modname] Activity editing | activity name or idnumber | Edit settings page for that activity |
+     * | Backup                     | course shortname          | Course to backup                     |
+     * | Import                     | course shortname          | Course import from                   |
+     * | Restore                    | course shortname          | Course to restore from               |
+     * | Reset                      | course shortname          | Course to reset                      |
+     * | Course copy                | course shortname          | Course to copy                       |
+     * | Groups                     | course shortname          | Groups page for the course           |
+     * | Permissions                | course shortname          | Permissions page for the course      |
+     * | Enrolment methods          | course shortname          | Enrolment methods for the course     |
+     * | Enrolled users             | course shortname          | The main participants page           |
+     * | Other users                | course shortname          | The course other users page          |
+     *
+     * Examples:
+     *
+     * When I am on the "Welcome to ECON101" "forum activity" page logged in as student1
+     *
+     * @param string $type identifies which type of page this is, e.g. 'Category page'.
+     * @param string $identifier identifies the particular page, e.g. 'test-cat'.
+     * @return moodle_url the corresponding URL.
+     * @throws Exception with a meaningful error message if the specified page cannot be found.
+     */
+    protected function resolve_core_page_instance_url(string $type, string $identifier): moodle_url {
+        global $DB;
+
+        $type = strtolower($type);
+
+        switch ($type) {
+            case 'category':
+                $categoryid = $this->get_category_id($identifier);
+                if (!$categoryid) {
+                    throw new Exception('The specified category with idnumber "' . $identifier . '" does not exist');
+                }
+                return new moodle_url('/course/index.php', ['categoryid' => $categoryid]);
+
+            case 'course editing':
+                $courseid = $this->get_course_id($identifier);
+                if (!$courseid) {
+                    throw new Exception('The specified course with shortname, fullname, or idnumber "' .
+                            $identifier . '" does not exist');
+                }
+                return new moodle_url('/course/edit.php', ['id' => $courseid]);
+
+            case 'course':
+                $courseid = $this->get_course_id($identifier);
+                if (!$courseid) {
+                    throw new Exception('The specified course with shortname, fullname, or idnumber "' .
+                        $identifier . '" does not exist');
+                }
+                return new moodle_url('/course/view.php', ['id' => $courseid]);
+
+            case 'activity':
+                $cm = $this->get_course_module_for_identifier($identifier);
+                if (!$cm) {
+                    throw new Exception('The specified activity with idnumber "' . $identifier . '" does not exist');
+                }
+                return $cm->url;
+
+            case 'activity editing':
+                $cm = $this->get_course_module_for_identifier($identifier);
+                if (!$cm) {
+                    throw new Exception('The specified activity with idnumber "' . $identifier . '" does not exist');
+                }
+                return new moodle_url('/course/modedit.php', [
+                    'update' => $cm->id,
+                ]);
+            case 'backup':
+                $courseid = $this->get_course_id($identifier);
+                if (!$courseid) {
+                    throw new Exception('The specified course with shortname, fullname, or idnumber "' .
+                            $identifier . '" does not exist');
+                }
+                return new moodle_url('/backup/backup.php', ['id' => $courseid]);
+            case 'import':
+                $courseid = $this->get_course_id($identifier);
+                if (!$courseid) {
+                    throw new Exception('The specified course with shortname, fullname, or idnumber "' .
+                            $identifier . '" does not exist');
+                }
+                return new moodle_url('/backup/import.php', ['id' => $courseid]);
+            case 'restore':
+                $courseid = $this->get_course_id($identifier);
+                if (!$courseid) {
+                    throw new Exception('The specified course with shortname, fullname, or idnumber "' .
+                            $identifier . '" does not exist');
+                }
+                $context = context_course::instance($courseid);
+                return new moodle_url('/backup/restorefile.php', ['contextid' => $context->id]);
+            case 'reset':
+                $courseid = $this->get_course_id($identifier);
+                if (!$courseid) {
+                    throw new Exception('The specified course with shortname, fullname, or idnumber "' .
+                            $identifier . '" does not exist');
+                }
+                return new moodle_url('/course/reset.php', ['id' => $courseid]);
+            case 'course copy':
+                $courseid = $this->get_course_id($identifier);
+                if (!$courseid) {
+                    throw new Exception('The specified course with shortname, fullname, or idnumber "' .
+                            $identifier . '" does not exist');
+                }
+                return new moodle_url('/backup/copy.php', ['id' => $courseid]);
+            case 'groups':
+                $courseid = $this->get_course_id($identifier);
+                if (!$courseid) {
+                    throw new Exception('The specified course with shortname, fullname, or idnumber "' .
+                            $identifier . '" does not exist');
+                }
+                return new moodle_url('/group/index.php', ['id' => $courseid]);
+            case 'permissions':
+                $courseid = $this->get_course_id($identifier);
+                if (!$courseid) {
+                    throw new Exception('The specified course with shortname, fullname, or idnumber "' .
+                            $identifier . '" does not exist');
+                }
+                $context = context_course::instance($courseid);
+                return new moodle_url('/admin/roles/permissions.php', ['contextid' => $context->id]);
+            case 'enrolment methods':
+                $courseid = $this->get_course_id($identifier);
+                if (!$courseid) {
+                    throw new Exception('The specified course with shortname, fullname, or idnumber "' .
+                            $identifier . '" does not exist');
+                }
+                return new moodle_url('/enrol/instances.php', ['id' => $courseid]);
+            case 'enrolled users':
+                $courseid = $this->get_course_id($identifier);
+                if (!$courseid) {
+                    throw new Exception('The specified course with shortname, fullname, or idnumber "' .
+                            $identifier . '" does not exist');
+                }
+                return new moodle_url('/user/index.php', ['id' => $courseid]);
+            case 'other users':
+                $courseid = $this->get_course_id($identifier);
+                if (!$courseid) {
+                    throw new Exception('The specified course with shortname, fullname, or idnumber "' .
+                        $identifier . '" does not exist');
+                }
+                return new moodle_url('/enrol/otherusers.php', ['id' => $courseid]);
+        }
+
+        $parts = explode(' ', $type);
+        if (count($parts) > 1) {
+            if ($parts[1] === 'activity') {
+                $modname = $parts[0];
+                $cm = $this->get_cm_by_activity_name($modname, $identifier);
+
+                if (count($parts) == 2) {
+                    // View page.
+                    return new moodle_url($cm->url);
+                }
+
+                if ($parts[2] === 'editing') {
+                    // Edit settings page.
+                    return new moodle_url('/course/modedit.php', ['update' => $cm->id]);
+                }
+
+                if ($parts[2] === 'roles') {
+                    // Locally assigned roles page.
+                    return new moodle_url('/admin/roles/assign.php', ['contextid' => $cm->context->id]);
+                }
+
+                if ($parts[2] === 'permissions') {
+                    // Permissions page.
+                    return new moodle_url('/admin/roles/permissions.php', ['contextid' => $cm->context->id]);
+                }
+            }
+        }
+
+        throw new Exception('Unrecognised core page type "' . $type . '."');
+    }
+
+    /**
+     * Opens the course homepage. (Consider using 'I am on the "shortname" "Course" page' step instead.)
+     *
+     * @Given /^I am on "(?P<coursefullname_string>(?:[^"]|\\")*)" course homepage$/
+     * @throws coding_exception
+     * @param string $coursefullname The full name of the course.
+     * @return void
+     */
+    public function i_am_on_course_homepage($coursefullname) {
+        global $DB;
+        $course = $DB->get_record("course", array("fullname" => $coursefullname), 'id', MUST_EXIST);
+        $url = new moodle_url('/course/view.php', ['id' => $course->id]);
+        $this->execute('behat_general::i_visit', [$url]);
+    }
+
+    /**
+     * Open the course homepage with editing mode enabled.
+     *
+     * @param string $coursefullname The course full name of the course.
+     */
+    public function i_am_on_course_homepage_with_editing_mode_on($coursefullname) {
+        $this->i_am_on_course_homepage_with_editing_mode_set_to($coursefullname, 'on');
+    }
+
+    /**
+     * Open the course homepage with editing mode set to either on, or off.
+     *
+     * @Given I am on :coursefullname course homepage with editing mode :onoroff
+     * @throws coding_exception
+     * @param string $coursefullname The course full name of the course.
+     * @param string $onoroff Whehter to switch editing on, or off.
+     */
+    public function i_am_on_course_homepage_with_editing_mode_set_to(string $coursefullname, string $onoroff): void {
+        global $DB;
+
+        $course = $DB->get_record("course", array("fullname" => $coursefullname), 'id', MUST_EXIST);
+        $url = new moodle_url('/course/view.php', ['id' => $course->id]);
+
+        // Visit the course page.
+        $this->execute('behat_general::i_visit', [$url]);
+
+        switch ($onoroff) {
+            case 'on':
+                $this->execute('behat_navigation::i_turn_editing_mode_on');
+                break;
+            case 'off':
+                $this->execute('behat_navigation::i_turn_editing_mode_off');
+                break;
+            default:
+                throw new \coding_exception("Unknown editing mode '{$onoroff}'. Accepted values are 'on' and 'off'");
+        }
+    }
+
+    /**
+     * Opens the flat navigation drawer if it is not already open
+     *
+     * @When /^I open flat navigation drawer$/
+     * @throws ElementNotFoundException Thrown by behat_base::find
+     */
+    public function i_open_flat_navigation_drawer() {
+        if (!$this->running_javascript()) {
+            // Navigation drawer is always open without JS.
+            return;
+        }
+        $xpath = "//button[contains(@data-action,'toggle-drawer')]";
+        $node = $this->find('xpath', $xpath);
+        $expanded = $node->getAttribute('aria-expanded');
+        if ($expanded === 'false') {
+            $this->execute('behat_general::i_click_on', [$node, 'NodeElement']);
+            $this->ensure_node_attribute_is_set($node, 'aria-expanded', 'true');
+        }
+    }
+
+    /**
+     * Closes the flat navigation drawer if it is open (does nothing if JS disabled)
+     *
+     * @When /^I close flat navigation drawer$/
+     * @throws ElementNotFoundException Thrown by behat_base::find
+     */
+    public function i_close_flat_navigation_drawer() {
+        if (!$this->running_javascript()) {
+            // Navigation drawer can not be closed without JS.
+            return;
+        }
+        $xpath = "//button[contains(@data-action,'toggle-drawer')]";
+        $node = $this->find('xpath', $xpath);
+        $expanded = $node->getAttribute('aria-expanded');
+        if ($expanded === 'true') {
+            $this->execute('behat_general::i_click_on', [$node, 'NodeElement']);
+        }
+    }
+
+    /**
+     * Clicks link with specified id|title|alt|text in the primary navigation
+     *
+     * @When /^I select "(?P<link_string>(?:[^"]|\\")*)" from primary navigation$/
+     * @throws ElementNotFoundException Thrown by behat_base::find
+     * @param string $link
+     */
+    public function i_select_from_primary_navigation(string $link) {
+        $this->execute('behat_general::i_click_on_in_the',
+            [$link, 'link', '.primary-navigation .moremenu.navigation', 'css_element']
+        );
+    }
+
+    /**
+     * Clicks link with specified id|title|alt|text in the secondary navigation
+     *
+     * @throws ElementNotFoundException Thrown by behat_base::find
+     * @param string $link
+     */
+    public function i_select_from_secondary_navigation(string $link) {
+        $this->execute('behat_general::i_click_on_in_the',
+            [$link, 'link', '.secondary-navigation .moremenu.navigation', 'css_element']
+        );
+    }
+
+    /**
+     * If we are not on the course main page, click on the course link in the navbar
+     */
+    protected function go_to_main_course_page() {
+        $url = $this->getSession()->getCurrentUrl();
+        if (!preg_match('|/course/view.php\?id=[\d]+$|', $url)) {
+            $node = $this->find('xpath',
+                '//header//div[@id=\'page-navbar\']//a[contains(@href,\'/course/view.php?id=\')]'
+            );
+            $this->execute('behat_general::i_click_on', [$node, 'NodeElement']);
+        }
+    }
+
+    /**
+     * Finds and clicks a link on the admin page (site administration or course administration)
+     *
+     * @param array $nodelist
+     */
+    protected function select_on_administration_page($nodelist) {
+        $parentnodes = $nodelist;
+        $lastnode = array_pop($parentnodes);
+        $xpath = '//section[@id=\'region-main\']';
+
+        // Check if there is a separate tab for this submenu of the page. If found go to it.
+        if ($parentnodes) {
+            $tabname = behat_context_helper::escape($parentnodes[0]);
+            $tabxpath = '//ul[@role=\'tablist\']/li/a[contains(normalize-space(.), ' . $tabname . ')]';
+            $menubarxpath = '//ul[@role=\'menubar\']/li/a[contains(normalize-space(.), ' . $tabname . ')]';
+            $linkname = behat_context_helper::escape(get_string('moremenu'));
+            $menubarmorexpath = '//ul[@role=\'menubar\']/li/a[contains(normalize-space(.), ' . $linkname . ')]';
+            $tabnode = $this->getSession()->getPage()->find('xpath', $tabxpath);
+            $menunode = $this->getSession()->getPage()->find('xpath', $menubarxpath);
+            $menubuttons = $this->getSession()->getPage()->findAll('xpath', $menubarmorexpath);
+            if ($tabnode || $menunode) {
+                $node = is_object($tabnode) ? $tabnode : $menunode;
+                if ($this->running_javascript()) {
+                    $this->execute('behat_general::i_click_on', [$node, 'NodeElement']);
+                    // Click on the tab and add 'active' tab to the xpath.
+                    $xpath .= '//div[contains(@class,\'active\')]';
+                } else {
+                    // Add the tab content selector to the xpath.
+                    $tabid = behat_context_helper::escape(ltrim($node->getAttribute('href'), '#'));
+                    $xpath .= '//div[@id = ' . $tabid . ']';
+                }
+                array_shift($parentnodes);
+            } else if (count($menubuttons) > 0) {
+                try {
+                    $menubuttons[0]->isVisible();
+                    try {
+                        $this->execute('behat_general::i_click_on', [$menubuttons[1], 'NodeElement']);
+                    } catch (Exception $e) {
+                        $this->execute('behat_general::i_click_on', [$menubuttons[0], 'NodeElement']);
+                    }
+                    $moreitemxpath = '//ul[@data-region=\'moredropdown\']/li/a[contains(normalize-space(.), ' . $tabname . ')]';
+                    if ($morenode = $this->getSession()->getPage()->find('xpath', $moreitemxpath)) {
+                        $this->execute('behat_general::i_click_on', [$morenode, 'NodeElement']);
+                        $xpath .= '//div[contains(@class,\'active\')]';
+                        array_shift($parentnodes);
+                    }
+                } catch (Exception $e) {
+                }
+            }
+        }
+
+        // Find a section with the parent name in it.
+        if ($parentnodes) {
+            // Find the section on the page (links may be repeating in different sections).
+            $section = behat_context_helper::escape($parentnodes[0]);
+            $xpath .= '//div[@class=\'row\' and contains(.,'.$section.')]';
+        }
+
+        // Find a link and click on it.
+        $linkname = behat_context_helper::escape($lastnode);
+        $xpathlink = $xpathbutton = $xpath;
+        $xpathlink .= '//a[contains(normalize-space(.), ' . $linkname . ')]';
+        $xpathbutton .= '//button[contains(normalize-space(.), ' . $linkname . ')]';
+        if ($node = $this->getSession()->getPage()->find('xpath', $xpathbutton)) {
+            $this->execute('behat_general::i_click_on', [$node, 'NodeElement']);
+        } else if (!$node = $this->getSession()->getPage()->find('xpath', $xpathlink)) {
+             throw new ElementNotFoundException($this->getSession(), 'Link "' . join(' > ', $nodelist) . '"');
+        } else {
+            $this->execute('behat_general::i_click_on', [$node, 'NodeElement']);
+        }
+    }
+
+    /**
+     * Locates the administration menu in the <header> element and returns its xpath
+     *
+     * @param bool $mustexist if specified throws an exception if menu is not found
+     * @return null|string
+     */
+    protected function find_header_administration_menu($mustexist = false) {
+        $menuxpath = '//div[contains(@class,\'secondary-navigation\')]//nav[contains(@class,\'moremenu\')]';
+
+        if ($mustexist) {
+            $exception = new ElementNotFoundException($this->getSession(), 'Page header administration menu');
+            $this->find('xpath', $menuxpath, $exception);
+        } else if (!$this->getSession()->getPage()->find('xpath', $menuxpath)) {
+            return null;
+        }
+        return $menuxpath;
+    }
+
+    /**
+     * Locates the administration menu on the page (but not in the header) and returns its xpath
+     *
+     * @param bool $mustexist if specified throws an exception if menu is not found
+     * @return null|string
+     */
+    protected function find_page_administration_menu($mustexist = false) {
+        $menuxpath = '//div[@id=\'region-main-settings-menu\']';
+        if ($mustexist) {
+            $exception = new ElementNotFoundException($this->getSession(), 'Page administration menu');
+            $this->find('xpath', $menuxpath, $exception);
+        } else if (!$this->getSession()->getPage()->find('xpath', $menuxpath)) {
+            return null;
+        }
+        return $menuxpath;
+    }
+
+    /**
+     * Locates the action menu on the page (but not in the header) and returns its xpath
+     *
+     * @param null|bool $mustexist if specified throws an exception if menu is not found
+     * @return null|string
+     */
+    protected function find_page_action_menu($mustexist = false) {
+        $menuxpath = '//div[@id=\'action-menu-0-menubar\']';
+
+        if ($mustexist) {
+            $exception = new ElementNotFoundException($this->getSession(), 'Page check');
+            $this->find('xpath', $menuxpath, $exception);
+        } else if (!$this->getSession()->getPage()->find('xpath', $menuxpath)) {
+            return null;
+        }
+        return $menuxpath;
+    }
+
+    /**
+     * Toggles administration menu
+     *
+     * @param string $menuxpath (optional) xpath to the page administration menu if already known
+     */
+    protected function toggle_page_administration_menu($menuxpath = null) {
+        if (!$menuxpath) {
+            $menuxpath = $this->find_header_administration_menu() ?: $this->find_page_administration_menu();
+        }
+        if ($menuxpath && $this->running_javascript()) {
+            $node = $this->find('xpath', $menuxpath . '//a[@data-toggle=\'dropdown\']');
+            if ($node->isVisible()) {
+                $this->execute('behat_general::i_click_on', [$node, 'NodeElement']);
+            }
+        }
+    }
+
+    /**
+     * Finds a page edit cog and select an item from it
+     *
+     * If the page edit cog is in the page header and the item is not found there, click "More..." link
+     * and find the item on the course/frontpage administration page
+     *
+     * @param array $nodelist
+     * @throws ElementNotFoundException
+     */
+    protected function select_from_administration_menu($nodelist) {
+        // Find administration menu.
+        if ($menuxpath = $this->find_header_administration_menu()) {
+            $isheader = true;
+        } else if ($menuxpath = $this->find_page_action_menu(true)) {
+            $isheader = false;
+        } else {
+            $menuxpath = $this->find_page_administration_menu(true);
+            $isheader = false;
+        }
+
+        $this->execute('behat_navigation::toggle_page_administration_menu', [$menuxpath]);
+
+        $firstnode = $nodelist[0];
+        $firstlinkname = behat_context_helper::escape($firstnode);
+        $firstlink = $this->getSession()->getPage()->find('xpath',
+            $menuxpath . '//a[contains(normalize-space(.), ' . $firstlinkname . ')]'
+        );
+
+        if (!$isheader || count($nodelist) == 1) {
+            $lastnode = end($nodelist);
+            $linkname = behat_context_helper::escape($lastnode);
+            $link = $this->getSession()->getPage()->find('xpath', $menuxpath . '//a[contains(normalize-space(.), ' . $linkname . ')]');
+            if ($link) {
+                $this->execute('behat_general::i_click_on', [$link, 'NodeElement']);
+                return;
+            }
+        } else if ($firstlink) {
+            $this->execute('behat_general::i_click_on', [$firstlink, 'NodeElement']);
+            array_splice($nodelist, 0, 1);
+            $this->select_on_administration_page($nodelist);
+            return;
+        }
+
+        if ($isheader) {
+            // Front page administration will have subnodes under "More...".
+            $linkname = behat_context_helper::escape(get_string('morenavigationlinks'));
+            $link = $this->getSession()->getPage()->find('xpath',
+                $menuxpath . '//a[contains(normalize-space(.), ' . $linkname . ')]'
+            );
+            // Course administration will have subnodes under "Course administration".
+            $courselinkname = behat_context_helper::escape(get_string('courseadministration'));
+            $courselink = $this->getSession()->getPage()->find('xpath',
+                $menuxpath . '//a[contains(normalize-space(.), ' . $courselinkname . ')]'
+            );
+            if ($link) {
+                $this->execute('behat_general::i_click_on', [$link, 'NodeElement']);
+                $this->select_on_administration_page($nodelist);
+                return;
+            } else if ($courselink) {
+                $this->execute('behat_general::i_click_on', [$courselink, 'NodeElement']);
+                $this->select_on_administration_page($nodelist);
+                return;
+            }
+        }
+
+        throw new ElementNotFoundException($this->getSession(),
+                'Link "' . join(' > ', $nodelist) . '" in the current page edit menu"');
+    }
+
+    /**
+     * Visit a fixture page for testing stuff that is not available in core.
+     *
+     * Please always, to prevent unwanted requests, protect behat fixture files with:
+     *     defined('BEHAT_SITE_RUNNING') || die();
+     *
+     * @Given /^I am on fixture page "(?P<url_string>(?:[^"]|\\")*)"$/
+     * @param string $url local path to fixture page
+     */
+    public function i_am_on_fixture_page($url) {
+        $fixtureregex = '|^/[a-z0-9_\-/]*/tests/behat/fixtures/[a-z0-9_\-]*\.php$|';
+        if (!preg_match($fixtureregex, $url)) {
+            throw new coding_exception("URL {$url} is not a fixture URL");
+        }
+        $this->execute('behat_general::i_visit', [$url]);
+    }
+
+    /**
+     * First checks to see if we are on this page via the breadcrumb. If not we then attempt to follow the link name given.
+     *
+     * @param  string $pagename Name of the breadcrumb item to check and follow.
+     * @Given /^I follow the breadcrumb "(?P<url_string>(?:[^"]|\\")*)"$/
+     */
+    public function go_to_breadcrumb_location(string $pagename): void {
+        $link = $this->getSession()->getPage()->find(
+                'xpath',
+                "//nav[@aria-label='Navigation bar']/ol/li[last()][contains(normalize-space(.), '" . $pagename . "')]"
+        );
+        if (!$link) {
+            $this->execute("behat_general::i_click_on_in_the", [$pagename, 'link', 'page', 'region']);
+        }
+    }
+
+    /**
+     * Checks whether an item exists in the user menu.
+     *
+     * @Given :itemtext :selectortype should exist in the user menu
+     * @Given :itemtext :selectortype should :not exist in the user menu
+     *
+     * @throws ElementNotFoundException
+     * @param string $itemtext The menu item to find
+     * @param string $selectortype The selector type
+     * @param string|null $not Instructs to checks whether the element does not exist in the user menu, if defined
+     * @return void
+     */
+    public function should_exist_in_user_menu($itemtext, $selectortype, $not = null) {
+        $callfunction = is_null($not) ? 'should_exist_in_the' : 'should_not_exist_in_the';
+        $this->execute("behat_general::{$callfunction}",
+            [$itemtext, $selectortype, $this->get_user_menu_xpath(), 'xpath_element']);
+    }
+
+    /**
+     * Checks whether an item exists in a given user submenu.
+     *
+     * @Given :itemtext :selectortype should exist in the :submenuname user submenu
+     * @Given :itemtext :selectortype should :not exist in the :submenuname user submenu
+     *
+     * @throws ElementNotFoundException
+     * @param string $itemtext The submenu item to find
+     * @param string $selectortype The selector type
+     * @param string $submenuname The name of the submenu
+     * @param string|null $not Instructs to checks whether the element does not exist in the user menu, if defined
+     * @return void
+     */
+    public function should_exist_in_user_submenu($itemtext, $selectortype, $submenuname, $not = null) {
+        $callfunction = is_null($not) ? 'should_exist_in_the' : 'should_not_exist_in_the';
+        $this->execute("behat_general::{$callfunction}",
+            [$itemtext, $selectortype, $this->get_user_submenu_xpath($submenuname), 'xpath_element']);
+    }
+
+    /**
+     * Checks whether a given user submenu is visible.
+     *
+     * @Then /^I should see "(?P<submenu_string>[^"]*)" user submenu$/
+     *
+     * @throws ElementNotFoundException
+     * @throws ExpectationException
+     * @param string $submenuname The name of the submenu
+     * @return void
+     */
+    public function i_should_see_user_submenu($submenuname) {
+        $this->execute('behat_general::should_be_visible',
+            array($this->get_user_submenu_xpath($submenuname), 'xpath_element'));
+    }
+
+    /**
+     * Return the xpath for the user menu element.
+     *
+     * @return string The xpath
+     */
+    protected function get_user_menu_xpath() {
+        return "//div[contains(concat(' ', @class, ' '),  ' usermenu ')]" .
+            "//div[contains(concat(' ', @class, ' '), ' dropdown-menu ')]" .
+            "//div[@id='carousel-item-main']";
+    }
+
+    /**
+     * Return the xpath for a given user submenu element.
+     *
+     * @param string $submenuname The name of the submenu
+     * @return string The xpath
+     */
+    protected function get_user_submenu_xpath($submenuname) {
+        return "//div[contains(concat(' ', @class, ' '),  ' usermenu ')]" .
+            "//div[contains(concat(' ', @class, ' '), ' dropdown-menu ')]" .
+            "//div[contains(concat(' ', @class, ' '), ' submenu ')][@aria-label='" . $submenuname . "']";
+    }
+
+    /**
+     * Returns whether the user can edit the current page.
+     *
+     * @return bool
+     */
+    protected function is_editing_on() {
+        $body = $this->find('xpath', "//body", false, false, 0);
+        return $body->hasClass('editing');
+    }
+
+    /**
+     * Turns editing mode on.
+     * @Given I switch editing mode on
+     * @Given I turn editing mode on
+     */
+    public function i_turn_editing_mode_on() {
+        $this->execute('behat_forms::i_set_the_field_to', [get_string('editmode'), 1]);
+
+        if (!$this->running_javascript()) {
+            $this->execute('behat_general::i_click_on', [
+                get_string('setmode', 'core'),
+                'button',
+            ]);
+        }
+
+        if (!$this->is_editing_on()) {
+            throw new ExpectationException('The edit mode could not be turned on', $this->getSession());
+        }
+    }
+
+    /**
+     * Turns editing mode off.
+     * @Given I switch editing mode off
+     * @Given I turn editing mode off
+     */
+    public function i_turn_editing_mode_off() {
+        $this->execute('behat_forms::i_set_the_field_to', [get_string('editmode'), 0]);
+
+        if (!$this->running_javascript()) {
+            $this->execute('behat_general::i_click_on', [
+                get_string('setmode', 'core'),
+                'button',
+            ]);
+        }
+
+        if ($this->is_editing_on()) {
+            throw new ExpectationException('The edit mode could not be turned off', $this->getSession());
+        }
     }
 }

@@ -22,25 +22,16 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-require_once(dirname(__FILE__) . '/../../../config.php');
+require_once(__DIR__ . '/../../../config.php');
 require_once($CFG->libdir.'/adminlib.php');
 require_once($CFG->libdir.'/tablelib.php');
 
-$PAGE->set_url('/admin/tool/task/scheduledtasks.php');
-$PAGE->set_context(context_system::instance());
-$PAGE->set_pagelayout('admin');
-$strheading = get_string('scheduledtasks', 'tool_task');
-$PAGE->set_title($strheading);
-$PAGE->set_heading($strheading);
-
-require_login();
-
-require_capability('moodle/site:config', context_system::instance());
-
-$renderer = $PAGE->get_renderer('tool_task');
+admin_externalpage_setup('scheduledtasks');
 
 $action = optional_param('action', '', PARAM_ALPHAEXT);
 $taskname = optional_param('task', '', PARAM_RAW);
+$lastchanged = optional_param('lastchanged', '', PARAM_RAW);
+
 $task = null;
 $mform = null;
 
@@ -57,15 +48,16 @@ if ($action == 'edit') {
 
 if ($task) {
     $mform = new tool_task_edit_scheduled_task_form(null, $task);
+    $nexturl = new moodle_url($PAGE->url, ['lastchanged' => $taskname]);
 }
 
-if ($mform && ($mform->is_cancelled() || !empty($CFG->preventscheduledtaskchanges))) {
-    redirect(new moodle_url('/admin/tool/task/scheduledtasks.php'));
+$renderer = $PAGE->get_renderer('tool_task');
+
+if ($mform && ($mform->is_cancelled() || !empty($CFG->preventscheduledtaskchanges) || $task->is_overridden())) {
+    redirect($nexturl);
 } else if ($action == 'edit' && empty($CFG->preventscheduledtaskchanges)) {
 
     if ($data = $mform->get_data()) {
-
-
         if ($data->resettodefaults) {
             $defaulttask = \core\task\manager::get_default_scheduled_task($taskname);
             $task->set_minute($defaulttask->get_minute());
@@ -87,36 +79,26 @@ if ($mform && ($mform->is_cancelled() || !empty($CFG->preventscheduledtaskchange
 
         try {
             \core\task\manager::configure_scheduled_task($task);
-            $url = $PAGE->url;
-            $url->params(array('success'=>get_string('changessaved')));
-            redirect($url);
+            redirect($nexturl, get_string('changessaved'), null, \core\output\notification::NOTIFY_SUCCESS);
         } catch (Exception $e) {
-            $url = $PAGE->url;
-            $url->params(array('error'=>$e->getMessage()));
-            redirect($url);
+            redirect($nexturl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
         }
     } else {
         echo $OUTPUT->header();
         echo $OUTPUT->heading(get_string('edittaskschedule', 'tool_task', $task->get_name()));
+        echo html_writer::div('\\' . get_class($task), 'task-class text-ltr');
+        echo html_writer::div(get_string('fromcomponent', 'tool_task',
+                $renderer->component_name($task->get_component())));
         $mform->display();
         echo $OUTPUT->footer();
     }
 
 } else {
     echo $OUTPUT->header();
-    $error = optional_param('error', '', PARAM_NOTAGS);
-    if ($error) {
-        echo $OUTPUT->notification($error, 'notifyerror');
-    }
-    $success = optional_param('success', '', PARAM_NOTAGS);
-    if ($success) {
-        echo $OUTPUT->notification($success, 'notifysuccess');
+    if (!get_config('core', 'cron_enabled')) {
+        echo $renderer->cron_disabled();
     }
     $tasks = core\task\manager::get_all_scheduled_tasks();
-    echo $renderer->scheduled_tasks_table($tasks);
+    echo $renderer->scheduled_tasks_table($tasks, $lastchanged);
     echo $OUTPUT->footer();
 }
-
-
-
-

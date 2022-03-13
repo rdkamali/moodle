@@ -49,20 +49,31 @@ class qtype_calculated_variable_substituter_test extends advanced_testcase {
     }
 
     public function test_cannot_use_nonnumbers() {
-        $this->setExpectedException('moodle_exception');
+        $this->expectException(moodle_exception::class);
         $vs = new qtype_calculated_variable_substituter(array('a' => 'frog', 'b' => -2), '.');
     }
 
     public function test_invalid_expression() {
-        $this->setExpectedException('moodle_exception');
         $vs = new qtype_calculated_variable_substituter(array('a' => 1, 'b' => 2), '.');
+        $this->expectException(moodle_exception::class);
         $vs->calculate('{a} + {b}?');
     }
 
     public function test_tricky_invalid_expression() {
-        $this->setExpectedException('moodle_exception');
         $vs = new qtype_calculated_variable_substituter(array('a' => 1, 'b' => 2), '.');
+        $this->expectException(moodle_exception::class);
         $vs->calculate('{a}{b}'); // Have to make sure this does not just evaluate to 12.
+    }
+
+    public function test_division_by_zero_expression() {
+
+        if (intval(PHP_VERSION) < 7) {
+            $this->markTestSkipped('Division by zero triggers a PHP warning before PHP 7.');
+        }
+
+        $vs = new qtype_calculated_variable_substituter(array('a' => 1, 'b' => 0), '.');
+        $this->expectException(moodle_exception::class);
+        $vs->calculate('{a} / {b}');
     }
 
     public function test_replace_expressions_in_text_simple_var() {
@@ -78,6 +89,13 @@ class qtype_calculated_variable_substituter_test extends advanced_testcase {
     public function test_replace_expressions_in_text_formula() {
         $vs = new qtype_calculated_variable_substituter(array('a' => 1, 'b' => 2), '.');
         $this->assertEquals('= 3', $vs->replace_expressions_in_text('= {={a} + {b}}'));
+    }
+
+    public function test_expression_has_unmapped_placeholder() {
+        $this->expectException('moodle_exception');
+        $this->expectExceptionMessage(get_string('illegalformulasyntax', 'qtype_calculated', '{c}'));
+        $vs = new qtype_calculated_variable_substituter(array('a' => 1, 'b' => 2), '.');
+        $vs->calculate('{c} - {a} + {b}');
     }
 
     public function test_replace_expressions_in_text_negative() {
@@ -115,5 +133,13 @@ class qtype_calculated_variable_substituter_test extends advanced_testcase {
 
         $this->assertSame('0,12', $vs->format_float(0.12345, 2, 2));
         $this->assertSame('0,0012', $vs->format_float(0.0012345, 4, 1));
+    }
+
+    public function test_format_float_nan_inf() {
+        $vs = new qtype_calculated_variable_substituter([ ], '.');
+
+        $this->assertSame('NAN', $vs->format_float(NAN));
+        $this->assertSame('INF', $vs->format_float(INF));
+        $this->assertSame('-INF', $vs->format_float(-INF));
     }
 }

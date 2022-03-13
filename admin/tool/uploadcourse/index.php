@@ -24,7 +24,6 @@
 
 require(__DIR__ . '/../../../config.php');
 require_once($CFG->libdir . '/adminlib.php');
-require_once($CFG->libdir . '/coursecatlib.php');
 require_once($CFG->libdir . '/csvlib.class.php');
 
 admin_externalpage_setup('tooluploadcourse');
@@ -79,6 +78,12 @@ if ($form2data = $mform2->is_cancelled()) {
     $options = (array) $form2data->options;
     $defaults = (array) $form2data->defaults;
 
+    // Custom field defaults.
+    $customfields = tool_uploadcourse_helper::get_custom_course_field_names();
+    foreach ($customfields as $customfield) {
+        $defaults[$customfield] = $form2data->{$customfield};
+    }
+
     // Restorefile deserves its own logic because formslib does not really appreciate
     // when the name of a filepicker is an array...
     $options['restorefile'] = '';
@@ -104,7 +109,15 @@ if ($form2data = $mform2->is_cancelled()) {
     }
 
 } else {
-    $processor = new tool_uploadcourse_processor($cir, $form1data->options, array());
+    if (!empty($form1data)) {
+        $options = $form1data->options;
+    } else if ($submitteddata = $mform2->get_submitted_data()) {
+        $options = (array)$submitteddata->options;
+    } else {
+        // Weird but we still need to provide a value, setting the default step1_form one.
+        $options = array('mode' => tool_uploadcourse_processor::MODE_CREATE_NEW);
+    }
+    $processor = new tool_uploadcourse_processor($cir, $options, array());
     echo $OUTPUT->header();
     echo $OUTPUT->heading(get_string('uploadcoursespreview', 'tool_uploadcourse'));
     $processor->preview($previewrows, new tool_uploadcourse_tracker(tool_uploadcourse_tracker::OUTPUT_HTML));

@@ -3,7 +3,7 @@
 /*
  * This file is part of Mustache.php.
  *
- * (c) 2010-2014 Justin Hileman
+ * (c) 2010-2017 Justin Hileman
  *
  * For the full copyright and license information, please view the LICENSE
  * file that was distributed with this source code.
@@ -53,13 +53,6 @@ class Mustache_Tokenizer
         self::T_BLOCK_VAR    => true,
     );
 
-    // Interpolated tags
-    private static $interpolatedTags = array(
-        self::T_ESCAPED     => true,
-        self::T_UNESCAPED   => true,
-        self::T_UNESCAPED_2 => true,
-    );
-
     // Token properties
     const TYPE    = 'type';
     const NAME    = 'name';
@@ -75,20 +68,24 @@ class Mustache_Tokenizer
 
     private $state;
     private $tagType;
-    private $tag;
     private $buffer;
     private $tokens;
     private $seenTag;
     private $line;
+
     private $otag;
-    private $ctag;
+    private $otagChar;
     private $otagLen;
+
+    private $ctag;
+    private $ctagChar;
     private $ctagLen;
 
     /**
      * Scan and tokenize template source.
      *
-     * @throws Mustache_Exception_SyntaxException when mismatched section tags are encountered.
+     * @throws Mustache_Exception_SyntaxException when mismatched section tags are encountered
+     * @throws Mustache_Exception_InvalidArgumentException when $delimiters string is invalid
      *
      * @param string $text       Mustache template source to tokenize
      * @param string $delimiters Optionally, pass initial opening and closing delimiters (default: null)
@@ -99,11 +96,19 @@ class Mustache_Tokenizer
     {
         // Setting mbstring.func_overload makes things *really* slow.
         // Let's do everyone a favor and scan this string as ASCII instead.
+        //
+        // The INI directive was removed in PHP 8.0 so we don't need to check there (and can drop it
+        // when we remove support for older versions of PHP).
+        //
+        // @codeCoverageIgnoreStart
         $encoding = null;
-        if (function_exists('mb_internal_encoding') && ini_get('mbstring.func_overload') & 2) {
-            $encoding = mb_internal_encoding();
-            mb_internal_encoding('ASCII');
+        if (version_compare(PHP_VERSION, '8.0.0', '<')) {
+            if (function_exists('mb_internal_encoding') && ini_get('mbstring.func_overload') & 2) {
+                $encoding = mb_internal_encoding();
+                mb_internal_encoding('ASCII');
+            }
         }
+        // @codeCoverageIgnoreEnd
 
         $this->reset();
 
@@ -115,12 +120,13 @@ class Mustache_Tokenizer
         for ($i = 0; $i < $len; $i++) {
             switch ($this->state) {
                 case self::IN_TEXT:
-                    if ($this->tagChange($this->otag, $this->otagLen, $text, $i)) {
+                    $char = $text[$i];
+                    // Test whether it's time to change tags.
+                    if ($char === $this->otagChar && substr($text, $i, $this->otagLen) === $this->otag) {
                         $i--;
                         $this->flushBuffer();
                         $this->state = self::IN_TAG_TYPE;
                     } else {
-                        $char = $text[$i];
                         $this->buffer .= $char;
                         if ($char === "\n") {
                             $this->flushBuffer();
@@ -156,14 +162,16 @@ class Mustache_Tokenizer
                     break;
 
                 default:
-                    if ($this->tagChange($this->ctag, $this->ctagLen, $text, $i)) {
+                    $char = $text[$i];
+                    // Test whether it's time to change tags.
+                    if ($char === $this->ctagChar && substr($text, $i, $this->ctagLen) === $this->ctag) {
                         $token = array(
                             self::TYPE  => $this->tagType,
                             self::NAME  => trim($this->buffer),
                             self::OTAG  => $this->otag,
                             self::CTAG  => $this->ctag,
                             self::LINE  => $this->line,
-                            self::INDEX => ($this->tagType === self::T_END_SECTION) ? $this->seenTag - $this->otagLen : $i + $this->ctagLen
+                            self::INDEX => ($this->tagType === self::T_END_SECTION) ? $this->seenTag - $this->otagLen : $i + $this->ctagLen,
                         );
 
                         if ($this->tagType === self::T_UNESCAPED) {
@@ -201,7 +209,7 @@ class Mustache_Tokenizer
                         $this->state = self::IN_TEXT;
                         $this->tokens[] = $token;
                     } else {
-                        $this->buffer .= $text[$i];
+                        $this->buffer .= $char;
                     }
                     break;
             }
@@ -210,9 +218,11 @@ class Mustache_Tokenizer
         $this->flushBuffer();
 
         // Restore the user's encoding...
+        // @codeCoverageIgnoreStart
         if ($encoding) {
             mb_internal_encoding($encoding);
         }
+        // @codeCoverageIgnoreEnd
 
         return $this->tokens;
     }
@@ -222,17 +232,20 @@ class Mustache_Tokenizer
      */
     private function reset()
     {
-        $this->state   = self::IN_TEXT;
-        $this->tagType = null;
-        $this->tag     = null;
-        $this->buffer  = '';
-        $this->tokens  = array();
-        $this->seenTag = false;
-        $this->line    = 0;
-        $this->otag    = '{{';
-        $this->ctag    = '}}';
-        $this->otagLen = 2;
-        $this->ctagLen = 2;
+        $this->state    = self::IN_TEXT;
+        $this->tagType  = null;
+        $this->buffer   = '';
+        $this->tokens   = array();
+        $this->seenTag  = false;
+        $this->line     = 0;
+
+        $this->otag     = '{{';
+        $this->otagChar = '{';
+        $this->otagLen  = 2;
+
+        $this->ctag     = '}}';
+        $this->ctagChar = '}';
+        $this->ctagLen  = 2;
     }
 
     /**
@@ -244,7 +257,7 @@ class Mustache_Tokenizer
             $this->tokens[] = array(
                 self::TYPE  => self::T_TEXT,
                 self::LINE  => $this->line,
-                self::VALUE => $this->buffer
+                self::VALUE => $this->buffer,
             );
             $this->buffer   = '';
         }
@@ -252,6 +265,8 @@ class Mustache_Tokenizer
 
     /**
      * Change the current Mustache delimiters. Set new `otag` and `ctag` values.
+     *
+     * @throws Mustache_Exception_SyntaxException when delimiter string is invalid
      *
      * @param string $text  Mustache template source
      * @param int    $index Current tokenizer index
@@ -261,15 +276,21 @@ class Mustache_Tokenizer
     private function changeDelimiters($text, $index)
     {
         $startIndex = strpos($text, '=', $index) + 1;
-        $close      = '='.$this->ctag;
+        $close      = '=' . $this->ctag;
         $closeIndex = strpos($text, $close, $index);
 
-        $this->setDelimiters(trim(substr($text, $startIndex, $closeIndex - $startIndex)));
-
-        $this->tokens[] = array(
+        $token = array(
             self::TYPE => self::T_DELIM_CHANGE,
             self::LINE => $this->line,
         );
+
+        try {
+            $this->setDelimiters(trim(substr($text, $startIndex, $closeIndex - $startIndex)));
+        } catch (Mustache_Exception_InvalidArgumentException $e) {
+            throw new Mustache_Exception_SyntaxException($e->getMessage(), $token);
+        }
+
+        $this->tokens[] = $token;
 
         return $closeIndex + strlen($close) - 1;
     }
@@ -277,15 +298,25 @@ class Mustache_Tokenizer
     /**
      * Set the current Mustache `otag` and `ctag` delimiters.
      *
+     * @throws Mustache_Exception_InvalidArgumentException when delimiter string is invalid
+     *
      * @param string $delimiters
      */
     private function setDelimiters($delimiters)
     {
-        list($otag, $ctag) = explode(' ', $delimiters);
-        $this->otag = $otag;
-        $this->ctag = $ctag;
-        $this->otagLen = strlen($otag);
-        $this->ctagLen = strlen($ctag);
+        if (!preg_match('/^\s*(\S+)\s+(\S+)\s*$/', $delimiters, $matches)) {
+            throw new Mustache_Exception_InvalidArgumentException(sprintf('Invalid delimiters: %s', $delimiters));
+        }
+
+        list($_, $otag, $ctag) = $matches;
+
+        $this->otag     = $otag;
+        $this->otagChar = $otag[0];
+        $this->otagLen  = strlen($otag);
+
+        $this->ctag     = $ctag;
+        $this->ctagChar = $ctag[0];
+        $this->ctagLen  = strlen($ctag);
     }
 
     /**
@@ -312,20 +343,5 @@ class Mustache_Tokenizer
         ));
 
         return $end + $this->ctagLen - 1;
-    }
-
-    /**
-     * Test whether it's time to change tags.
-     *
-     * @param string $tag    Current tag name
-     * @param int    $tagLen Current tag name length
-     * @param string $text   Mustache template source
-     * @param int    $index  Current tokenizer index
-     *
-     * @return boolean True if this is a closing section tag
-     */
-    private function tagChange($tag, $tagLen, $text, $index)
-    {
-        return substr($text, $index, $tagLen) === $tag;
     }
 }

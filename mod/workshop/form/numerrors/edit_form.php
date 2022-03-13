@@ -25,8 +25,8 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-require_once(dirname(dirname(dirname(__FILE__))).'/lib.php');   // module library
-require_once(dirname(dirname(__FILE__)).'/edit_form.php');    // parent class definition
+require_once(__DIR__ . '/../../lib.php');   // module library
+require_once(__DIR__ . '/../edit_form.php');    // parent class definition
 
 /**
  * Class for editing "Number of errors" grading strategy forms.
@@ -88,14 +88,14 @@ class workshop_edit_numerrors_strategy_form extends workshop_edit_strategy_form 
         $percents = array();
         $percents[''] = '';
         for ($i = 100; $i >= 0; $i--) {
-            $percents[$i] = get_string('percents', 'workshopform_numerrors', $i);
+            $percents[$i] = get_string('percents', 'moodle', $i);
         }
-        $mform->addElement('static', 'mappingzero', 0, get_string('percents', 'workshopform_numerrors', 100));
+        $mform->addElement('static', 'mappingzero', 0, get_string('percents', 'moodle', 100));
         for ($i = 1; $i <= $totalweight; $i++) {
             $selects = array();
             $selects[] = $mform->createElement('select', 'map__idx_'.$i, $i, $percents);
             $selects[] = $mform->createElement('static', 'mapdefault__idx_'.$i, '',
-                                        get_string('percents', 'workshopform_numerrors', floor(100 - $i * 100 / $totalweight)));
+                                        get_string('percents', 'moodle', floor(100 - $i * 100 / $totalweight)));
             $mform->addGroup($selects, 'grademapping'.$i, $i, array(' '), false);
             $mform->setDefault('map__idx_'.$i, '');
         }

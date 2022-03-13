@@ -9,15 +9,24 @@
 #
 # See gitignore(5) man page for more details
 #
+
+# Swap files (vim)
+[._]*.s[a-v][a-z]
+[._]*.sw[a-p]
+[._]s[a-rt-v][a-z]
+[._]ss[a-gi-z]
+[._]sw[a-p]
+# Temporary files including undo
+*~
+#
 /config.php
 /lib/editor/tinymce/extra/tools/temp/
-*~
-*.swp
 /tags
 /TAGS
 /cscope.*
 /.patches/
 /.idea/
+.phpstorm.*
 /nbproject/
 CVS
 .DS_Store
@@ -25,10 +34,10 @@ CVS
 /.project
 /.buildpath
 /.cache
+.phpunit.result.cache
 phpunit.xml
-# Composer support - only composer.json is to be in git, the rest is installed in each checkout.
+# Composer support. Do not ignore composer.json, or composer.lock. These should be shipped by us.
 composer.phar
-composer.lock
 /vendor/
 /behat.yml
 */yui/build/*/*-coverage.js
@@ -37,3 +46,11 @@ composer.lock
 /lib/yuilib/*/*/*-coverage.js
 atlassian-ide-plugin.xml
 /node_modules/
+/.vscode/
+moodle-plugin-ci.phar
+.eslintignore
+.stylelintignore
+/jsdoc
+/admin/tool/componentlibrary/docs
+/admin/tool/componentlibrary/hugo/site/data/my-index.json
+.hugo_build.lock

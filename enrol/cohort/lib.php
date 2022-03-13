@@ -25,6 +25,11 @@
 defined('MOODLE_INTERNAL') || die();
 
 /**
+ * COHORT_CREATEGROUP constant for automatically creating a group for a cohort.
+ */
+define('COHORT_CREATE_GROUP', -1);
+
+/**
  * Cohort enrolment plugin implementation.
  * @author Petr Skoda
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -63,7 +68,7 @@ class enrol_cohort_plugin extends enrol_plugin {
             }
             $cohortname = format_string($cohort->name, true, array('context'=>context::instance_by_id($cohort->contextid)));
             if ($role = $DB->get_record('role', array('id'=>$instance->roleid))) {
-                $role = role_get_name($role, context_course::instance($instance->courseid, IGNORE_MISSING));
+                $role = role_get_name($role, context_course::instance($instance->courseid, IGNORE_MISSING), ROLENAME_BOTH);
                 return get_string('pluginname', 'enrol_'.$enrol) . ' (' . $cohortname . ' - ' . $role .')';
             } else {
                 return get_string('pluginname', 'enrol_'.$enrol) . ' (' . $cohortname . ')';
@@ -75,26 +80,13 @@ class enrol_cohort_plugin extends enrol_plugin {
     }
 
     /**
-     * Returns link to page which may be used to add new instance of enrolment plugin in course.
-     * @param int $courseid
-     * @return moodle_url page url
-     */
-    public function get_newinstance_link($courseid) {
-        if (!$this->can_add_new_instances($courseid)) {
-            return NULL;
-        }
-        // Multiple instances supported - multiple parent courses linked.
-        return new moodle_url('/enrol/cohort/edit.php', array('courseid'=>$courseid));
-    }
-
-    /**
      * Given a courseid this function returns true if the user is able to enrol or configure cohorts.
      * AND there are cohorts that the user can view.
      *
      * @param int $courseid
      * @return bool
      */
-    protected function can_add_new_instances($courseid) {
+    public function can_add_instance($courseid) {
         global $CFG;
         require_once($CFG->dirroot . '/cohort/lib.php');
         $coursecontext = context_course::instance($courseid);
@@ -105,40 +97,77 @@ class enrol_cohort_plugin extends enrol_plugin {
     }
 
     /**
-     * Returns edit icons for the page with list of instances.
-     * @param stdClass $instance
-     * @return array
+     * Add new instance of enrol plugin.
+     * @param object $course
+     * @param array $fields instance fields
+     * @return int id of new instance, null if can not be created
      */
-    public function get_action_icons(stdClass $instance) {
-        global $OUTPUT;
+    public function add_instance($course, array $fields = null) {
+        global $CFG;
 
-        if ($instance->enrol !== 'cohort') {
-            throw new coding_exception('invalid enrol instance!');
+        // Allows multiple cohorts to be set on creation.
+        if (!empty($fields['customint1'])) {
+            $fields2 = $fields;
+            if (!is_array($fields['customint1'])) {
+                $fields['customint1'] = array($fields['customint1']);
+            }
+            foreach ($fields['customint1'] as $cid) {
+                $fields2['customint1'] = $cid;
+                if (!empty($fields['customint2']) && $fields['customint2'] == COHORT_CREATE_GROUP) {
+                    // Create a new group for the cohort if requested.
+                    $context = context_course::instance($course->id);
+                    require_capability('moodle/course:managegroups', $context);
+                    $groupid = enrol_cohort_create_new_group($course->id, $cid);
+                    $fields2['customint2'] = $groupid;
+                }
+                $result = parent::add_instance($course, $fields2);
+            }
+        } else {
+            $result = parent::add_instance($course, $fields);
         }
-        $context = context_course::instance($instance->courseid);
-
-        $icons = array();
-
-        if (has_capability('enrol/cohort:config', $context)) {
-            $editlink = new moodle_url("/enrol/cohort/edit.php", array('courseid'=>$instance->courseid, 'id'=>$instance->id));
-            $icons[] = $OUTPUT->action_icon($editlink, new pix_icon('t/edit', get_string('edit'), 'core',
-                    array('class' => 'iconsmall')));
-        }
-
-        return $icons;
+        require_once("$CFG->dirroot/enrol/cohort/locallib.php");
+        $trace = new null_progress_trace();
+        enrol_cohort_sync($trace, $course->id);
+        $trace->finished();
+        return $result;
     }
 
     /**
-     * Called for all enabled enrol plugins that returned true from is_cron_required().
-     * @return void
+     * Update instance of enrol plugin.
+     * @param stdClass $instance
+     * @param stdClass $data modified instance fields
+     * @return boolean
      */
-    public function cron() {
+    public function update_instance($instance, $data) {
         global $CFG;
+
+        // NOTE: no cohort changes here!!!
+        $context = context_course::instance($instance->courseid);
+        if ($data->roleid != $instance->roleid) {
+            // The sync script can only add roles, for perf reasons it does not modify them.
+            $params = array(
+                'contextid' => $context->id,
+                'roleid' => $instance->roleid,
+                'component' => 'enrol_cohort',
+                'itemid' => $instance->id
+            );
+            role_unassign_all($params);
+        }
+        // Create a new group for the cohort if requested.
+        if ($data->customint2 == COHORT_CREATE_GROUP) {
+            require_capability('moodle/course:managegroups', $context);
+            $groupid = enrol_cohort_create_new_group($instance->courseid, $data->customint1);
+            $data->customint2 = $groupid;
+        }
+
+        $result = parent::update_instance($instance, $data);
 
         require_once("$CFG->dirroot/enrol/cohort/locallib.php");
         $trace = new null_progress_trace();
-        enrol_cohort_sync($trace);
+        enrol_cohort_sync($trace, $instance->courseid);
         $trace->finished();
+
+        return $result;
     }
 
     /**
@@ -186,26 +215,6 @@ class enrol_cohort_plugin extends enrol_plugin {
         }
 
         return false;
-    }
-
-    /**
-     * Gets an array of the user enrolment actions.
-     *
-     * @param course_enrolment_manager $manager
-     * @param stdClass $ue A user enrolment object
-     * @return array An array of user_enrolment_actions
-     */
-    public function get_user_enrolment_actions(course_enrolment_manager $manager, $ue) {
-        $actions = array();
-        $context = $manager->get_context();
-        $instance = $ue->enrolmentinstance;
-        $params = $manager->get_moodlepage()->url->params();
-        $params['ue'] = $ue->id;
-        if ($this->allow_unenrol_user($instance, $ue) && has_capability('enrol/cohort:unenrol', $context)) {
-            $url = new moodle_url('/enrol/unenroluser.php', $params);
-            $actions[] = new user_enrolment_action(new pix_icon('t/delete', ''), get_string('unenrol', 'enrol'), $url, array('class'=>'unenrollink', 'rel'=>$ue->id));
-        }
-        return $actions;
     }
 
     /**
@@ -311,6 +320,184 @@ class enrol_cohort_plugin extends enrol_plugin {
         $context = context_course::instance($instance->courseid);
         return has_capability('enrol/cohort:config', $context);
     }
+
+    /**
+     * Return an array of valid options for the status.
+     *
+     * @return array
+     */
+    protected function get_status_options() {
+        $options = array(ENROL_INSTANCE_ENABLED  => get_string('yes'),
+                         ENROL_INSTANCE_DISABLED => get_string('no'));
+        return $options;
+    }
+
+    /**
+     * Return an array of valid options for the cohorts.
+     *
+     * @param stdClass $instance
+     * @param context $context
+     * @return array
+     */
+    protected function get_cohort_options($instance, $context) {
+        global $DB, $CFG;
+
+        require_once($CFG->dirroot . '/cohort/lib.php');
+
+        $cohorts = array();
+
+        if ($instance->id) {
+            if ($cohort = $DB->get_record('cohort', array('id' => $instance->customint1))) {
+                $name = format_string($cohort->name, true, array('context' => context::instance_by_id($cohort->contextid)));
+                $cohorts = array($instance->customint1 => $name);
+            } else {
+                $cohorts = array($instance->customint1 => get_string('error'));
+            }
+        } else {
+            $cohorts = array('' => get_string('choosedots'));
+            $allcohorts = cohort_get_available_cohorts($context, 0, 0, 0);
+            foreach ($allcohorts as $c) {
+                $cohorts[$c->id] = format_string($c->name);
+            }
+        }
+        return $cohorts;
+    }
+
+    /**
+     * Return an array of valid options for the roles.
+     *
+     * @param stdClass $instance
+     * @param context $coursecontext
+     * @return array
+     */
+    protected function get_role_options($instance, $coursecontext) {
+        global $DB;
+
+        $roles = get_assignable_roles($coursecontext, ROLENAME_BOTH);
+        $roles[0] = get_string('none');
+        $roles = array_reverse($roles, true); // Descending default sortorder.
+
+        // If the instance is already configured, but the configured role is no longer assignable in the course then add it back.
+        if ($instance->id and !isset($roles[$instance->roleid])) {
+            if ($role = $DB->get_record('role', array('id' => $instance->roleid))) {
+                $roles[$instance->roleid] = role_get_name($role, $coursecontext, ROLENAME_BOTH);
+            } else {
+                $roles[$instance->roleid] = get_string('error');
+            }
+        }
+
+        return $roles;
+    }
+
+    /**
+     * Return an array of valid options for the groups.
+     *
+     * @param context $coursecontext
+     * @return array
+     */
+    protected function get_group_options($coursecontext) {
+        $groups = array(0 => get_string('none'));
+        if (has_capability('moodle/course:managegroups', $coursecontext)) {
+            $groups[COHORT_CREATE_GROUP] = get_string('creategroup', 'enrol_cohort');
+        }
+
+        foreach (groups_get_all_groups($coursecontext->instanceid) as $group) {
+            $groups[$group->id] = format_string($group->name, true, array('context' => $coursecontext));
+        }
+
+        return $groups;
+    }
+
+    /**
+     * We are a good plugin and don't invent our own UI/validation code path.
+     *
+     * @return boolean
+     */
+    public function use_standard_editing_ui() {
+        return true;
+    }
+
+    /**
+     * Add elements to the edit instance form.
+     *
+     * @param stdClass $instance
+     * @param MoodleQuickForm $mform
+     * @param context $coursecontext
+     * @return bool
+     */
+    public function edit_instance_form($instance, MoodleQuickForm $mform, $coursecontext) {
+
+        $options = $this->get_status_options();
+        $mform->addElement('select', 'status', get_string('status', 'enrol_cohort'), $options);
+
+        $options = ['contextid' => $coursecontext->id, 'multiple' => true];
+        $mform->addElement('cohort', 'customint1', get_string('cohort', 'cohort'), $options);
+
+        if ($instance->id) {
+            $mform->setConstant('customint1', $instance->customint1);
+            $mform->hardFreeze('customint1', $instance->customint1);
+        } else {
+            $mform->addRule('customint1', get_string('required'), 'required', null, 'client');
+        }
+
+        $roles = $this->get_role_options($instance, $coursecontext);
+        $mform->addElement('select', 'roleid', get_string('assignrole', 'enrol_cohort'), $roles);
+        $mform->setDefault('roleid', $this->get_config('roleid'));
+        $groups = $this->get_group_options($coursecontext);
+        $mform->addElement('select', 'customint2', get_string('addgroup', 'enrol_cohort'), $groups);
+    }
+
+    /**
+     * Perform custom validation of the data used to edit the instance.
+     *
+     * @param array $data array of ("fieldname" => value) of submitted data
+     * @param array $files array of uploaded files "element_name" => tmp_file_path
+     * @param object $instance The instance loaded from the DB
+     * @param context $context The context of the instance we are editing
+     * @return array of "element_name" => "error_description" if there are errors,
+     *         or an empty array if everything is OK.
+     * @return void
+     */
+    public function edit_instance_validation($data, $files, $instance, $context) {
+        global $DB;
+        $errors = array();
+        // Allows multiple cohorts to be selected.
+        list($sql1, $params1) = $DB->get_in_or_equal($data['customint1'], SQL_PARAMS_NAMED);
+        $params = array(
+            'roleid' => $data['roleid'],
+            'courseid' => $data['courseid'],
+            'id' => $data['id']
+        );
+        $params = array_merge($params, $params1);
+        $sql = "roleid = :roleid AND customint1 $sql1 AND courseid = :courseid AND enrol = 'cohort' AND id <> :id";
+        if ($DB->record_exists_select('enrol', $sql, $params)) {
+            $errors['customint1'] = get_string('instanceexists', 'enrol_cohort');
+        }
+        $validstatus = array_keys($this->get_status_options());
+        $validcohorts = array_keys($this->get_cohort_options($instance, $context));
+        $validroles = array_keys($this->get_role_options($instance, $context));
+        $validgroups = array_keys($this->get_group_options($context));
+        $tovalidate = array(
+            'status' => $validstatus,
+            'roleid' => $validroles,
+            'customint2' => $validgroups
+        );
+        $typeerrors = $this->validate_param_types($data, $tovalidate);
+        // When creating a new cohort enrolment, we allow multiple cohorts in just one go.
+        // When editing an existing enrolment, changing the cohort is no allowed, so cohort is a single value.
+        if (is_array($data['customint1'])) {
+            $cohorts = $data['customint1'];
+        } else {
+            $cohorts = [$data['customint1']];
+        }
+
+        $errors = array_merge($errors, $typeerrors);
+        // Check that the cohorts passed are valid.
+        if (!empty(array_diff($cohorts, $validcohorts))) {
+            $errors['customint1'] = get_string('invaliddata', 'error');
+        }
+        return $errors;
+    }
 }
 
 /**
@@ -322,4 +509,37 @@ class enrol_cohort_plugin extends enrol_plugin {
  */
 function enrol_cohort_allow_group_member_remove($itemid, $groupid, $userid) {
     return false;
+}
+
+/**
+ * Create a new group with the cohorts name.
+ *
+ * @param int $courseid
+ * @param int $cohortid
+ * @return int $groupid Group ID for this cohort.
+ */
+function enrol_cohort_create_new_group($courseid, $cohortid) {
+    global $DB, $CFG;
+
+    require_once($CFG->dirroot . '/group/lib.php');
+
+    $groupname = $DB->get_field('cohort', 'name', array('id' => $cohortid), MUST_EXIST);
+    $a = new stdClass();
+    $a->name = $groupname;
+    $a->increment = '';
+    $groupname = trim(get_string('defaultgroupnametext', 'enrol_cohort', $a));
+    $inc = 1;
+    // Check to see if the cohort group name already exists. Add an incremented number if it does.
+    while ($DB->record_exists('groups', array('name' => $groupname, 'courseid' => $courseid))) {
+        $a->increment = '(' . (++$inc) . ')';
+        $newshortname = trim(get_string('defaultgroupnametext', 'enrol_cohort', $a));
+        $groupname = $newshortname;
+    }
+    // Create a new group for the cohort.
+    $groupdata = new stdClass();
+    $groupdata->courseid = $courseid;
+    $groupdata->name = $groupname;
+    $groupid = groups_create_group($groupdata);
+
+    return $groupid;
 }

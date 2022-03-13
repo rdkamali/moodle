@@ -15,26 +15,92 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Tests the user agent class.
- *
- * @package    core
- * @copyright  2013 Sam Hemelryk
- * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- */
-
-/**
  * User agent test suite.
  *
  * @package    core
  * @copyright  2013 Sam Hemelryk
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @covers \core_useragent
  */
-class core_useragent_testcase extends basic_testcase {
+class useragent_test extends advanced_testcase {
 
+    /**
+     * Restores the user agent to the default one.
+     */
+    public function tearDown(): void {
+        core_useragent::instance(true);
+    }
+
+    /**
+     * Data provider for known user agents.
+     *
+     * @return array
+     */
     public function user_agents_providers() {
         // Note: When adding new entries to this list, please ensure that any new browser versions are added to the corresponding list.
         // This ensures that regression tests are applied to all known user agents.
         return array(
+            'Microsoft Edge for Windows 10 Desktop' => array(
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/42.0.2311.135 Safari/537.36 Edge/12.10136',
+                array(
+                    'is_edge'                       => true,
+                    'check_edge_version'            => array(
+                        '12'                        => true,
+                    ),
+
+                    // Edge pretends to be WebKit.
+                    'is_webkit'                     => true,
+
+                    // Edge pretends to be Chrome.
+                    // Note: Because Edge pretends to be Chrome, it will not be picked up as a Safari browser.
+                    'is_chrome'                     => true,
+                    'check_chrome_version'          => array(
+                        '7'                         => true,
+                        '8'                         => true,
+                        '10'                        => true,
+                        '39'                        => true,
+                    ),
+
+                    'versionclasses'                => array(
+                        'edge',
+                    ),
+                ),
+            ),
+            'Microsoft Edge for Windows 10 Mobile' => array(
+                'Mozilla/5.0 (Windows Phone 10.0; Android 4.2.1; DEVICE INFO) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/42.0.2311.135 Mobile Safari/537.36 Edge/12.10136',
+                array(
+                    'is_edge'                       => true,
+                    'check_edge_version'              => array(
+                        '12'                        => true,
+                    ),
+
+                    // Edge pretends to be WebKit.
+                    'is_webkit'                     => true,
+
+                    // Mobile Edge pretends to be Android.
+                    'is_webkit_android'             => true,
+                    'check_webkit_android_version'  => array(
+                        '525'                       => true,
+                        '527'                       => true,
+                    ),
+
+                    // Edge pretends to be Chrome.
+                    // Note: Because Edge pretends to be Chrome, it will not be picked up as a Safari browser.
+                    'is_chrome'                     => true,
+                    'check_chrome_version'          => array(
+                        '7'                         => true,
+                        '8'                         => true,
+                        '10'                        => true,
+                        '39'                        => true,
+                    ),
+
+                    'versionclasses'                => array(
+                        'edge'
+                    ),
+
+                    'devicetype'                    => 'mobile',
+                ),
+            ),
             // Windows 98; Internet Explorer 5.0.
             array(
                 'Mozilla/4.0 (compatible; MSIE 5.00; Windows 98)',
@@ -821,6 +887,7 @@ class core_useragent_testcase extends basic_testcase {
                 array(
                     // Note: We do *not* identify mobile Safari as Safari.
                     'is_safari_ios'                 => true,
+                    'is_ios'                        => true,
                     'check_safari_ios_version'      => array(
                         '527'                       => true,
                     ),
@@ -828,8 +895,7 @@ class core_useragent_testcase extends basic_testcase {
                     'is_webkit'                     => true,
 
                     'versionclasses'                => array(
-                        'safari',
-                        'ios',
+                        'ios'
                     ),
 
                     'devicetype'                    => 'mobile',
@@ -842,6 +908,7 @@ class core_useragent_testcase extends basic_testcase {
                 array(
                     // Note: We do *not* identify mobile Safari as Safari.
                     'is_safari_ios'                 => true,
+                    'is_ios'                        => true,
                     'check_safari_ios_version'      => array(
                         '527'                       => true,
                         '590'                       => true,
@@ -851,7 +918,6 @@ class core_useragent_testcase extends basic_testcase {
                     'is_webkit'                     => true,
 
                     'versionclasses'                => array(
-                        'safari',
                         'ios',
                     ),
 
@@ -865,6 +931,7 @@ class core_useragent_testcase extends basic_testcase {
                 array(
                     // Note: We do *not* identify mobile Safari as Safari.
                     'is_safari_ios'                 => true,
+                    'is_ios'                        => true,
                     'check_safari_ios_version'      => array(
                         '527'                       => true,
                     ),
@@ -872,7 +939,6 @@ class core_useragent_testcase extends basic_testcase {
                     'is_webkit'                     => true,
 
                     'versionclasses'                => array(
-                        'safari',
                         'ios',
                     ),
 
@@ -881,7 +947,7 @@ class core_useragent_testcase extends basic_testcase {
             ),
 
             // Android WebKit 525; G1 Phone.
-            array(
+            'Android WebKit 525; G1 Phone' => array(
                 'Mozilla/5.0 (Linux; U; Android 1.1; en-gb; dream) AppleWebKit/525.10+ (KHTML, like Gecko) Version/3.0.4 Mobile Safari/523.12.2 – G1 Phone',
                 array(
                     'is_webkit_android'             => true,
@@ -893,7 +959,6 @@ class core_useragent_testcase extends basic_testcase {
 
                     'versionclasses'                => array(
                         'android',
-                        'safari',
                     ),
 
                     'devicetype'                    => 'mobile',
@@ -903,7 +968,7 @@ class core_useragent_testcase extends basic_testcase {
             ),
 
             // Android WebKit 530; Nexus.
-            array(
+            'Android WebKit 530; Nexus' => array(
                 'Mozilla/5.0 (Linux; U; Android 2.1; en-us; Nexus One Build/ERD62) AppleWebKit/530.17 (KHTML, like Gecko) Version/4.0 Mobile Safari/530.17 –Nexus',
                 array(
                     'is_webkit_android'             => true,
@@ -916,7 +981,6 @@ class core_useragent_testcase extends basic_testcase {
 
                     'versionclasses'                => array(
                         'android',
-                        'safari',
                     ),
 
                     'devicetype'                    => 'mobile',
@@ -945,7 +1009,7 @@ class core_useragent_testcase extends basic_testcase {
                     ),
 
                     'versionclasses'                => array(
-                        'safari',
+                        'chrome',
                         'android',
                     ),
 
@@ -973,7 +1037,7 @@ class core_useragent_testcase extends basic_testcase {
                     ),
 
                     'versionclasses'                => array(
-                        'safari',
+                        'chrome',
                         'android',
                     ),
 
@@ -994,7 +1058,7 @@ class core_useragent_testcase extends basic_testcase {
                     'is_webkit'                     => true,
 
                     'versionclasses'                => array(
-                        'safari',
+                        'chrome',
                     ),
                 ),
             ),
@@ -1014,7 +1078,7 @@ class core_useragent_testcase extends basic_testcase {
                     'is_webkit'                     => true,
 
                     'versionclasses'                => array(
-                        'safari',
+                        'chrome',
                     ),
                 ),
             ),
@@ -1091,6 +1155,380 @@ class core_useragent_testcase extends basic_testcase {
                     'supports_svg'                  => false,
                ),
             ),
+
+            // Google web crawlers.
+            array(
+                'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+                array(
+                    'is_web_crawler'                => true,
+                    'versionclasses'                => array(
+                    ),
+               ),
+            ),
+            array(
+                'Googlebot/2.1 (+http://www.googlebot.com/bot.html)',
+                array(
+                    'is_web_crawler'                => true,
+                    'versionclasses'                => array(
+                    ),
+               ),
+            ),
+            array(
+                'Googlebot-Image/1.0',
+                array(
+                    'is_web_crawler'                => true,
+                    'versionclasses'                => array(
+                    ),
+               ),
+            ),
+
+            // Yahoo crawlers.
+            // See https://help.yahoo.com/kb/slurp-crawling-page-sln22600.html.
+            array(
+                'Mozilla/5.0 (compatible; Yahoo! Slurp; http://help.yahoo.com/help/us/ysearch/slurp)',
+                array(
+                    'is_web_crawler'                => true,
+                    'versionclasses'                => array(
+                    ),
+               ),
+            ),
+
+            // Bing / MSN / AdIdx crawlers.
+            // See http://www.bing.com/webmaster/help/which-crawlers-does-bing-use-8c184ec0.
+            array(
+                'Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)',
+                array(
+                    'is_web_crawler'                => true,
+                    'versionclasses'                => array(
+                    ),
+               ),
+            ),
+            array(
+                'Mozilla/5.0 (compatible; bingbot/2.0 +http://www.bing.com/bingbot.htm)',
+                array(
+                    'is_web_crawler'                => true,
+                    'versionclasses'                => array(
+                    ),
+               ),
+            ),
+            array(
+                'Mozilla/5.0 (iPhone; CPU iPhone OS 7_0 like Mac OS X) AppleWebKit/537.51.1 (KHTML, like Gecko) Version/7.0 Mobile/11A465 Safari/9537.53 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)',
+                array(
+                    'is_web_crawler'                => true,
+                    'is_webkit'                     => true,
+                    'is_safari_ios'                 => true,
+                    'is_ios'                        => true,
+                    'check_safari_ios_version'      => array(
+                        '527'                       => true,
+                    ),
+
+                    'versionclasses'                => array(
+                        'ios',
+                    ),
+
+                    'devicetype'                    => 'mobile',
+               ),
+            ),
+            array(
+                'Mozilla/5.0 (Windows Phone 8.1; ARM; Trident/7.0; Touch; rv:11.0; IEMobile/11.0; NOKIA; Lumia 530) like Gecko (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)',
+                array(
+                    'is_web_crawler'                => true,
+                    'is_ie'                         => true,
+                    'check_ie_version'              => array(
+                        '0'                         => true,
+                        '5.0'                       => true,
+                        '5.5'                       => true,
+                        '6.0'                       => true,
+                        '7.0'                       => true,
+                        '8.0'                       => true,
+                        '9.0'                       => true,
+                        '10'                        => true,
+                        '11'                        => true,
+                    ),
+                    'versionclasses'                => array(
+                        'ie',
+                        'ie11',
+                    ),
+                    'devicetype'                    => 'mobile',
+               ),
+            ),
+
+            array(
+                'msnbot/2.0b (+http://search.msn.com/msnbot.htm)',
+                array(
+                    'is_web_crawler'                => true,
+                    'versionclasses'                => array(
+                    ),
+               ),
+            ),
+            array(
+                'msnbot/2.1',
+                array(
+                    'is_web_crawler'                => true,
+                    'versionclasses'                => array(
+                    ),
+               ),
+            ),
+            array(
+                'msnbot-media/1.1 (+http://search.msn.com/msnbot.htm)',
+                array(
+                    'is_web_crawler'                => true,
+                    'versionclasses'                => array(
+                    ),
+               ),
+            ),
+            array(
+                'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/534+ (KHTML, like Gecko) BingPreview/1.0b',
+                array(
+                    'is_web_crawler'                => true,
+                    'is_webkit'                     => true,
+                    'is_safari'                     => true,
+                    'check_safari_version'          => array(
+                        '1'                         => true,
+                        '312'                       => true,
+                        '500'                       => true,
+                    ),
+
+                    'versionclasses'                => array(
+                        'safari',
+                    ),
+               ),
+            ),
+            array(
+                'Mozilla/5.0 (Windows Phone 8.1; ARM; Trident/7.0; Touch; rv:11.0; IEMobile/11.0; NOKIA; Lumia 530) like Gecko BingPreview/1.0b',
+                array(
+                    'is_web_crawler'                => true,
+                    'is_ie'                         => true,
+                    'check_ie_version'              => array(
+                        '0'                         => true,
+                        '5.0'                       => true,
+                        '5.5'                       => true,
+                        '6.0'                       => true,
+                        '7.0'                       => true,
+                        '8.0'                       => true,
+                        '9.0'                       => true,
+                        '10'                        => true,
+                        '11'                        => true,
+                    ),
+                    'versionclasses'                => array(
+                        'ie',
+                        'ie11',
+                    ),
+                    'devicetype'                    => 'mobile',
+               ),
+            ),
+
+            // Yandex.
+            // See http://help.yandex.com/search/robots/agent.xml.
+            array(
+                'Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)',
+                array(
+                    'is_web_crawler'                => true,
+                    'versionclasses'                => array(
+                    ),
+               ),
+            ),
+            array(
+                'Mozilla/5.0 (compatible; YandexImages/3.0; +http://yandex.com/bots)',
+                array(
+                    'is_web_crawler'                => true,
+                    'versionclasses'                => array(
+                    ),
+               ),
+            ),
+
+            // AltaVista.
+            array(
+                'AltaVista V2.0B crawler@evreka.com',
+                array(
+                    'is_web_crawler'                => true,
+                    'versionclasses'                => array(
+                    ),
+               ),
+            ),
+
+            // ZoomSpider.
+            array(
+                'ZoomSpider - wrensoft.com [ZSEBOT]',
+                array(
+                    'is_web_crawler'                => true,
+                    'versionclasses'                => array(
+                    ),
+               ),
+            ),
+
+            // Baidu.
+            array(
+                'Baiduspider+(+http://www.baidu.com/search/spider_jp.html)',
+                array(
+                    'is_web_crawler'                => true,
+                    'versionclasses'                => array(
+                    ),
+               ),
+            ),
+            array(
+                'Baiduspider+(+http://www.baidu.com/search/spider.htm)',
+                array(
+                    'is_web_crawler'                => true,
+                    'versionclasses'                => array(
+                    ),
+               ),
+            ),
+
+            // Ask.com.
+            array(
+                'User-Agent: Mozilla/2.0 (compatible; Ask Jeeves/Teoma)',
+                array(
+                    'is_web_crawler'                => true,
+                    'versionclasses'                => array(
+                    ),
+               ),
+            ),
+
+            // MoodleBot.
+            array(
+                'User-Agent: MoodleBot/3.8 (+https://moodle.org)',
+                array(
+                    'is_web_crawler'                => true,
+                    'versionclasses'                => array(
+                    ),
+               ),
+            ),
+
+            // Macos Desktop app.
+            array(
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) moodlemobile/3.6.0 Chrome/69.0.3497.106 Electron/4.0.1 Safari/537.36 MoodleMobile',
+                array(
+                    'is_moodle_app'                => true,
+                    'is_webkit'                    => true,
+                    'is_chrome'                    => true,
+                    'check_chrome_version'         => array(
+                        '7'                        => true,
+                        '8'                        => true,
+                        '10'                       => true,
+                        '39'                       => true,
+                    ),
+                    'versionclasses'               => array(
+                        'chrome',
+                    ),
+               ),
+            ),
+
+            // Linux Desktop app.
+            array(
+                'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) moodledesktop/3.6.0 Chrome/69.0.3497.106 Electron/4.0.1 Safari/537.36 MoodleMobile',
+                array(
+                    'is_moodle_app'                => true,
+                    'is_webkit'                    => true,
+                    'is_chrome'                    => true,
+                    'check_chrome_version'         => array(
+                        '7'                        => true,
+                        '8'                        => true,
+                        '10'                       => true,
+                        '39'                       => true,
+                    ),
+                    'versionclasses'               => array(
+                        'chrome',
+                    ),
+               ),
+            ),
+
+            // Windows Desktop app.
+            array(
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) moodledesktop/3.6.0 Chrome/69.0.3497.106 Electron/4.0.1 Safari/537.36 MoodleMobile',
+                array(
+                    'is_moodle_app'                => true,
+                    'is_webkit'                    => true,
+                    'is_chrome'                    => true,
+                    'check_chrome_version'         => array(
+                        '7'                        => true,
+                        '8'                        => true,
+                        '10'                       => true,
+                        '39'                       => true,
+                    ),
+                    'versionclasses'               => array(
+                        'chrome',
+                    ),
+               ),
+            ),
+
+            // Android app.
+            array(
+                'Mozilla/5.0 (Linux; Android 7.1.1; Moto G Play Build/NPIS26.48-43-2; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/71.0.3578.99 Mobile Safari/537.36 MoodleMobile',
+                array(
+                    'is_moodle_app'                => true,
+                    'is_webkit'                    => true,
+                    'is_webkit_android'            => true,
+                    'is_chrome'                    => true,
+                    'check_chrome_version'         => array(
+                        '7'                        => true,
+                        '8'                        => true,
+                        '10'                       => true,
+                        '39'                       => true,
+                    ),
+                    'devicetype'                   => 'mobile',
+                    'check_webkit_android_version' => array(
+                        '525'                       => true,
+                        '527'                       => true,
+                    ),
+                    'versionclasses'               => array(
+                        'android',
+                        'chrome'
+                    ),
+               ),
+            ),
+
+            // Android app, user agent lower case.
+            array(
+                'Mozilla/5.0 (Linux; Android 7.1.1; Moto G Play Build/NPIS26.48-43-2; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/71.0.3578.99 Mobile Safari/537.36 moodlemobile',
+                array(
+                    'is_moodle_app'                => true,
+                    'is_webkit'                    => true,
+                    'is_webkit_android'            => true,
+                    'is_chrome'                    => true,
+                    'check_chrome_version'         => array(
+                        '7'                        => true,
+                        '8'                        => true,
+                        '10'                       => true,
+                        '39'                       => true,
+                    ),
+                    'devicetype'                   => 'mobile',
+                    'check_webkit_android_version' => array(
+                        '525'                       => true,
+                        '527'                       => true,
+                    ),
+                    'versionclasses'               => array(
+                        'android',
+                        'chrome'
+                    ),
+               ),
+            ),
+
+            // iOS (iPhone) app.
+            array(
+                'Mozilla/5.0 (iPhone; CPU OS 13_3_3 like Mac OS X) AppleWebKit/603.3.8 (KHTML, like Gecko) Mobile/14G60 MoodleMobile',
+                array(
+                    'is_moodle_app'                => true,
+                    'is_ios'                       => true,
+                    'is_webkit'                    => true,
+                    'devicetype'                   => 'mobile',
+                    'versionclasses'               => array(
+                    ),
+               ),
+            ),
+
+            // iOS (iPad) app.
+            array(
+                'Mozilla/5.0 (iPad; CPU OS 12_1_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/16D39 MoodleMobile',
+                array(
+                    'is_moodle_app'                => true,
+                    'is_ios'                       => true,
+                    'is_webkit'                    => true,
+                    'devicetype'                   => 'tablet',
+                    'versionclasses'               => array(
+                    ),
+               ),
+            ),
         );
     }
 
@@ -1100,6 +1538,37 @@ class core_useragent_testcase extends basic_testcase {
     public function test_instance() {
         $this->assertInstanceOf('core_useragent', core_useragent::instance());
         $this->assertInstanceOf('core_useragent', core_useragent::instance(true));
+    }
+
+    /**
+     * @dataProvider user_agents_providers
+     */
+    public function test_useragent_edge($useragent, $tests) {
+        // Setup the core_useragent instance.
+        core_useragent::instance(true, $useragent);
+
+        // Edge Tests.
+        if (isset($tests['is_edge']) && $tests['is_edge']) {
+            $this->assertTrue(core_useragent::is_edge());
+        } else {
+            $this->assertFalse(core_useragent::is_edge());
+        }
+
+        $versions = array(
+            // New versions of should be added here.
+            '12'   => false,
+        );
+
+        if (isset($tests['check_edge_version'])) {
+            // The test provider has overwritten some of the above checks.
+            // Must use the '+' operator, because array_merge will incorrectly rewrite the array keys for integer-based indexes.
+            $versions = $tests['check_edge_version'] + $versions;
+        }
+
+        foreach ($versions as $version => $result) {
+            $this->assertEquals($result, core_useragent::check_edge_version($version),
+                "Version incorrectly determined for Edge version '{$version}'");
+        }
     }
 
     /**
@@ -1166,7 +1635,6 @@ class core_useragent_testcase extends basic_testcase {
             $this->assertFalse(core_useragent::is_msword());
         }
     }
-
 
     /**
      * @dataProvider user_agents_providers
@@ -1377,6 +1845,27 @@ class core_useragent_testcase extends basic_testcase {
     /**
      * @dataProvider user_agents_providers
      */
+    public function test_useragent_ios($useragent, $tests) {
+        // Setup the core_useragent instance.
+        core_useragent::instance(true, $useragent);
+
+        if (isset($tests['is_ios']) && $tests['is_ios']) {
+            $this->assertTrue(core_useragent::is_ios(),
+                "Browser was not identified as an iOS device browser");
+            // The iOS app is not Safari based.
+            if (!isset($tests['is_moodle_app']) || !$tests['is_moodle_app']) {
+                $this->assertTrue(core_useragent::check_safari_ios_version());
+            }
+        } else {
+            $this->assertFalse(core_useragent::is_ios(),
+                "Browser was incorrectly identified as an iOS device browser");
+            $this->assertFalse(core_useragent::check_safari_ios_version());
+        }
+    }
+
+    /**
+     * @dataProvider user_agents_providers
+     */
     public function test_useragent_gecko($useragent, $tests) {
         // Setup the core_useragent instance.
         core_useragent::instance(true, $useragent);
@@ -1524,5 +2013,27 @@ class core_useragent_testcase extends basic_testcase {
             $this->assertContains($expectedclass, $actual);
         }
         $this->assertCount(count($tests['versionclasses']), $actual);
+    }
+
+    /**
+     * @dataProvider user_agents_providers
+     */
+    public function test_useragent_web_crawler($useragent, $tests) {
+        // Setup the core_useragent instance.
+        core_useragent::instance(true, $useragent);
+
+        $expectation = isset($tests['is_web_crawler']) ? $tests['is_web_crawler'] : false;
+        $this->assertSame($expectation, core_useragent::is_web_crawler());
+    }
+
+    /**
+     * @dataProvider user_agents_providers
+     */
+    public function test_useragent_moodle_app($useragent, $tests) {
+        // Setup the core_useragent instance.
+        core_useragent::instance(true, $useragent);
+
+        $expectation = isset($tests['is_moodle_app']) ? $tests['is_moodle_app'] : false;
+        $this->assertSame($expectation, core_useragent::is_moodle_app());
     }
 }

@@ -26,11 +26,16 @@
  */
 
 define('AJAX_SCRIPT', true);
+define('READ_ONLY_SESSION', true);
 
 /** Include config */
-require_once(dirname(__FILE__) . '/../../config.php');
+require_once(__DIR__ . '/../../config.php');
 /** Include course lib for its functions */
 require_once($CFG->dirroot.'/course/lib.php');
+
+if (!empty($CFG->forcelogin)) {
+    require_login();
+}
 
 try {
     // Start buffer capture so that we can `remove` any errors

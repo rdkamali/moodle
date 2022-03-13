@@ -3,12 +3,11 @@ Feature: In a lesson activity, teacher can add an essay question
   As a teacher
   I need to add an essay question in a lesson and grade student attempts
 
-  @javascript
   Scenario: questions with essay question
     Given the following "users" exist:
       | username | firstname | lastname | email |
-      | teacher1 | Teacher | 1 | teacher1@asd.com |
-      | student1 | Student | 1 | student1@asd.com |
+      | teacher1 | Teacher | 1 | teacher1@example.com |
+      | student1 | Student | 1 | student1@example.com |
     And the following "courses" exist:
       | fullname | shortname | category |
       | Course 1 | C1 | 0 |
@@ -16,13 +15,11 @@ Feature: In a lesson activity, teacher can add an essay question
       | user | course | role |
       | teacher1 | C1 | editingteacher |
       | student1 | C1 | student |
+    And the following "activities" exist:
+      | activity | name             | intro                    | course | idnumber  | section | feedback |
+      | lesson   | Test lesson name | Test lesson description  | C1     | lesson1   | 1       | 1        |
     And I log in as "teacher1"
-    And I follow "Course 1"
-    And I turn editing mode on
-    And I add a "Lesson" to section "1" and I fill the form with:
-      | Name | Test lesson name |
-      | Description | Test lesson description |
-      | Use default feedback | Yes |
+    And I am on "Course 1" course homepage with editing mode on
     And I follow "Test lesson name"
     And I follow "Add a question page"
     And I set the field "Select a question type" to "Essay"
@@ -33,7 +30,7 @@ Feature: In a lesson activity, teacher can add an essay question
     And I press "Save page"
     And I log out
     And I log in as "student1"
-    And I follow "Course 1"
+    And I am on "Course 1" course homepage
     When I follow "Test lesson name"
     Then I should see "Please write a story about a frog."
     And I set the field "Your answer" to "<p>Once upon a time there was a little <b>green</b> frog."
@@ -48,9 +45,9 @@ Feature: In a lesson activity, teacher can add an essay question
     And I should see "Your current grade without the essay question(s) is 0 out of 1."
     And I log out
     And I log in as "teacher1"
-    And I follow "Course 1"
+    And I am on "Course 1" course homepage
     And I follow "Test lesson name"
-    And I follow "Grade essays"
+    And I grade lesson essays
     And I should see "Student 1"
     And I should see "Essay question"
     And I follow "Essay question"
@@ -61,7 +58,7 @@ Feature: In a lesson activity, teacher can add an essay question
       | Essay score | 1 |
     And I press "Save changes"
     And I should see "Changes saved"
-    And I follow "Reports"
+    And I navigate to "Reports" in current page administration
     And I should see "Student 1"
     And I click on ".lesson-attempt-link" "css_element" in the "Student 1" "table_row"
     And I should see "Essay: Essay question"

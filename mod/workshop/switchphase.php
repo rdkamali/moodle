@@ -23,8 +23,8 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-require_once(dirname(dirname(dirname(__FILE__))).'/config.php');
-require_once(dirname(__FILE__).'/locallib.php');
+require(__DIR__.'/../../config.php');
+require_once(__DIR__.'/locallib.php');
 
 $cmid       = required_param('cmid', PARAM_INT);            // course module
 $phase      = required_param('phase', PARAM_INT);           // the code of the new phase
@@ -52,13 +52,21 @@ if ($confirm) {
 
 $PAGE->set_title($workshop->name);
 $PAGE->set_heading($course->fullname);
+$PAGE->activityheader->set_attrs([
+    'hidecompletion' => true,
+    'description' => ''
+]);
 $PAGE->navbar->add(get_string('switchingphase', 'workshop'));
+
+$PAGE->set_secondary_active_tab("modulepage");
 
 //
 // Output starts here
 //
 echo $OUTPUT->header();
-echo $OUTPUT->heading(format_string($workshop->name));
+$continuebtn = new single_button(
+    new moodle_url($PAGE->url, array('confirm' => 1)), get_string('continue'), 'post', true);
+$continuebtn->class .= ' mr-3';
 echo $OUTPUT->confirm(get_string('switchphase' . $phase . 'info', 'workshop'),
-                        new moodle_url($PAGE->url, array('confirm' => 1)), $workshop->view_url());
+                        $continuebtn, $workshop->view_url());
 echo $OUTPUT->footer();

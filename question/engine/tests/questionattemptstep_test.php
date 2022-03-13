@@ -27,8 +27,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 global $CFG;
-require_once(dirname(__FILE__) . '/../lib.php');
-require_once(dirname(__FILE__) . '/helpers.php');
+require_once(__DIR__ . '/../lib.php');
+require_once(__DIR__ . '/helpers.php');
 
 
 /**
@@ -85,13 +85,13 @@ class question_attempt_step_test extends advanced_testcase {
 
     public function test_cannot_set_qt_var_without_underscore() {
         $step = new question_attempt_step();
-        $this->setExpectedException('moodle_exception');
+        $this->expectException('moodle_exception');
         $step->set_qt_var('x', 1);
     }
 
     public function test_cannot_set_behaviour_var_without_underscore() {
         $step = new question_attempt_step();
-        $this->setExpectedException('moodle_exception');
+        $this->expectException('moodle_exception');
         $step->set_behaviour_var('x', 1);
     }
 
@@ -112,7 +112,7 @@ class question_attempt_step_test extends advanced_testcase {
     public function test_constructor_default_params() {
         global $USER;
         $step = new question_attempt_step();
-        $this->assertEquals(time(), $step->get_timecreated(), '', 5);
+        $this->assertEquals(time(), $step->get_timecreated(), 5);
         $this->assertEquals($USER->id, $step->get_user_id());
         $this->assertEquals(array(), $step->get_qt_data());
         $this->assertEquals(array(), $step->get_behaviour_data());
@@ -127,5 +127,52 @@ class question_attempt_step_test extends advanced_testcase {
         $this->assertEquals(array(), $step->get_qt_data());
         $this->assertEquals(array(), $step->get_behaviour_data());
 
+    }
+
+
+    /**
+     * Test get_user function.
+     */
+    public function test_get_user() {
+        $this->resetAfterTest(true);
+        $student = $this->getDataGenerator()->create_user();
+
+        $step = new question_attempt_step(array(), 123, $student->id);
+        $step->add_full_user_object($student);
+
+        $this->assertEquals($student, $step->get_user());
+    }
+
+    /**
+     * Test get_user_fullname function.
+     */
+    public function test_get_user_fullname() {
+        $this->resetAfterTest(true);
+        $student = $this->getDataGenerator()->create_user();
+
+        $step = new question_attempt_step(array(), 123, $student->id);
+        $step->add_full_user_object($student);
+
+        $this->assertEquals(fullname($student), $step->get_user_fullname());
+    }
+
+    /**
+     * Test add_full_user_object function.
+     */
+    public function test_add_full_user_object() {
+        $this->resetAfterTest(true);
+        $student1 = $this->getDataGenerator()->create_user();
+        $student2 = $this->getDataGenerator()->create_user();
+
+        $step = new question_attempt_step(array(), 123, $student1->id);
+
+        // Add full user with the valid user.
+        $step->add_full_user_object($student1);
+        $this->assertEquals($student1, $step->get_user());
+
+        // Throw exception with the invalid user.
+        $this->expectException('coding_exception');
+        $this->expectExceptionMessage('Wrong user passed to add_full_user_object');
+        $step->add_full_user_object($student2);
     }
 }

@@ -50,11 +50,18 @@ class file_logger extends base_logger {
     }
 
     public function __destruct() {
-        @fclose($this->fhandle); // Blindy close the file handler (no exceptions in destruct)
+        if (is_resource($this->fhandle)) {
+            // Blindy close the file handler (no exceptions in destruct).
+            @fclose($this->fhandle);
+        }
     }
 
     public function __sleep() {
-        @fclose($this->fhandle); // Blindy close the file handler before serialization
+        if (is_resource($this->fhandle)) {
+            // Blindy close the file handler before serialization.
+            @fclose($this->fhandle);
+            $this->fhandle = null;
+        }
         return array('level', 'showdate', 'showlevel', 'next', 'fullpath');
     }
 
@@ -63,6 +70,19 @@ class file_logger extends base_logger {
             if (! $this->fhandle = fopen($this->fullpath, 'a')) {
                 throw new base_logger_exception('error_opening_file', $this->fullpath);
             }
+        }
+    }
+
+    /**
+     * Close the logger resources (file handle) if still open.
+     *
+     * @since Moodle 3.1
+     */
+    public function close() {
+        // Close the file handle if hasn't been closed already.
+        if (is_resource($this->fhandle)) {
+            fclose($this->fhandle);
+            $this->fhandle = null;
         }
     }
 
@@ -77,7 +97,7 @@ class file_logger extends base_logger {
         } else {
             $content = $prefix . str_repeat('&nbsp;&nbsp;', $depth) . htmlentities($message, ENT_QUOTES, 'UTF-8') . '<br/>' . PHP_EOL;
         }
-        if (false === fwrite($this->fhandle, $content)) {
+        if (!is_resource($this->fhandle) || (false === fwrite($this->fhandle, $content))) {
             throw new base_logger_exception('error_writing_file', $this->fullpath);
         }
         return true;

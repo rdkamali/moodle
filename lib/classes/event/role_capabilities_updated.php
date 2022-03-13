@@ -27,6 +27,9 @@ namespace core\event;
 
 defined('MOODLE_INTERNAL') || die();
 
+debugging('core\\event\\role_capabilities_updated has been deprecated. Please use
+        core\\event\\capability_assigned instead', DEBUG_DEVELOPER);
+
 /**
  * Role updated event class.
  *
@@ -72,7 +75,7 @@ class role_capabilities_updated extends base {
      * @return \moodle_url
      */
     public function get_url() {
-        if ($this->contextlevel === CONTEXT_SYSTEM) {
+        if ($this->contextlevel == CONTEXT_SYSTEM) {
             return new \moodle_url('/admin/roles/define.php', array('action' => 'view', 'roleid' => $this->objectid));
         } else {
             return new \moodle_url('/admin/roles/override.php', array('contextid' => $this->contextid,
@@ -97,5 +100,19 @@ class role_capabilities_updated extends base {
      */
     protected function get_legacy_logdata() {
         return $this->legacylogdata;
+    }
+
+    public static function get_objectid_mapping() {
+        return array('db' => 'role', 'restore' => 'role');
+    }
+
+
+    /**
+     * This event has been deprecated.
+     *
+     * @return boolean
+     */
+    public static function is_deprecated() {
+        return true;
     }
 }

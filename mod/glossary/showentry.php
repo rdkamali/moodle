@@ -40,6 +40,7 @@ if ($eid) {
 }
 
 $PAGE->set_pagelayout('incourse');
+$PAGE->activityheader->disable();
 
 if ($entries) {
     foreach ($entries as $key => $entry) {
@@ -61,12 +62,7 @@ if ($entries) {
             }
         }
         $entries[$key]->footer = "<p style=\"text-align:right\">&raquo;&nbsp;<a href=\"$CFG->wwwroot/mod/glossary/view.php?g=$entry->glossaryid\">".format_string($entry->glossaryname,true)."</a></p>";
-        $event = \mod_glossary\event\entry_viewed::create(array(
-            'objectid' => $entry->id,
-            'context' => $modinfo->cms[$entry->cmid]->context
-        ));
-        $event->add_record_snapshot('glossary_entries', $entry);
-        $event->trigger();
+        glossary_entry_view($entry, $modinfo->cms[$entry->cmid]->context);
     }
 }
 
@@ -81,6 +77,12 @@ if (!empty($courseid)) {
     echo $OUTPUT->header();
 } else {
     echo $OUTPUT->header();    // Needs to be something here to allow linking back to the whole glossary
+}
+
+if ($glossary) {
+    $url = new moodle_url('view.php', ['id' => $cm->id]);
+    $backlink = html_writer::link($url, get_string('back'), ['class' => 'btn btn-secondary']);
+    echo html_writer::tag('div', $backlink, ['class' => 'tertiary-navigation']);
 }
 
 if ($entries) {

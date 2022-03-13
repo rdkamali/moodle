@@ -70,10 +70,11 @@ class database_manager {
      * This function will execute an array of SQL commands.
      *
      * @param string[] $sqlarr Array of sql statements to execute.
+     * @param array|null $tablenames an array of xmldb table names affected by this request.
      * @throws ddl_change_structure_exception This exception is thrown if any error is found.
      */
-    protected function execute_sql_arr(array $sqlarr) {
-        $this->mdb->change_database_structure($sqlarr);
+    protected function execute_sql_arr(array $sqlarr, $tablenames = null) {
+        $this->mdb->change_database_structure($sqlarr, $tablenames);
     }
 
     /**
@@ -107,6 +108,12 @@ class database_manager {
     public function reset_sequence($table) {
         if (!is_string($table) and !($table instanceof xmldb_table)) {
             throw new ddl_exception('ddlunknownerror', NULL, 'incorrect table parameter!');
+        } else {
+            if ($table instanceof xmldb_table) {
+                $tablename = $table->getName();
+            } else {
+                $tablename = $table;
+            }
         }
 
         // Do not test if table exists because it is slow
@@ -115,7 +122,7 @@ class database_manager {
             throw new ddl_exception('ddlunknownerror', null, 'table reset sequence sql not generated');
         }
 
-        $this->execute_sql_arr($sqlarr);
+        $this->execute_sql_arr($sqlarr, array($tablename));
     }
 
     /**
@@ -322,8 +329,9 @@ class database_manager {
         if (!$sqlarr = $this->generator->getDropTableSQL($xmldb_table)) {
             throw new ddl_exception('ddlunknownerror', null, 'table drop sql not generated');
         }
+        $this->execute_sql_arr($sqlarr, array($xmldb_table->getName()));
 
-        $this->execute_sql_arr($sqlarr);
+        $this->generator->cleanup_after_drop($xmldb_table);
     }
 
     /**
@@ -409,7 +417,14 @@ class database_manager {
         if (!$sqlarr = $this->generator->getCreateStructureSQL($xmldb_structure)) {
             return; // nothing to do
         }
-        $this->execute_sql_arr($sqlarr);
+
+        $tablenames = array();
+        foreach ($xmldb_structure as $xmldb_table) {
+            if ($xmldb_table instanceof xmldb_table) {
+                $tablenames[] = $xmldb_table->getName();
+            }
+        }
+        $this->execute_sql_arr($sqlarr, $tablenames);
     }
 
     /**
@@ -428,7 +443,7 @@ class database_manager {
         if (!$sqlarr = $this->generator->getCreateTableSQL($xmldb_table)) {
             throw new ddl_exception('ddlunknownerror', null, 'table create sql not generated');
         }
-        $this->execute_sql_arr($sqlarr);
+        $this->execute_sql_arr($sqlarr, array($xmldb_table->getName()));
     }
 
     /**
@@ -451,8 +466,7 @@ class database_manager {
         if (!$sqlarr = $this->generator->getCreateTempTableSQL($xmldb_table)) {
             throw new ddl_exception('ddlunknownerror', null, 'temp table create sql not generated');
         }
-
-        $this->execute_sql_arr($sqlarr);
+        $this->execute_sql_arr($sqlarr, array($xmldb_table->getName()));
     }
 
     /**
@@ -530,7 +544,7 @@ class database_manager {
         if (!$sqlarr = $this->generator->getAddFieldSQL($xmldb_table, $xmldb_field)) {
             throw new ddl_exception('ddlunknownerror', null, 'addfield sql not generated');
         }
-        $this->execute_sql_arr($sqlarr);
+        $this->execute_sql_arr($sqlarr, array($xmldb_table->getName()));
     }
 
     /**
@@ -555,7 +569,7 @@ class database_manager {
             throw new ddl_exception('ddlunknownerror', null, 'drop_field sql not generated');
         }
 
-        $this->execute_sql_arr($sqlarr);
+        $this->execute_sql_arr($sqlarr, array($xmldb_table->getName()));
     }
 
     /**
@@ -580,7 +594,7 @@ class database_manager {
             return; // probably nothing to do
         }
 
-        $this->execute_sql_arr($sqlarr);
+        $this->execute_sql_arr($sqlarr, array($xmldb_table->getName()));
     }
 
     /**
@@ -643,7 +657,7 @@ class database_manager {
             return; //Empty array = nothing to do = no error
         }
 
-        $this->execute_sql_arr($sqlarr);
+        $this->execute_sql_arr($sqlarr, array($xmldb_table->getName()));
     }
 
     /**
@@ -687,7 +701,7 @@ class database_manager {
             return; //Empty array = nothing to do = no error
         }
 
-        $this->execute_sql_arr($sqlarr);
+        $this->execute_sql_arr($sqlarr, array($xmldb_table->getName()));
     }
 
     /**
@@ -741,7 +755,7 @@ class database_manager {
             return; //Empty array = nothing to do = no error
         }
 
-        $this->execute_sql_arr($sqlarr);
+        $this->execute_sql_arr($sqlarr, array($xmldb_table->getName()));
     }
 
     /**
@@ -760,7 +774,7 @@ class database_manager {
             return; //Empty array = nothing to do = no error
         }
 
-        $this->execute_sql_arr($sqlarr);
+        $this->execute_sql_arr($sqlarr, array($xmldb_table->getName()));
     }
 
     /**
@@ -784,7 +798,7 @@ class database_manager {
             throw new ddl_exception('ddlunknownerror', null, 'Some DBs do not support key renaming (MySQL, PostgreSQL, MsSQL). Rename skipped');
         }
 
-        $this->execute_sql_arr($sqlarr);
+        $this->execute_sql_arr($sqlarr, array($xmldb_table->getName()));
     }
 
     /**
@@ -811,7 +825,20 @@ class database_manager {
             throw new ddl_exception('ddlunknownerror', null, 'add_index sql not generated');
         }
 
-        $this->execute_sql_arr($sqlarr);
+        try {
+            $this->execute_sql_arr($sqlarr, array($xmldb_table->getName()));
+        } catch (ddl_change_structure_exception $e) {
+            // There could be a problem with the index length related to the row format of the table.
+            // If we are using utf8mb4 and the row format is 'compact' or 'redundant' then we need to change it over to
+            // 'compressed' or 'dynamic'.
+            if (method_exists($this->mdb, 'convert_table_row_format')) {
+                $this->mdb->convert_table_row_format($xmldb_table->getName());
+                $this->execute_sql_arr($sqlarr, array($xmldb_table->getName()));
+            } else {
+                // It's some other problem that we are currently not handling.
+                throw $e;
+            }
+        }
     }
 
     /**
@@ -838,7 +865,7 @@ class database_manager {
             throw new ddl_exception('ddlunknownerror', null, 'drop_index sql not generated');
         }
 
-        $this->execute_sql_arr($sqlarr);
+        $this->execute_sql_arr($sqlarr, array($xmldb_table->getName()));
     }
 
     /**
@@ -870,7 +897,28 @@ class database_manager {
             throw new ddl_exception('ddlunknownerror', null, 'Some DBs do not support index renaming (MySQL). Rename skipped');
         }
 
-        $this->execute_sql_arr($sqlarr);
+        $this->execute_sql_arr($sqlarr, array($xmldb_table->getName()));
+    }
+
+    /**
+     * Get the list of install.xml files.
+     *
+     * @return array
+     */
+    public function get_install_xml_files(): array {
+        global $CFG;
+        require_once($CFG->libdir.'/adminlib.php');
+
+        $files = [];
+        $dbdirs = get_db_directories();
+        foreach ($dbdirs as $dbdir) {
+            $filename = "{$dbdir}/install.xml";
+            if (file_exists($filename)) {
+                $files[] = $filename;
+            }
+        }
+
+        return $files;
     }
 
     /**
@@ -884,10 +932,10 @@ class database_manager {
 
         $schema = new xmldb_structure('export');
         $schema->setVersion($CFG->version);
-        $dbdirs = get_db_directories();
-        foreach ($dbdirs as $dbdir) {
-            $xmldb_file = new xmldb_file($dbdir.'/install.xml');
-            if (!$xmldb_file->fileExists() or !$xmldb_file->loadXMLStructure()) {
+
+        foreach ($this->get_install_xml_files() as $filename) {
+            $xmldb_file = new xmldb_file($filename);
+            if (!$xmldb_file->loadXMLStructure()) {
                 continue;
             }
             $structure = $xmldb_file->getStructure();
@@ -914,6 +962,8 @@ class database_manager {
             'extracolumns' => true,
             'missingcolumns' => true,
             'changedcolumns' => true,
+            'missingindexes' => true,
+            'extraindexes' => true
         );
 
         $typesmap = array(
@@ -953,6 +1003,7 @@ class database_manager {
 
             /** @var database_column_info[] $dbfields */
             $dbfields = $this->mdb->get_columns($tablename, false);
+            $dbindexes = $this->mdb->get_indexes($tablename);
             /** @var xmldb_field[] $fields */
             $fields = $table->getFields();
 
@@ -988,52 +1039,60 @@ class database_manager {
                                     $errors[$tablename][] = "column '$fieldname' should allow NULL ($dbfield->meta_type)";
                                 }
                             }
-                            if ($dbtype == XMLDB_TYPE_TEXT) {
-                                // No length check necessary - there is one size only now.
+                            switch ($dbtype) {
+                                case XMLDB_TYPE_TEXT:
+                                case XMLDB_TYPE_BINARY:
+                                    // No length check necessary - there is one size only now.
+                                    break;
 
-                            } else if ($dbtype == XMLDB_TYPE_NUMBER) {
-                                if ($field->getType() == XMLDB_TYPE_FLOAT) {
+                                case XMLDB_TYPE_NUMBER:
+                                    $lengthmismatch = $field->getLength() != $dbfield->max_length;
+                                    $decimalmismatch = $field->getDecimals() != $dbfield->scale;
                                     // Do not use floats in any new code, they are deprecated in XMLDB editor!
+                                    if ($field->getType() != XMLDB_TYPE_FLOAT && ($lengthmismatch || $decimalmismatch)) {
+                                        $size = "({$field->getLength()},{$field->getDecimals()})";
+                                        $dbsize = "($dbfield->max_length,$dbfield->scale)";
+                                        $errors[$tablename][] = "column '$fieldname' size is $dbsize,".
+                                            " expected $size ($dbfield->meta_type)";
+                                    }
+                                    break;
 
-                                } else if ($field->getLength() != $dbfield->max_length or $field->getDecimals() != $dbfield->scale) {
-                                    $size = "({$field->getLength()},{$field->getDecimals()})";
-                                    $dbsize = "($dbfield->max_length,$dbfield->scale)";
-                                    $errors[$tablename][] = "column '$fieldname' size is $dbsize, expected $size ($dbfield->meta_type)";
-                                }
+                                case XMLDB_TYPE_CHAR:
+                                    // This is not critical, but they should ideally match.
+                                    if ($field->getLength() != $dbfield->max_length) {
+                                        $errors[$tablename][] = "column '$fieldname' length is $dbfield->max_length,".
+                                            " expected {$field->getLength()} ($dbfield->meta_type)";
+                                    }
+                                    break;
 
-                            } else if ($dbtype == XMLDB_TYPE_CHAR) {
-                                // This is not critical, but they should ideally match.
-                                if ($field->getLength() != $dbfield->max_length) {
-                                    $errors[$tablename][] = "column '$fieldname' length is $dbfield->max_length, expected {$field->getLength()} ($dbfield->meta_type)";
-                                }
+                                case XMLDB_TYPE_INTEGER:
+                                    // Integers may be bigger in some DBs.
+                                    $length = $field->getLength();
+                                    if ($length > 18) {
+                                        // Integers are not supposed to be bigger than 18.
+                                        $length = 18;
+                                    }
+                                    if ($length > $dbfield->max_length) {
+                                        $errors[$tablename][] = "column '$fieldname' length is $dbfield->max_length,".
+                                            " expected at least {$field->getLength()} ($dbfield->meta_type)";
+                                    }
+                                    break;
 
-                            } else if ($dbtype == XMLDB_TYPE_INTEGER) {
-                                // Integers may be bigger in some DBs.
-                                $length = $field->getLength();
-                                if ($length > 18) {
-                                    // Integers are not supposed to be bigger than 18.
-                                    $length = 18;
-                                }
-                                if ($length > $dbfield->max_length) {
-                                    $errors[$tablename][] = "column '$fieldname' length is $dbfield->max_length, expected at least {$field->getLength()} ($dbfield->meta_type)";
-                                }
+                                case XMLDB_TYPE_TIMESTAMP:
+                                    $errors[$tablename][] = "column '$fieldname' is a timestamp,".
+                                        " this type is not supported ($dbfield->meta_type)";
+                                    continue 2;
 
-                            } else if ($dbtype == XMLDB_TYPE_BINARY) {
-                                // Ignore binary types.
-                                continue;
+                                case XMLDB_TYPE_DATETIME:
+                                    $errors[$tablename][] = "column '$fieldname' is a datetime,".
+                                        "this type is not supported ($dbfield->meta_type)";
+                                    continue 2;
 
-                            } else if ($dbtype == XMLDB_TYPE_TIMESTAMP) {
-                                $errors[$tablename][] = "column '$fieldname' is a timestamp, this type is not supported ($dbfield->meta_type)";
-                                continue;
+                                default:
+                                    // Report all other unsupported types as problems.
+                                    $errors[$tablename][] = "column '$fieldname' has unknown type ($dbfield->meta_type)";
+                                    continue 2;
 
-                            } else if ($dbtype == XMLDB_TYPE_DATETIME) {
-                                $errors[$tablename][] = "column '$fieldname' is a datetime, this type is not supported ($dbfield->meta_type)";
-                                continue;
-
-                            } else {
-                                // Report all other unsupported types as problems.
-                                $errors[$tablename][] = "column '$fieldname' has unknown type ($dbfield->meta_type)";
-                                continue;
                             }
 
                             // Note: The empty string defaults are a bit messy...
@@ -1046,6 +1105,61 @@ class database_manager {
                     }
                 }
                 unset($dbfields[$fieldname]);
+            }
+
+            // Check for missing indexes/keys.
+            if ($options['missingindexes']) {
+                // Check the foreign keys.
+                if ($keys = $table->getKeys()) {
+                    foreach ($keys as $key) {
+                        // Primary keys are skipped.
+                        if ($key->getType() == XMLDB_KEY_PRIMARY) {
+                            continue;
+                        }
+
+                        $keyname = $key->getName();
+
+                        // Create the interim index.
+                        $index = new xmldb_index('anyname');
+                        $index->setFields($key->getFields());
+                        switch ($key->getType()) {
+                            case XMLDB_KEY_UNIQUE:
+                            case XMLDB_KEY_FOREIGN_UNIQUE:
+                                $index->setUnique(true);
+                                break;
+                            case XMLDB_KEY_FOREIGN:
+                                $index->setUnique(false);
+                                break;
+                        }
+                        if (!$this->index_exists($table, $index)) {
+                            $errors[$tablename][] = $this->get_missing_index_error($table, $index, $keyname);
+                        } else {
+                            $this->remove_index_from_dbindex($dbindexes, $index);
+                        }
+                    }
+                }
+
+                // Check the indexes.
+                if ($indexes = $table->getIndexes()) {
+                    foreach ($indexes as $index) {
+                        if (!$this->index_exists($table, $index)) {
+                            $errors[$tablename][] = $this->get_missing_index_error($table, $index, $index->getName());
+                        } else {
+                            $this->remove_index_from_dbindex($dbindexes, $index);
+                        }
+                    }
+                }
+            }
+
+            // Check if we should show the extra indexes.
+            if ($options['extraindexes']) {
+                // Hack - skip for table 'search_simpledb_index' as this plugin adds indexes dynamically on install
+                // which are not included in install.xml. See search/engine/simpledb/db/install.php.
+                if ($tablename != 'search_simpledb_index') {
+                    foreach ($dbindexes as $indexname => $index) {
+                        $errors[$tablename][] = "Unexpected index '$indexname'.";
+                    }
+                }
             }
 
             // Check for extra columns (indicates unsupported hacks) - modify install.xml if you want to pass validation.
@@ -1078,5 +1192,35 @@ class database_manager {
         }
 
         return $errors;
+    }
+
+    /**
+     * Returns a string describing the missing index error.
+     *
+     * @param xmldb_table $table
+     * @param xmldb_index $index
+     * @param string $indexname
+     * @return string
+     */
+    private function get_missing_index_error(xmldb_table $table, xmldb_index $index, string $indexname): string {
+        $sqlarr = $this->generator->getAddIndexSQL($table, $index);
+        $sqlarr = $this->generator->getEndedStatements($sqlarr);
+        $sqltoadd = reset($sqlarr);
+
+        return "Missing index '" . $indexname . "' " . "(" . $index->readableInfo() . "). \n" . $sqltoadd;
+    }
+
+    /**
+     * Removes an index from the array $dbindexes if it is found.
+     *
+     * @param array $dbindexes
+     * @param xmldb_index $index
+     */
+    private function remove_index_from_dbindex(array &$dbindexes, xmldb_index $index) {
+        foreach ($dbindexes as $key => $dbindex) {
+            if ($dbindex['columns'] == $index->getFields()) {
+                unset($dbindexes[$key]);
+            }
+        }
     }
 }

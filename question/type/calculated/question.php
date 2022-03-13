@@ -26,8 +26,9 @@
 
 defined('MOODLE_INTERNAL') || die();
 
+require_once($CFG->dirroot . '/question/type/questionbase.php');
 require_once($CFG->dirroot . '/question/type/numerical/question.php');
-
+require_once($CFG->dirroot . '/question/type/calculated/questiontype.php');
 
 /**
  * Represents a calculated question.
@@ -334,7 +335,11 @@ class qtype_calculated_variable_substituter {
      * @return string formtted number.
      */
     public function format_float($x, $length = null, $format = null) {
-        if (!is_null($length) && !is_null($format)) {
+        if (is_nan($x)) {
+            $x = 'NAN';
+        } else if (is_infinite($x)) {
+            $x = ($x < 0) ? '-INF' : 'INF';
+        } else if (!is_null($length) && !is_null($format)) {
             if ($format == '1' ) { // Answer is to have $length decimals.
                 // Decimal places.
                 $x = sprintf('%.' . $length . 'F', $x);
@@ -423,7 +428,13 @@ class qtype_calculated_variable_substituter {
         if ($error = qtype_calculated_find_formula_errors($expression)) {
             throw new moodle_exception('illegalformulasyntax', 'qtype_calculated', '', $error);
         }
-        return $this->calculate_raw($this->substitute_values_for_eval($expression));
+        $expression = $this->substitute_values_for_eval($expression);
+        if ($datasets = question_bank::get_qtype('calculated')->find_dataset_names($expression)) {
+            // Some placeholders were not substituted.
+            throw new moodle_exception('illegalformulasyntax', 'qtype_calculated', '',
+                '{' . reset($datasets) . '}');
+        }
+        return $this->calculate_raw($expression);
     }
 
     /**
@@ -433,11 +444,18 @@ class qtype_calculated_variable_substituter {
      * @return float the computed result.
      */
     protected function calculate_raw($expression) {
-        // This validation trick from http://php.net/manual/en/function.eval.php .
-        if (!@eval('return true; $result = ' . $expression . ';')) {
-            throw new moodle_exception('illegalformulasyntax', 'qtype_calculated', '', $expression);
+        try {
+            // In older PHP versions this this is a way to validate code passed to eval.
+            // The trick came from http://php.net/manual/en/function.eval.php.
+            if (@eval('return true; $result = ' . $expression . ';')) {
+                return eval('return ' . $expression . ';');
+            }
+        } catch (Throwable $e) {
+            // PHP7 and later now throws ParseException and friends from eval(),
+            // which is much better.
         }
-        return eval('return ' . $expression . ';');
+        // In either case of an invalid $expression, we end here.
+        throw new moodle_exception('illegalformulasyntax', 'qtype_calculated', '', $expression);
     }
 
     /**

@@ -42,18 +42,18 @@ class gradeimport_csv_load_data_testcase extends grade_base_testcase {
 
     /** @var string $oktext Text to be imported. This data should have no issues being imported. */
     protected $oktext = '"First name",Surname,"ID number",Institution,Department,"Email address","Assignment: Assignment for grape group", "Feedback: Assignment for grape group","Assignment: Second new grade item","Course total"
-Anne,Able,,"Moodle HQ","Rock on!",student7@mail.com,56.00,"We welcome feedback",,56.00
-Bobby,Bunce,,"Moodle HQ","Rock on!",student5@mail.com,75.00,,45.0,75.00';
+Anne,Able,,"Moodle HQ","Rock on!",student7@example.com,56.00,"We welcome feedback",,56.00
+Bobby,Bunce,,"Moodle HQ","Rock on!",student5@example.com,75.00,,45.0,75.00';
 
     /** @var string $badtext Text to be imported. This data has an extra column and should not succeed in being imported. */
     protected $badtext = '"First name",Surname,"ID number",Institution,Department,"Email address","Assignment: Assignment for grape group","Course total"
-Anne,Able,,"Moodle HQ","Rock on!",student7@mail.com,56.00,56.00,78.00
-Bobby,Bunce,,"Moodle HQ","Rock on!",student5@mail.com,75.00,75.00';
+Anne,Able,,"Moodle HQ","Rock on!",student7@example.com,56.00,56.00,78.00
+Bobby,Bunce,,"Moodle HQ","Rock on!",student5@example.com,75.00,75.00';
 
     /** @var string $csvtext CSV data to be imported with Last download from this course column. */
     protected $csvtext = '"First name",Surname,"ID number",Institution,Department,"Email address","Assignment: Assignment for grape group", "Feedback: Assignment for grape group","Course total","Last downloaded from this course"
-Anne,Able,,"Moodle HQ","Rock on!",student7@mail.com,56.00,"We welcome feedback",56.00,{exportdate}
-Bobby,Bunce,,"Moodle HQ","Rock on!",student5@mail.com,75.00,,75.00,{exportdate}';
+Anne,Able,,"Moodle HQ","Rock on!",student7@example.com,56.00,"We welcome feedback",56.00,{exportdate}
+Bobby,Bunce,,"Moodle HQ","Rock on!",student5@example.com,75.00,,75.00,{exportdate}';
 
     /** @var int $iid Import ID. */
     protected $iid;
@@ -64,7 +64,7 @@ Bobby,Bunce,,"Moodle HQ","Rock on!",student5@mail.com,75.00,,75.00,{exportdate}'
     /** @var array $columns The first row of the csv file. These are the columns of the import file.*/
     protected $columns;
 
-    public function tearDown() {
+    public function tearDown(): void {
         $this->csvimport = null;
     }
 
@@ -106,7 +106,7 @@ Bobby,Bunce,,"Moodle HQ","Rock on!",student5@mail.com,75.00,,75.00,{exportdate}'
                 '',
                 'Moodle HQ',
                 'Rock on!',
-                'student7@mail.com',
+                'student7@example.com',
                 56.00,
                 'We welcome feedback',
                 '',
@@ -118,7 +118,7 @@ Bobby,Bunce,,"Moodle HQ","Rock on!",student5@mail.com,75.00,,75.00,{exportdate}'
                 '',
                 'Moodle HQ',
                 'Rock on!',
-                'student5@mail.com',
+                'student5@example.com',
                 75.00,
                 '',
                 45.0,
@@ -210,6 +210,7 @@ Bobby,Bunce,,"Moodle HQ","Rock on!",student5@mail.com,75.00,,75.00,{exportdate}'
         $testarray[$key]->feedback = $record->feedback;
         $testarray[$key]->importcode = $testobject->get_importcode();
         $testarray[$key]->importer = $USER->id;
+        $testarray[$key]->importonlyfeedback = 0;
 
         // Check that the record was inserted into the database.
         $this->assertEquals($gradeimportvalues, $testarray);
@@ -242,57 +243,122 @@ Bobby,Bunce,,"Moodle HQ","Rock on!",student5@mail.com,75.00,,75.00,{exportdate}'
     }
 
     /**
-     * Check that the user matches a user in the system.
+     * Data provider for \gradeimport_csv_load_data_testcase::test_check_user_exists().
+     *
+     * @return array
      */
-    public function test_check_user_exists() {
+    public function check_user_exists_provider() {
+        return [
+            'Fetch by email' => [
+                'email', 's1@example.com', true
+            ],
+            'Fetch by email, different case' => [
+                'email', 'S1@EXAMPLE.COM', true
+            ],
+            'Fetch data using a non-existent email' => [
+                'email', 's2@example.com', false
+            ],
+            'Multiple accounts with the same email' => [
+                'email', 's1@example.com', false, 1
+            ],
+            'Fetch data using a valid user ID' => [
+                'id', true, true
+            ],
+            'Fetch data using a non-existent user ID' => [
+                'id', false, false
+            ],
+            'Fetch data using a valid username' => [
+                'username', 's1', true
+            ],
+            'Fetch data using a valid username, different case' => [
+                'username', 'S1', true
+            ],
+            'Fetch data using an invalid username' => [
+                'username', 's2', false
+            ],
+            'Fetch data using a valid ID Number' => [
+                'idnumber', 's1', true
+            ],
+            'Fetch data using an invalid ID Number' => [
+                'idnumber', 's2', false
+            ],
+        ];
+    }
+
+    /**
+     * Check that the user matches a user in the system.
+     *
+     * @dataProvider check_user_exists_provider
+     * @param string $field The field to use for the query.
+     * @param string|boolean $value The field value. When fetching by ID, set true to fetch valid user ID, false otherwise.
+     * @param boolean $successexpected Whether we expect for a user to be found or not.
+     * @param int $allowaccountssameemail Value for $CFG->allowaccountssameemail
+     */
+    public function test_check_user_exists($field, $value, $successexpected, $allowaccountssameemail = 0) {
+        $this->resetAfterTest();
+
+        $generator = $this->getDataGenerator();
 
         // Need to add one of the users into the system.
-        $user = new stdClass();
-        $user->firstname = 'Anne';
-        $user->lastname = 'Able';
-        $user->email = 'student7@mail.com';
-        $userdetail = $this->getDataGenerator()->create_user($user);
+        $user = $generator->create_user([
+            'firstname' => 'Anne',
+            'lastname' => 'Able',
+            'email' => 's1@example.com',
+            'idnumber' => 's1',
+            'username' => 's1',
+        ]);
+
+        if ($allowaccountssameemail) {
+            // Create another user with the same email address.
+            $generator->create_user(['email' => 's1@example.com']);
+        }
+
+        // Since the data provider can't know what user ID to use, do a special handling for ID field tests.
+        if ($field === 'id') {
+            if ($value) {
+                // Test for fetching data using a valid user ID. Use the generated user's ID.
+                $value = $user->id;
+            } else {
+                // Test for fetching data using a non-existent user ID.
+                $value = $user->id + 1;
+            }
+        }
+
+        $userfields = [
+            'field' => $field,
+            'label' => 'Field label: ' . $field
+        ];
 
         $testobject = new phpunit_gradeimport_csv_load_data();
 
-        $testarray = $this->csv_load($this->oktext);
+        // Check whether the user exists. If so, then the user id is returned. Otherwise, it returns null.
+        $userid = $testobject->test_check_user_exists($value, $userfields);
 
-        $userfields = array('field' => 'email', 'label' => 'Email address');
-        // If the user exists then the user id is returned.
-        $userid = $testobject->test_check_user_exists($testarray[0][5] , $userfields);
-        // Check that the user id returned matches with the user that we created.
-        $this->assertEquals($userid, $userdetail->id);
+        if ($successexpected) {
+            // Check that the user id returned matches with the user that we created.
+            $this->assertEquals($user->id, $userid);
 
-        // Check for failure.
-        // Try for an exception.
-        $userfields = array('field' => 'id', 'label' => 'userid');
-        $userid = $testobject->test_check_user_exists($testarray[0][0], $userfields);
-        // Check that the userid is null.
-        $this->assertNull($userid);
+            // Check that there are no errors.
+            $this->assertEmpty($testobject->get_gradebookerrors());
 
-        // Expected error message.
-        $mappingobject = new stdClass();
-        $mappingobject->field = $userfields['label'];
-        $mappingobject->value = $testarray[0][0];
-        $expectederrormessage = get_string('usermappingerror', 'grades', $mappingobject);
-        // Check that expected error message and actual message match.
-        $gradebookerrors = $testobject->get_gradebookerrors();
-        $this->assertEquals($expectederrormessage, $gradebookerrors[0]);
+        } else {
+            // Check that the userid is null.
+            $this->assertNull($userid);
 
-        // The field mapping is correct, but the student does not exist.
-        $userid = $testobject->test_check_user_exists($testarray[1][5], $userfields);
-        // Check that the userid is null.
-        $this->assertNull($userid);
+            // Check that expected error message and actual message match.
+            $gradebookerrors = $testobject->get_gradebookerrors();
+            $mappingobject = (object)[
+                'field' => $userfields['label'],
+                'value' => $value,
+            ];
+            if ($allowaccountssameemail) {
+                $expectederrormessage = get_string('usermappingerrormultipleusersfound', 'grades', $mappingobject);
+            } else {
+                $expectederrormessage = get_string('usermappingerror', 'grades', $mappingobject);
+            }
 
-        // Expected error message.
-        $mappingobject = new stdClass();
-        $mappingobject->field = $userfields['label'];
-        $mappingobject->value = $testarray[1][5];
-        $expectederrormessage = get_string('usermappingerror', 'grades', $mappingobject);
-        // Check that expected error message and actual message match.
-        $gradebookerrors = $testobject->get_gradebookerrors();
-        // This is the second error in the array of gradebook errors.
-        $this->assertEquals($expectederrormessage, $gradebookerrors[1]);
+            $this->assertEquals($expectederrormessage, $gradebookerrors[0]);
+        }
     }
 
     /**
@@ -352,7 +418,7 @@ Bobby,Bunce,,"Moodle HQ","Rock on!",student5@mail.com,75.00,,75.00,{exportdate}'
         $user = new stdClass();
         $user->firstname = 'Anne';
         $user->lastname = 'Able';
-        $user->email = 'student7@mail.com';
+        $user->email = 'student7@example.com';
         $userdetail = $this->getDataGenerator()->create_user($user);
 
         $testarray = $this->csv_load($this->oktext);
@@ -407,13 +473,13 @@ Bobby,Bunce,,"Moodle HQ","Rock on!",student5@mail.com,75.00,,75.00,{exportdate}'
         $user = new stdClass();
         $user->firstname = 'Anne';
         $user->lastname = 'Able';
-        $user->email = 'student7@mail.com';
+        $user->email = 'student7@example.com';
         // Insert user 1.
         $this->getDataGenerator()->create_user($user);
         $user = new stdClass();
         $user->firstname = 'Bobby';
         $user->lastname = 'Bunce';
-        $user->email = 'student5@mail.com';
+        $user->email = 'student5@example.com';
         // Insert user 2.
         $this->getDataGenerator()->create_user($user);
 
@@ -459,13 +525,13 @@ Bobby,Bunce,,"Moodle HQ","Rock on!",student5@mail.com,75.00,,75.00,{exportdate}'
         $user = new stdClass();
         $user->firstname = 'Anne';
         $user->lastname = 'Able';
-        $user->email = 'student7@mail.com';
+        $user->email = 'student7@example.com';
         $user->id_number = 1;
         $user1 = $this->getDataGenerator()->create_user($user);
         $user = new stdClass();
         $user->firstname = 'Bobby';
         $user->lastname = 'Bunce';
-        $user->email = 'student5@mail.com';
+        $user->email = 'student5@example.com';
         $user->id_number = 2;
         $user2 = $this->getDataGenerator()->create_user($user);
 

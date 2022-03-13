@@ -15,12 +15,22 @@
          * external 'helper' binaries.
          * Other platforms could/should be added
          */
-        function latex() {
+        public function __construct() {
             global $CFG;
 
             // construct directory structure
             $this->temp_dir = $CFG->tempdir . "/latex";
             make_temp_directory('latex');
+        }
+
+        /**
+         * Old syntax of class constructor. Deprecated in PHP7.
+         *
+         * @deprecated since Moodle 3.1
+         */
+        public function latex() {
+            debugging('Use of class name as constructor is deprecated', DEBUG_DEVELOPER);
+            self::__construct();
         }
 
         /**
@@ -37,23 +47,23 @@
          * @param int $fontsize the font size
          * @return string the latex document
          */
-        function construct_latex_document( $formula, $fontsize=12 ) {
-            global $CFG;
-
-            $formula = filter_tex_sanitize_formula($formula);
-
+        function construct_latex_document($formula, $fontsize = 12) {
             // $fontsize don't affects to formula's size. $density can change size
-            $doc =  "\\documentclass[{$fontsize}pt]{article}\n";
+            $doc = "\\documentclass[{$fontsize}pt]{article}\n";
             $doc .= get_config('filter_tex', 'latexpreamble');
             $doc .= "\\pagestyle{empty}\n";
             $doc .= "\\begin{document}\n";
-//dlnsk            $doc .= "$ {$formula} $\n";
-            if (preg_match("/^[[:space:]]*\\\\begin\\{(gather|align|alignat|multline).?\\}/i",$formula)) {
+            if (preg_match("/^[[:space:]]*\\\\begin\\{(gather|align|alignat|multline).?\\}/i", $formula)) {
                $doc .= "$formula\n";
             } else {
                $doc .= "$ {$formula} $\n";
             }
             $doc .= "\\end{document}\n";
+
+            // Sanitize the whole document (rather than just the formula) to make sure no one can bypass sanitization
+            // by using \newcommand in preamble to give an alias to a blocked command.
+            $doc = filter_tex_sanitize_formula($doc);
+
             return $doc;
         }
 
@@ -104,10 +114,13 @@
                 $convertformat = 'png';
             }
             $filename = str_replace(".{$convertformat}", '', $filename);
-            $tex = "{$this->temp_dir}/$filename.tex";
+            $tex = "$filename.tex"; // Absolute paths won't work with openin_any = p setting.
             $dvi = "{$this->temp_dir}/$filename.dvi";
             $ps  = "{$this->temp_dir}/$filename.ps";
             $img = "{$this->temp_dir}/$filename.{$convertformat}";
+
+            // Change directory to temp dir so that we can work with relative paths.
+            chdir($this->temp_dir);
 
             // turn the latex doc into a .tex file in the temp area
             $fh = fopen( $tex, 'w' );
@@ -116,14 +129,14 @@
 
             // run latex on document
             $command = "$pathlatex --interaction=nonstopmode --halt-on-error $tex";
-            chdir( $this->temp_dir );
+
             if ($this->execute($command, $log)) { // It allways False on Windows
 //                return false;
             }
 
             // run dvips (.dvi to .ps)
             $pathdvips = escapeshellarg(trim(get_config('filter_tex', 'pathdvips'), " '\""));
-            $command = "$pathdvips -E $dvi -o $ps";
+            $command = "$pathdvips -q -E $dvi -o $ps";
             if ($this->execute($command, $log )) {
                 return false;
             }

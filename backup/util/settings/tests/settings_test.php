@@ -45,7 +45,7 @@ class backp_settings_testcase extends basic_testcase {
     /**
      * test base_setting class
      */
-    function test_base_setting() {
+    public function test_base_setting() {
         // Instantiate base_setting and check everything
         $bs = new mock_base_setting('test', base_setting::IS_BOOLEAN);
         $this->assertTrue($bs instanceof base_setting);
@@ -126,6 +126,9 @@ class backp_settings_testcase extends basic_testcase {
         } catch (exception $e) {
             $this->assertTrue($e instanceof base_setting_exception);
             $this->assertEquals($e->errorcode, 'incorrect_object_passed');
+        } catch (TypeError $e) {
+            // On PHP7+ we get a TypeError raised, lets check we've the right error.
+            $this->assertMatchesRegularExpression('/must be (of type|an instance of) backup_setting_ui/', $e->getMessage());
         }
         restore_error_handler();
 
@@ -140,6 +143,9 @@ class backp_settings_testcase extends basic_testcase {
         } catch (exception $e) {
             $this->assertTrue($e instanceof base_setting_exception);
             $this->assertEquals($e->errorcode, 'incorrect_object_passed');
+        } catch (TypeError $e) {
+            // On PHP7+ we get a TypeError raised, lets check we've the right error.
+            $this->assertMatchesRegularExpression('/must be (of type|an instance of) backup_setting_ui/', $e->getMessage());
         }
         restore_error_handler();
 
@@ -285,9 +291,53 @@ class backp_settings_testcase extends basic_testcase {
     }
 
     /**
+     * Test that locked and unlocked states on dependent backup settings at the same level
+     * correctly do not flow from the parent to the child setting when the setting is locked by permissions.
+     */
+    public function test_dependency_empty_locked_by_permission_child_is_not_unlocked() {
+        // Check dependencies are working ok.
+        $bs1 = new mock_backup_setting('test1', base_setting::IS_INTEGER, 2);
+        $bs1->set_level(1);
+        $bs2 = new mock_backup_setting('test2', base_setting::IS_INTEGER, 2);
+        $bs2->set_level(1); // Same level *must* work.
+        $bs1->add_dependency($bs2, setting_dependency::DISABLED_EMPTY);
+
+        $bs1->set_status(base_setting::LOCKED_BY_PERMISSION);
+        $this->assertEquals(base_setting::LOCKED_BY_HIERARCHY, $bs2->get_status());
+        $this->assertEquals(base_setting::LOCKED_BY_PERMISSION, $bs1->get_status());
+        $bs2->set_status(base_setting::LOCKED_BY_PERMISSION);
+        $this->assertEquals(base_setting::LOCKED_BY_PERMISSION, $bs1->get_status());
+
+        // Unlocking the parent should NOT unlock the child.
+        $bs1->set_status(base_setting::NOT_LOCKED);
+
+        $this->assertEquals(base_setting::LOCKED_BY_PERMISSION, $bs2->get_status());
+    }
+
+    /**
+     * Test that locked and unlocked states on dependent backup settings at the same level
+     * correctly do flow from the parent to the child setting when the setting is locked by config.
+     */
+    public function test_dependency_not_empty_locked_by_config_parent_is_unlocked() {
+        $bs1 = new mock_backup_setting('test1', base_setting::IS_INTEGER, 0);
+        $bs1->set_level(1);
+        $bs2 = new mock_backup_setting('test2', base_setting::IS_INTEGER, 0);
+        $bs2->set_level(1); // Same level *must* work.
+        $bs1->add_dependency($bs2, setting_dependency::DISABLED_NOT_EMPTY);
+
+        $bs1->set_status(base_setting::LOCKED_BY_CONFIG);
+        $this->assertEquals(base_setting::LOCKED_BY_HIERARCHY, $bs2->get_status());
+        $this->assertEquals(base_setting::LOCKED_BY_CONFIG, $bs1->get_status());
+
+        // Unlocking the parent should unlock the child.
+        $bs1->set_status(base_setting::NOT_LOCKED);
+        $this->assertEquals(base_setting::NOT_LOCKED, $bs2->get_status());
+    }
+
+    /**
      * test backup_setting class
      */
-    function test_backup_setting() {
+    public function test_backup_setting() {
         // Instantiate backup_setting class and set level
         $bs = new mock_backup_setting('test', base_setting::IS_INTEGER, null);
         $bs->set_level(1);
@@ -302,6 +352,9 @@ class backp_settings_testcase extends basic_testcase {
         } catch (exception $e) {
             $this->assertTrue($e instanceof backup_setting_exception);
             $this->assertEquals($e->errorcode, 'incorrect_object_passed');
+        } catch (TypeError $e) {
+            // On PHP7+ we get a TypeError raised, lets check we've the right error.
+            $this->assertMatchesRegularExpression('/must be (an instance of|of type) base_setting/', $e->getMessage());
         }
         restore_error_handler();
 
@@ -331,7 +384,7 @@ class backp_settings_testcase extends basic_testcase {
     /**
      * test activity_backup_setting class
      */
-    function test_activity_backup_setting() {
+    public function test_activity_backup_setting() {
         $bs = new mock_activity_backup_setting('test', base_setting::IS_INTEGER, null);
         $this->assertEquals($bs->get_level(), backup_setting::ACTIVITY_LEVEL);
 
@@ -346,7 +399,7 @@ class backp_settings_testcase extends basic_testcase {
     /**
      * test section_backup_setting class
      */
-    function test_section_backup_setting() {
+    public function test_section_backup_setting() {
         $bs = new mock_section_backup_setting('test', base_setting::IS_INTEGER, null);
         $this->assertEquals($bs->get_level(), backup_setting::SECTION_LEVEL);
 
@@ -361,7 +414,7 @@ class backp_settings_testcase extends basic_testcase {
     /**
      * test course_backup_setting class
      */
-    function test_course_backup_setting() {
+    public function test_course_backup_setting() {
         $bs = new mock_course_backup_setting('test', base_setting::IS_INTEGER, null);
         $this->assertEquals($bs->get_level(), backup_setting::COURSE_LEVEL);
 
@@ -451,10 +504,9 @@ class mock_course_backup_setting extends course_backup_setting {
  * @param string $errstr
  * @param string $errfile
  * @param int $errline
- * @param array $errcontext
  * @return null
  */
-function backup_setting_error_handler($errno, $errstr, $errfile, $errline, $errcontext) {
+function backup_setting_error_handler($errno, $errstr, $errfile, $errline) {
     if ($errno !== E_RECOVERABLE_ERROR) {
         // Currently we only want to deal with type hinting errors
         return false;

@@ -32,8 +32,7 @@ $syscontext = context_system::instance();
 $PAGE->set_url('/admin/courseformats.php');
 $PAGE->set_context($syscontext);
 
-require_login();
-require_capability('moodle/site:config', $syscontext);
+require_admin();
 require_sesskey();
 
 $return = new moodle_url('/admin/settings.php', array('section' => 'manageformats'));
@@ -48,17 +47,14 @@ if (!isset($formatplugins[$formatname])) {
 switch ($action) {
     case 'disable':
         if ($formatplugins[$formatname]->is_enabled()) {
-            if (get_config('moodlecourse', 'format') === $formatname) {
-                print_error('cannotdisableformat', 'error', $return);
-            }
-            set_config('disabled', 1, 'format_'. $formatname);
-            core_plugin_manager::reset_caches();
+            $class = \core_plugin_manager::resolve_plugininfo_class('format');
+            $class::enable_plugin($formatname, false);
         }
         break;
     case 'enable':
         if (!$formatplugins[$formatname]->is_enabled()) {
-            unset_config('disabled', 'format_'. $formatname);
-            core_plugin_manager::reset_caches();
+            $class = \core_plugin_manager::resolve_plugininfo_class('format');
+            $class::enable_plugin($formatname, true);
         }
         break;
     case 'up':

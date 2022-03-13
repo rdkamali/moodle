@@ -1,17 +1,30 @@
 <?php
-
-/*
-V5.19  23-Apr-2014  (c) 2000-2014 John Lim (jlim#natsoft.com). All rights reserved.
-  Released under both BSD license and Lesser GPL library license.
-  Whenever there is any discrepancy between the two licenses,
-  the BSD license will take precedence.
-  Set tabs to 8.
-
-  MySQL code that supports transactions. For MySQL 3.23 or later.
-  Code from James Poon <jpoon88@yahoo.com>
-
-  Requires mysql client. Works on Windows and Unix.
-*/
+/**
+ * Portable MySQL driver
+ *
+ * @deprecated
+ *
+ * Extends the deprecated mysql driver, and was originally designed to be a
+ * portable driver in the same manner as oci8po and mssqlpo. Its functionality
+ * is exactly duplicated in the mysqlt driver, which is itself deprecated.
+ * This driver will be removed in ADOdb version 6.0.0.
+ *
+ * This file is part of ADOdb, a Database Abstraction Layer library for PHP.
+ *
+ * @package ADOdb
+ * @link https://adodb.org Project's web site and documentation
+ * @link https://github.com/ADOdb/ADOdb Source code and issue tracker
+ *
+ * The ADOdb Library is dual-licensed, released under both the BSD 3-Clause
+ * and the GNU Lesser General Public Licence (LGPL) v2.1 or, at your option,
+ * any later version. This means you can use it in proprietary products.
+ * See the LICENSE.md file distributed with this source code for details.
+ * @license BSD-3-Clause
+ * @license LGPL-2.1-or-later
+ *
+ * @copyright 2000-2013 John Lim
+ * @copyright 2014 Damien Regad, Mark Newnham and the ADOdb community
+ */
 
 // security - hide paths
 if (!defined('ADODB_DIR')) die();
@@ -24,11 +37,6 @@ class ADODB_mysqlt extends ADODB_mysql {
 	var $ansiOuter = true; // for Version 3.23.17 or later
 	var $hasTransactions = true;
 	var $autoRollback = true; // apparently mysql does not autorollback properly
-
-	function ADODB_mysqlt()
-	{
-	global $ADODB_EXTENSION; if ($ADODB_EXTENSION) $this->rsPrefix .= 'ext_';
-	}
 
 	function BeginTrans()
 	{
@@ -72,7 +80,7 @@ class ADODB_mysqlt extends ADODB_mysql {
 class ADORecordSet_mysqlt extends ADORecordSet_mysql{
 	var $databaseType = "mysqlt";
 
-	function ADORecordSet_mysqlt($queryID,$mode=false)
+	function __construct($queryID,$mode=false)
 	{
 		if ($mode === false) {
 			global $ADODB_FETCH_MODE;
@@ -90,7 +98,7 @@ class ADORecordSet_mysqlt extends ADORecordSet_mysql{
 		}
 
 		$this->adodbFetchMode = $mode;
-		$this->ADORecordSet($queryID);
+		parent::__construct($queryID);
 	}
 
 	function MoveNext()
@@ -108,26 +116,6 @@ class ADORecordSet_mysqlt extends ADORecordSet_mysql{
 }
 
 class ADORecordSet_ext_mysqlt extends ADORecordSet_mysqlt {
-
-	function ADORecordSet_ext_mysqlt($queryID,$mode=false)
-	{
-		if ($mode === false) {
-			global $ADODB_FETCH_MODE;
-			$mode = $ADODB_FETCH_MODE;
-		}
-		switch ($mode)
-		{
-		case ADODB_FETCH_NUM: $this->fetchMode = MYSQL_NUM; break;
-		case ADODB_FETCH_ASSOC:$this->fetchMode = MYSQL_ASSOC; break;
-
-		case ADODB_FETCH_DEFAULT:
-		case ADODB_FETCH_BOTH:
-		default:
-			$this->fetchMode = MYSQL_BOTH; break;
-		}
-		$this->adodbFetchMode = $mode;
-		$this->ADORecordSet($queryID);
-	}
 
 	function MoveNext()
 	{

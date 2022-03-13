@@ -47,30 +47,50 @@ class mod_folder_renderer extends plugin_renderer_base {
         }
 
         if (trim($folder->intro)) {
-            if ($folder->display != FOLDER_DISPLAY_INLINE) {
-                $output .= $this->output->box(format_module_intro('folder', $folder, $cm->id),
-                        'generalbox', 'intro');
-            } else if ($cm->showdescription) {
+            if ($folder->display == FOLDER_DISPLAY_INLINE && $cm->showdescription) {
                 // for "display inline" do not filter, filters run at display time.
                 $output .= format_module_intro('folder', $folder, $cm->id, false);
             }
+        }
+        $buttons = '';
+        // Display the "Edit" button if current user can edit folder contents.
+        // Do not display it on the course page for the teachers because there
+        // is an "Edit settings" button right next to it with the same functionality.
+        $canmanagefolderfiles = has_capability('mod/folder:managefiles', $context);
+        $canmanagecourseactivities = has_capability('moodle/course:manageactivities', $context);
+        if ($canmanagefolderfiles && ($folder->display != FOLDER_DISPLAY_INLINE || !$canmanagecourseactivities)) {
+            $editbutton = new single_button(new moodle_url('/mod/folder/edit.php', ['id' => $cm->id]),
+                get_string('edit'), 'post', true);
+            $editbutton->class = 'navitem';
+            $buttons .= $this->render($editbutton);
+        }
+
+        // Do not append the edit button on the course page.
+        $downloadable = folder_archive_available($folder, $cm);
+        if ($downloadable) {
+            $downloadbutton = new single_button(new moodle_url('/mod/folder/download_folder.php', ['id' => $cm->id]),
+                get_string('downloadfolder', 'folder'), 'get');
+            $downloadbutton->class = 'navitem ml-auto';
+            $buttons .= $this->render($downloadbutton);
+        }
+
+        if ($buttons) {
+            $output .= $this->output->container_start("container-fluid tertiary-navigation");
+            $output .= $this->output->container_start("row");
+            $output .= $buttons;
+            $output .= $this->output->container_end();
+            $output .= $this->output->container_end();
         }
 
         $foldertree = new folder_tree($folder, $cm);
         if ($folder->display == FOLDER_DISPLAY_INLINE) {
             // Display module name as the name of the root directory.
-            $foldertree->dir['dirname'] = $cm->get_formatted_name();
+            $foldertree->dir['dirname'] = $cm->get_formatted_name(array('escape' => false));
         }
-        $output .= $this->output->box($this->render($foldertree),
-                'generalbox foldertree');
+        $output .= $this->output->container_start("box generalbox pt-0 pb-3 foldertree");
+        $output .= $this->render($foldertree);
+        $output .= $this->output->container_end();
 
-        // Do not append the edit button on the course page.
-        if ($folder->display != FOLDER_DISPLAY_INLINE && has_capability('mod/folder:managefiles', $context)) {
-            $output .= $this->output->container(
-                    $this->output->single_button(new moodle_url('/mod/folder/edit.php',
-                    array('id' => $cm->id)), get_string('edit')),
-                    'mdl-align folder-edit-button');
-        }
         return $output;
     }
 
@@ -111,17 +131,23 @@ class mod_folder_renderer extends plugin_renderer_base {
             $filename = $file->get_filename();
             $url = moodle_url::make_pluginfile_url($file->get_contextid(), $file->get_component(),
                     $file->get_filearea(), $file->get_itemid(), $file->get_filepath(), $filename, false);
+            $filenamedisplay = clean_filename($filename);
             if (file_extension_in_typegroup($filename, 'web_image')) {
                 $image = $url->out(false, array('preview' => 'tinyicon', 'oid' => $file->get_timemodified()));
                 $image = html_writer::empty_tag('img', array('src' => $image));
             } else {
-                $image = $this->output->pix_icon(file_file_icon($file, 24), $filename, 'moodle');
+                $image = $this->output->pix_icon(file_file_icon($file, 24), $filenamedisplay, 'moodle');
             }
             $filename = html_writer::tag('span', $image, array('class' => 'fp-icon')).
-                    html_writer::tag('span', $filename, array('class' => 'fp-filename'));
+                    html_writer::tag('span', $filenamedisplay, array('class' => 'fp-filename'));
+            $urlparams = null;
+            if ($tree->folder->forcedownload) {
+                $urlparams = ['forcedownload' => 1];
+            }
             $filename = html_writer::tag('span',
-                    html_writer::link($url->out(false, array('forcedownload' => 1)), $filename),
-                    array('class' => 'fp-filename-icon'));
+                html_writer::link($url->out(false, $urlparams), $filename),
+                ['class' => 'fp-filename-icon']
+            );
             $result .= html_writer::tag('li', $filename);
         }
         $result .= '</ul>';

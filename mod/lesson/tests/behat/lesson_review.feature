@@ -4,12 +4,11 @@ Feature: In a lesson activity, students can review the answers they gave to ques
   As a student
   I need to complete a lesson answering all of the questions.
 
-  @javascript
   Scenario: Student answers questions and then reviews them.
     Given the following "users" exist:
       | username | firstname | lastname | email |
-      | teacher1 | Teacher | 1 | teacher1@asd.com |
-      | student1 | Student | 1 | student1@asd.com |
+      | teacher1 | Teacher | 1 | teacher1@example.com |
+      | student1 | Student | 1 | student1@example.com |
     And the following "courses" exist:
       | fullname | shortname | category |
       | Course 1 | C1 | 0 |
@@ -17,19 +16,22 @@ Feature: In a lesson activity, students can review the answers they gave to ques
       | user | course | role |
       | teacher1 | C1 | editingteacher |
       | student1 | C1 | student |
+    Given the following "activities" exist:
+      | activity   | name             | intro                     | course | section | idnumber |
+      | lesson     | Test lesson name | Test lesson description   | C1     | 1       | lesson1  |
     And I log in as "teacher1"
-    And I follow "Course 1"
-    And I turn editing mode on
-    And I add a "Lesson" to section "1" and I fill the form with:
-      | Name | Test lesson name |
-      | Description | Test lesson description |
+    And I am on "Course 1" course homepage
+    And I follow "Test lesson name"
+    And I navigate to "Settings" in current page administration
+    And I set the following fields to these values:
       | Display ongoing score | Yes |
       | Slideshow | Yes |
       | Maximum number of answers | 10 |
       | Allow student review | Yes |
-      | Maximum number of attempts | 3 |
+      | Maximum number of attempts per question | 3 |
       | Custom scoring | No |
       | Re-takes allowed | Yes |
+    And I press "Save and return to course"
     And I follow "Test lesson name"
     And I follow "Add a question page"
     And I set the field "Select a question type" to "Numerical"
@@ -44,7 +46,7 @@ Feature: In a lesson activity, students can review the answers they gave to ques
       | id_response_editor_1 | Incorrect answer |
       | id_jumpto_1 | This page |
     And I press "Save page"
-    And I set the field "qtype" to "Question"
+    And I select "Add a question page" from the "qtype" singleselect
     And I set the field "Select a question type" to "True/false"
     And I press "Add a question page"
     And I set the following fields to these values:
@@ -59,7 +61,7 @@ Feature: In a lesson activity, students can review the answers they gave to ques
     And I press "Save page"
     And I log out
     And I log in as "student1"
-    And I follow "Course 1"
+    And I am on "Course 1" course homepage
     And I follow "Test lesson name"
     And I should see "You have answered 0 correctly out of 0 attempts."
     And I set the following fields to these values:

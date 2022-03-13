@@ -46,7 +46,16 @@ $string['hash_fnv1_32'] = 'FNV1_32';
 $string['hash_fnv1a_32'] = 'FNV1A_32';
 $string['hash_hsieh'] = 'Hsieh';
 $string['hash_murmur'] = 'Murmur';
+$string['isshared'] = 'Shared cache';
+$string['isshared_help'] = "Is your memcached server also being used by other applications?
+
+If the cache is shared by other applications then each key will be deleted individually to ensure that only data owned by this application is purged (leaving external application cache data unchanged). This can result in reduced performance when purging the cache, depending on your server configuration.
+
+If you are running a dedicated cache for this application then the entire cache can safely be flushed without any risk of destroying another application's cache data. This should result in increased performance when purging the cache.
+";
 $string['pluginname'] = 'Memcached';
+$string['privacy:metadata:memcached'] = 'The Memcached cachestore plugin stores data briefly as part of its caching functionality. This data is stored on an Memcache server where data is regularly removed.';
+$string['privacy:metadata:memcached:data'] = 'The various data stored in the cache';
 $string['prefix'] = 'Prefix key';
 $string['prefix_help'] = 'This can be used to create a "domain" for your item keys allowing you to create multiple memcached stores on a single memcached installation. It cannot be longer than 16 characters in order to ensure key length issues are not encountered.';
 $string['prefixinvalid'] = 'Invalid prefix. You can only use a-z A-Z 0-9-_.';
@@ -65,10 +74,10 @@ ipaddress:port
 servername:port:weight
 </pre>
 
-If *Enable clustered servers* is enabled below, there must be only one server listed here. This would usually be a name that always resolves to the local manchine, like 127.0.0.1 or localhost.';
+If *Enable clustered servers* is enabled below, there must be only one server listed here. This would usually be a name that always resolves to the local machine, like 127.0.0.1 or localhost.';
 $string['serversclusterinvalid'] = 'Exactly one server is required when clustering is enabled.';
 $string['setservers'] = 'Set Servers';
-$string['setservers_help'] = 'This is the list of servers that will updated when data is modified in the cache. Generally the fully qualified name of each server in the pool.
+$string['setservers_help'] = 'This is the list of servers that will be updated when data is modified in the cache. Generally the fully qualified name of each server in the pool.
 It **must** include the server listed in *Servers* above, even if by a different hostname.
 Servers should be defined one per line and consist of a server address and optionally a port.
 If no port is provided then the default port (11211) is used.
@@ -88,3 +97,5 @@ $string['useserialiser'] = 'Use serialiser';
 $string['useserialiser_help'] = 'Specifies the serializer to use for serializing non-scalar values.
 The valid serializers are Memcached::SERIALIZER_PHP or Memcached::SERIALIZER_IGBINARY.
 The latter is supported only when memcached is configured with --enable-memcached-igbinary option and the igbinary extension is loaded.';
+$string['upgrade200recommended'] = 'We recommend you upgrade your Memcached PHP extension to version 2.0.0 or greater.
+The version of the Memcached PHP extension you are currently using does not provide the functionality Moodle uses to ensure a sandboxed cache. Until you upgrade we recommend you do not configure any other applications to use the same Memcached servers as Moodle is configured to use.';

@@ -31,6 +31,7 @@ require_once($CFG->dirroot.'/user/filters/courserole.php');
 require_once($CFG->dirroot.'/user/filters/globalrole.php');
 require_once($CFG->dirroot.'/user/filters/profilefield.php');
 require_once($CFG->dirroot.'/user/filters/yesno.php');
+require_once($CFG->dirroot.'/user/filters/anycourses.php');
 require_once($CFG->dirroot.'/user/filters/cohort.php');
 require_once($CFG->dirroot.'/user/filters/user_filter_forms.php');
 require_once($CFG->dirroot.'/user/filters/checkbox.php');
@@ -55,7 +56,7 @@ class user_filtering {
      * @param string $baseurl base url used for submission/return, null if the same of current page
      * @param array $extraparams extra page parameters
      */
-    public function user_filtering($fieldnames = null, $baseurl = null, $extraparams = null) {
+    public function __construct($fieldnames = null, $baseurl = null, $extraparams = null) {
         global $SESSION;
 
         if (!isset($SESSION->user_filtering)) {
@@ -63,10 +64,30 @@ class user_filtering {
         }
 
         if (empty($fieldnames)) {
-            $fieldnames = array('realname' => 0, 'lastname' => 1, 'firstname' => 1, 'username' => 1, 'email' => 1, 'city' => 1, 'country' => 1,
-                                'confirmed' => 1, 'suspended' => 1, 'profile' => 1, 'courserole' => 1, 'systemrole' => 1,
-                                'cohort' => 1, 'firstaccess' => 1, 'lastaccess' => 1, 'neveraccessed' => 1, 'timemodified' => 1,
-                                'nevermodified' => 1, 'auth' => 1, 'mnethostid' => 1, 'idnumber' => 1);
+            // As a start, add all fields as advanced fields (which are only available after clicking on "Show more").
+            $fieldnames = array('realname' => 1, 'lastname' => 1, 'firstname' => 1, 'username' => 1, 'email' => 1, 'city' => 1,
+                                'country' => 1, 'confirmed' => 1, 'suspended' => 1, 'profile' => 1, 'courserole' => 1,
+                                'anycourses' => 1, 'systemrole' => 1, 'cohort' => 1, 'firstaccess' => 1, 'lastaccess' => 1,
+                                'neveraccessed' => 1, 'timecreated' => 1, 'timemodified' => 1, 'nevermodified' => 1, 'auth' => 1,
+                                'mnethostid' => 1, 'idnumber' => 1, 'institution' => 1, 'department' => 1, 'lastip' => 1);
+
+            // Get the config which filters the admin wanted to show by default.
+            $userfiltersdefault = get_config('core', 'userfiltersdefault');
+
+            // If the admin did not enable any filter, the form will not make much sense if all fields are hidden behind
+            // "Show more". Thus, we enable the 'realname' filter automatically.
+            if ($userfiltersdefault == '') {
+                $userfiltersdefault = array('realname');
+
+                // Otherwise, we split the enabled filters into an array.
+            } else {
+                $userfiltersdefault = explode(',', $userfiltersdefault);
+            }
+
+            // Show these fields by default which the admin has enabled in the config.
+            foreach ($userfiltersdefault as $key) {
+                $fieldnames[$key] = 0;
+            }
         }
 
         $this->_fields  = array();
@@ -80,6 +101,12 @@ class user_filtering {
         // Fist the new filter form.
         $this->_addform = new user_add_filter_form($baseurl, array('fields' => $this->_fields, 'extraparams' => $extraparams));
         if ($adddata = $this->_addform->get_data()) {
+            // Clear previous filters.
+            if (!empty($adddata->replacefilters)) {
+                $SESSION->user_filtering = [];
+            }
+
+            // Add new filters.
             foreach ($this->_fields as $fname => $field) {
                 $data = $field->check_data($adddata);
                 if ($data === false) {
@@ -90,19 +117,16 @@ class user_filtering {
                 }
                 $SESSION->user_filtering[$fname][] = $data;
             }
-            // Clear the form.
-            $_POST = array();
-            $this->_addform = new user_add_filter_form($baseurl, array('fields' => $this->_fields, 'extraparams' => $extraparams));
         }
 
         // Now the active filters.
         $this->_activeform = new user_active_filter_form($baseurl, array('fields' => $this->_fields, 'extraparams' => $extraparams));
-        if ($adddata = $this->_activeform->get_data()) {
-            if (!empty($adddata->removeall)) {
+        if ($activedata = $this->_activeform->get_data()) {
+            if (!empty($activedata->removeall)) {
                 $SESSION->user_filtering = array();
 
-            } else if (!empty($adddata->removeselected) and !empty($adddata->filter)) {
-                foreach ($adddata->filter as $fname => $instances) {
+            } else if (!empty($activedata->removeselected) and !empty($activedata->filter)) {
+                foreach ($activedata->filter as $fname => $instances) {
                     foreach ($instances as $i => $val) {
                         if (empty($val)) {
                             continue;
@@ -114,11 +138,14 @@ class user_filtering {
                     }
                 }
             }
-            // Clear+reload the form.
-            $_POST = array();
-            $this->_activeform = new user_active_filter_form($baseurl, array('fields' => $this->_fields, 'extraparams' => $extraparams));
         }
-        // Now the active filters.
+
+        // Rebuild the forms if filters data was processed.
+        if ($adddata || $activedata) {
+            $_POST = []; // Reset submitted data.
+            $this->_addform = new user_add_filter_form($baseurl, ['fields' => $this->_fields, 'extraparams' => $extraparams]);
+            $this->_activeform = new user_active_filter_form($baseurl, ['fields' => $this->_fields, 'extraparams' => $extraparams]);
+        }
     }
 
     /**
@@ -142,14 +169,20 @@ class user_filtering {
             case 'suspended':   return new user_filter_yesno('suspended', get_string('suspended', 'auth'), $advanced, 'suspended');
             case 'profile':     return new user_filter_profilefield('profile', get_string('profilefields', 'admin'), $advanced);
             case 'courserole':  return new user_filter_courserole('courserole', get_string('courserole', 'filters'), $advanced);
+            case 'anycourses':
+                return new user_filter_anycourses('anycourses', get_string('anycourses', 'filters'), $advanced, 'user_enrolments');
             case 'systemrole':  return new user_filter_globalrole('systemrole', get_string('globalrole', 'role'), $advanced);
             case 'firstaccess': return new user_filter_date('firstaccess', get_string('firstaccess', 'filters'), $advanced, 'firstaccess');
             case 'lastaccess':  return new user_filter_date('lastaccess', get_string('lastaccess'), $advanced, 'lastaccess');
             case 'neveraccessed': return new user_filter_checkbox('neveraccessed', get_string('neveraccessed', 'filters'), $advanced, 'firstaccess', array('lastaccess_sck', 'lastaccess_eck', 'firstaccess_eck', 'firstaccess_sck'));
+            case 'timecreated': return new user_filter_date('timecreated', get_string('timecreated'), $advanced, 'timecreated');
             case 'timemodified': return new user_filter_date('timemodified', get_string('lastmodified'), $advanced, 'timemodified');
             case 'nevermodified': return new user_filter_checkbox('nevermodified', get_string('nevermodified', 'filters'), $advanced, array('timemodified', 'timecreated'), array('timemodified_sck', 'timemodified_eck'));
             case 'cohort':      return new user_filter_cohort($advanced);
             case 'idnumber':    return new user_filter_text('idnumber', get_string('idnumber'), $advanced, 'idnumber');
+            case 'institution': return new user_filter_text('institution', get_string('institution'), $advanced, 'institution');
+            case 'department': return new user_filter_text('department', get_string('department'), $advanced, 'department');
+            case 'lastip':    return new user_filter_text('lastip', get_string('lastip'), $advanced, 'lastip');
             case 'auth':
                 $plugins = core_component::get_plugin_list('auth');
                 $choices = array();
@@ -275,10 +308,20 @@ class user_filter_type {
      * @param string $label the label of the filter instance
      * @param boolean $advanced advanced form element flag
      */
-    public function user_filter_type($name, $label, $advanced) {
+    public function __construct($name, $label, $advanced) {
         $this->_name     = $name;
         $this->_label    = $label;
         $this->_advanced = $advanced;
+    }
+
+    /**
+     * Old syntax of class constructor. Deprecated in PHP7.
+     *
+     * @deprecated since Moodle 3.1
+     */
+    public function user_filter_type($name, $label, $advanced) {
+        debugging('Use of class name as constructor is deprecated', DEBUG_DEVELOPER);
+        self::__construct($name, $label, $advanced);
     }
 
     /**

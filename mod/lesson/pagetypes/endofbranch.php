@@ -51,14 +51,14 @@ class lesson_page_type_endofbranch extends lesson_page {
     public function get_idstring() {
         return $this->typeidstring;
     }
-    public function callback_on_view($canmanage) {
-        $this->redirect_to_first_answer($canmanage);
-        exit;
+    public function callback_on_view($canmanage, $redirect = true) {
+        return (int) $this->redirect_to_first_answer($canmanage, $redirect);
     }
 
-    public function redirect_to_first_answer($canmanage) {
+    public function redirect_to_first_answer($canmanage, $redirect) {
         global $USER, $PAGE;
-        $answer = array_shift($this->get_answers());
+        $answers = $this->get_answers();
+        $answer = array_shift($answers);
         $jumpto = $answer->jumpto;
         if ($jumpto == LESSON_RANDOMBRANCH) {
 
@@ -93,7 +93,12 @@ class lesson_page_type_endofbranch extends lesson_page {
             $jumpto = $this->properties->prevpageid;
 
         }
-        redirect(new moodle_url('/mod/lesson/view.php', array('id'=>$PAGE->cm->id,'pageid'=>$jumpto)));
+
+        if ($redirect) {
+            redirect(new moodle_url('/mod/lesson/view.php', array('id' => $PAGE->cm->id, 'pageid' => $jumpto)));
+            die;
+        }
+        return $jumpto;
     }
     public function get_grayout() {
         return 1;
@@ -119,7 +124,7 @@ class lesson_add_page_form_endofbranch extends lesson_add_page_form_base {
     protected $standard = false;
 
     public function custom_definition() {
-        global $PAGE;
+        global $PAGE, $CFG;
 
         $mform = $this->_form;
         $lesson = $this->_customdata['lesson'];
@@ -132,7 +137,11 @@ class lesson_add_page_form_endofbranch extends lesson_add_page_form_base {
         $mform->setType('qtype', PARAM_TEXT);
 
         $mform->addElement('text', 'title', get_string("pagetitle", "lesson"), array('size'=>70));
-        $mform->setType('title', PARAM_TEXT);
+        if (!empty($CFG->formatstringstriptags)) {
+            $mform->setType('title', PARAM_TEXT);
+        } else {
+            $mform->setType('title', PARAM_CLEANHTML);
+        }
 
         $this->editoroptions = array('noclean'=>true, 'maxfiles'=>EDITOR_UNLIMITED_FILES, 'maxbytes'=>$PAGE->course->maxbytes);
         $mform->addElement('editor', 'contents_editor', get_string("pagecontents", "lesson"), null, $this->editoroptions);

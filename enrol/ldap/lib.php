@@ -34,6 +34,13 @@ class enrol_ldap_plugin extends enrol_plugin {
     protected $errorlogtag = '[ENROL LDAP] ';
 
     /**
+     * The object class to use when finding users.
+     *
+     * @var string $userobjectclass
+     */
+    protected $userobjectclass;
+
+    /**
      * Constructor for the plugin. In addition to calling the parent
      * constructor, we define and 'fix' some settings depending on the
      * real settings the admin defined.
@@ -59,8 +66,13 @@ class enrol_ldap_plugin extends enrol_plugin {
         unset($ldap_usertypes);
 
         $default = ldap_getdefaults();
-        // Remove the objectclass default, as the values specified there are for
-        // users, and we are dealing with groups here.
+
+        // The objectclass in the defaults is for a user.
+        // This will be required later, but enrol_ldap uses 'objectclass' for its group objectclass.
+        // Save the normalised user objectclass for later.
+        $this->userobjectclass = ldap_normalise_objectclass($default['objectclass'][$this->get_config('user_type')]);
+
+        // Remove the objectclass default, as the values specified there are for users, and we are dealing with groups here.
         unset($default['objectclass']);
 
         // Use defaults if values not given. Dont use this->get_config()
@@ -72,31 +84,19 @@ class enrol_ldap_plugin extends enrol_plugin {
             }
         }
 
+        // Normalise the objectclass used for groups.
         if (empty($this->config->objectclass)) {
-            // Can't send empty filter. Fix it for now and future occasions
-            $this->set_config('objectclass', '(objectClass=*)');
-        } else if (stripos($this->config->objectclass, 'objectClass=') === 0) {
-            // Value is 'objectClass=some-string-here', so just add ()
-            // around the value (filter _must_ have them).
-            // Fix it for now and future occasions
-            $this->set_config('objectclass', '('.$this->config->objectclass.')');
-        } else if (stripos($this->config->objectclass, '(') !== 0) {
-            // Value is 'some-string-not-starting-with-left-parentheses',
-            // which is assumed to be the objectClass matching value.
-            // So build a valid filter with it.
-            $this->set_config('objectclass', '(objectClass='.$this->config->objectclass.')');
+            // No objectclass set yet - set a default class.
+            $this->config->objectclass = ldap_normalise_objectclass(null, '*');
+            $this->set_config('objectclass', $this->config->objectclass);
         } else {
-            // There is an additional possible value
-            // '(some-string-here)', that can be used to specify any
-            // valid filter string, to select subsets of users based
-            // on any criteria. For example, we could select the users
-            // whose objectClass is 'user' and have the
-            // 'enabledMoodleUser' attribute, with something like:
-            //
-            //   (&(objectClass=user)(enabledMoodleUser=1))
-            //
-            // In this particular case we don't need to do anything,
-            // so leave $this->config->objectclass as is.
+            $objectclass = ldap_normalise_objectclass($this->config->objectclass);
+            if ($objectclass !== $this->config->objectclass) {
+                // The objectclass was changed during normalisation.
+                // Save it in config, and update the local copy of config.
+                $this->set_config('objectclass', $objectclass);
+                $this->config->objectclass = $objectclass;
+            }
         }
     }
 
@@ -132,7 +132,7 @@ class enrol_ldap_plugin extends enrol_plugin {
      */
     public function can_hide_show_instance($instance) {
         $context = context_course::instance($instance->courseid);
-        return has_capability('enrol/ldap:config', $context);
+        return has_capability('enrol/ldap:manage', $context);
     }
 
     /**
@@ -328,7 +328,7 @@ class enrol_ldap_plugin extends enrol_plugin {
             return;
         }
 
-        $ldap_pagedresults = ldap_paged_results_supported($this->get_config('ldap_version'));
+        $ldap_pagedresults = ldap_paged_results_supported($this->get_config('ldap_version'), $this->ldapconnection);
 
         // we may need a lot of memory here
         core_php_time_limit::raise();
@@ -379,6 +379,7 @@ class enrol_ldap_plugin extends enrol_plugin {
             }
 
             $ldap_cookie = '';
+            $servercontrols = array();
             foreach ($ldap_contexts as $ldap_context) {
                 $ldap_context = trim($ldap_context);
                 if (empty($ldap_context)) {
@@ -388,28 +389,35 @@ class enrol_ldap_plugin extends enrol_plugin {
                 $flat_records = array();
                 do {
                     if ($ldap_pagedresults) {
-                        ldap_control_paged_result($this->ldapconnection, $this->config->pagesize, true, $ldap_cookie);
+                        $servercontrols = array(array(
+                            'oid' => LDAP_CONTROL_PAGEDRESULTS, 'value' => array(
+                                'size' => $this->config->pagesize, 'cookie' => $ldap_cookie)));
                     }
 
                     if ($this->config->course_search_sub) {
                         // Use ldap_search to find first user from subtree
-                        $ldap_result = @ldap_search($this->ldapconnection,
-                                                    $ldap_context,
-                                                    $ldap_search_pattern,
-                                                    $ldap_fields_wanted);
+                        $ldap_result = @ldap_search($this->ldapconnection, $ldap_context,
+                            $ldap_search_pattern, $ldap_fields_wanted,
+                            0, -1, -1, LDAP_DEREF_NEVER, $servercontrols);
                     } else {
                         // Search only in this context
-                        $ldap_result = @ldap_list($this->ldapconnection,
-                                                  $ldap_context,
-                                                  $ldap_search_pattern,
-                                                  $ldap_fields_wanted);
+                        $ldap_result = @ldap_list($this->ldapconnection, $ldap_context,
+                            $ldap_search_pattern, $ldap_fields_wanted,
+                            0, -1, -1, LDAP_DEREF_NEVER, $servercontrols);
                     }
                     if (!$ldap_result) {
                         continue; // Next
                     }
 
                     if ($ldap_pagedresults) {
-                        ldap_control_paged_result_response($this->ldapconnection, $ldap_result, $ldap_cookie);
+                        // Get next server cookie to know if we'll need to continue searching.
+                        $ldap_cookie = '';
+                        // Get next cookie from controls.
+                        ldap_parse_result($this->ldapconnection, $ldap_result, $errcode, $matcheddn,
+                            $errmsg, $referrals, $controls);
+                        if (isset($controls[LDAP_CONTROL_PAGEDRESULTS]['value']['cookie'])) {
+                            $ldap_cookie = $controls[LDAP_CONTROL_PAGEDRESULTS]['value']['cookie'];
+                        }
                     }
 
                     // Check and push results
@@ -434,7 +442,7 @@ class enrol_ldap_plugin extends enrol_plugin {
                     $ignorehidden = $this->get_config('ignorehiddencourses');
                     foreach($flat_records as $course) {
                         $course = array_change_key_case($course, CASE_LOWER);
-                        $idnumber = $course{$this->config->course_idnumber}[0];
+                        $idnumber = $course[$this->config->course_idnumber][0];
                         $trace->output(get_string('synccourserole', 'enrol_ldap', array('idnumber'=>$idnumber, 'role_shortname'=>$role->shortname)));
 
                         // Does the course exist in moodle already?
@@ -460,7 +468,7 @@ class enrol_ldap_plugin extends enrol_plugin {
                         // this is an odd array -- mix of hash and array --
                         $ldapmembers = array();
 
-                        if (array_key_exists('memberattribute_role'.$role->id, $this->config)
+                        if (property_exists($this->config, 'memberattribute_role'.$role->id)
                             && !empty($this->config->{'memberattribute_role'.$role->id})
                             && !empty($course[$this->config->{'memberattribute_role'.$role->id}])) { // May have no membership!
 
@@ -490,7 +498,7 @@ class enrol_ldap_plugin extends enrol_plugin {
                                 // as the idnumber does not match their dn and we get dn's from membership.
                                 $memberidnumbers = array();
                                 foreach ($ldapmembers as $ldapmember) {
-                                    $result = ldap_read($this->ldapconnection, $ldapmember, '(objectClass=*)',
+                                    $result = ldap_read($this->ldapconnection, $ldapmember, $this->userobjectclass,
                                                         array($this->config->idnumber_attribute));
                                     $entry = ldap_first_entry($this->ldapconnection, $result);
                                     $values = ldap_get_values($this->ldapconnection, $entry, $this->config->idnumber_attribute);
@@ -761,7 +769,7 @@ class enrol_ldap_plugin extends enrol_plugin {
 
         // Get all contexts and look for first matching user
         $ldap_contexts = explode(';', $ldap_contexts);
-        $ldap_pagedresults = ldap_paged_results_supported($this->get_config('ldap_version'));
+        $ldap_pagedresults = ldap_paged_results_supported($this->get_config('ldap_version'), $this->ldapconnection);
         foreach ($ldap_contexts as $context) {
             $context = trim($context);
             if (empty($context)) {
@@ -769,24 +777,25 @@ class enrol_ldap_plugin extends enrol_plugin {
             }
 
             $ldap_cookie = '';
+            $servercontrols = array();
             $flat_records = array();
             do {
                 if ($ldap_pagedresults) {
-                    ldap_control_paged_result($this->ldapconnection, $this->config->pagesize, true, $ldap_cookie);
+                    $servercontrols = array(array(
+                        'oid' => LDAP_CONTROL_PAGEDRESULTS, 'value' => array(
+                            'size' => $this->config->pagesize, 'cookie' => $ldap_cookie)));
                 }
 
                 if ($this->get_config('course_search_sub')) {
                     // Use ldap_search to find first user from subtree
-                    $ldap_result = @ldap_search($this->ldapconnection,
-                                                $context,
-                                                $ldap_search_pattern,
-                                                $ldap_fields_wanted);
+                    $ldap_result = @ldap_search($this->ldapconnection, $context,
+                        $ldap_search_pattern, $ldap_fields_wanted,
+                        0, -1, -1, LDAP_DEREF_NEVER, $servercontrols);
                 } else {
                     // Search only in this context
-                    $ldap_result = @ldap_list($this->ldapconnection,
-                                              $context,
-                                              $ldap_search_pattern,
-                                              $ldap_fields_wanted);
+                    $ldap_result = @ldap_list($this->ldapconnection, $context,
+                        $ldap_search_pattern, $ldap_fields_wanted,
+                        0, -1, -1, LDAP_DEREF_NEVER, $servercontrols);
                 }
 
                 if (!$ldap_result) {
@@ -794,7 +803,14 @@ class enrol_ldap_plugin extends enrol_plugin {
                 }
 
                 if ($ldap_pagedresults) {
-                    ldap_control_paged_result_response($this->ldapconnection, $ldap_result, $ldap_cookie);
+                    // Get next server cookie to know if we'll need to continue searching.
+                    $ldap_cookie = '';
+                    // Get next cookie from controls.
+                    ldap_parse_result($this->ldapconnection, $ldap_result, $errcode, $matcheddn,
+                        $errmsg, $referrals, $controls);
+                    if (isset($controls[LDAP_CONTROL_PAGEDRESULTS]['value']['cookie'])) {
+                        $ldap_cookie = $controls[LDAP_CONTROL_PAGEDRESULTS]['value']['cookie'];
+                    }
                 }
 
                 // Check and push results. ldap_get_entries() already
@@ -838,10 +854,9 @@ class enrol_ldap_plugin extends enrol_plugin {
         require_once($CFG->libdir.'/ldaplib.php');
 
         $ldap_contexts = explode(';', $this->get_config('user_contexts'));
-        $ldap_defaults = ldap_getdefaults();
 
         return ldap_find_userdn($this->ldapconnection, $userid, $ldap_contexts,
-                                '(objectClass='.$ldap_defaults['objectclass'][$this->get_config('user_type')].')',
+                                $this->userobjectclass,
                                 $this->get_config('idnumber_attribute'), $this->get_config('user_search_sub'));
     }
 

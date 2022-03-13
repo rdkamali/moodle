@@ -23,8 +23,7 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-
-require_once(dirname(__FILE__) . '/../config.php');
+require_once(__DIR__ . '/../config.php');
 require_once($CFG->dirroot . '/question/editlib.php');
 
 list($thispageurl, $contexts, $cmid, $cm, $module, $pagevars) =
@@ -36,21 +35,36 @@ if (($lastchanged = optional_param('lastchanged', 0, PARAM_INT)) !== 0) {
 }
 $PAGE->set_url($url);
 
-$questionbank = new core_question\bank\view($contexts, $thispageurl, $COURSE, $cm);
-$questionbank->process_actions();
+if ($PAGE->course->id == $SITE->id) {
+    $PAGE->set_primary_active_tab('home');
+}
 
-// TODO log this page view.
+$questionbank = new core_question\local\bank\view($contexts, $thispageurl, $COURSE, $cm);
 
 $context = $contexts->lowest();
 $streditingquestions = get_string('editquestions', 'question');
 $PAGE->set_title($streditingquestions);
 $PAGE->set_heading($COURSE->fullname);
+$PAGE->activityheader->disable();
+
 echo $OUTPUT->header();
 
-echo '<div class="questionbankwindow boxwidthwide boxaligncenter">';
-$questionbank->display('questions', $pagevars['qpage'], $pagevars['qperpage'],
-        $pagevars['cat'], $pagevars['recurse'], $pagevars['showhidden'],
-        $pagevars['qbshowtext']);
-echo "</div>\n";
+// Print horizontal nav if needed.
+$renderer = $PAGE->get_renderer('core_question', 'bank');
+
+// Render the selection action.
+$qbankaction = new \core_question\output\qbank_action_menu($url);
+echo $renderer->render($qbankaction);
+
+// Print the question area.
+$questionbank->display($pagevars, 'questions');
+
+// Log the view of this category.
+list($categoryid, $contextid) = explode(',', $pagevars['cat']);
+$category = new stdClass();
+$category->id = $categoryid;
+$catcontext = \context::instance_by_id($contextid);
+$event = \core\event\question_category_viewed::create_from_question_category_instance($category, $catcontext);
+$event->trigger();
 
 echo $OUTPUT->footer();

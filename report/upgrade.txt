@@ -1,6 +1,29 @@
 This files describes API changes in /report/* - plugins,
 information provided here is intended especially for developers.
 
+=== 4.0 ===
+
+* The method report_helper::save_selected_report() has been been deprecated because it is no longer used.
+
+=== 3.11 ===
+
+* The new report plugin's can have drop down, which can be included by calling static
+  methods save_selected_report and print_report_selector in lib/classes/report_helper.php.
+  The save_selected_report helps to remember the most recently accessed report plugin.
+  print_report_selector would help to show the dropdown, on the report page. Make sure
+  to call print_report_selector after the header is printed/echoed.
+
+=== 3.6 ===
+
+* The final deprecation of xxx_delete_course callback means that this function will no longer be called.
+  Please use the observer for event \core\event\course_content_deleted instead.
+
+=== 3.2 ===
+* Callback delete_course is deprecated and should be replaced with observer for event \core\event\course_content_deleted
+* The report_log_print_graph signature and behaviour has changed to generate charts using
+  the new Chart API. The third argument has been renamed to $typeormode and it accepts
+  the type (usercourse.png, userday.png) or the mode (today, all).
+
 === 2.7 ===
 * How to migrate reports accessing table 'log':
   http://docs.moodle.org/dev/Migrating_log_access_in_reports

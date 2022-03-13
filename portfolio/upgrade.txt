@@ -1,6 +1,23 @@
 This files describes API changes in /portfolio/ portfolio system,
 information provided here is intended especially for developers.
 
+=== 4.0 ===
+
+* The portfolio_boxnet has been completely removed.
+* The portfolio_picasa has been completely removed (Picasa is discontinued since 2016).
+
+=== 3.7 ===
+
+* The portfolio_cron() function has been removed. Please use portfolio_cron_task scheduled task instead.
+
+=== 3.1 ===
+
+* The following functions, previously used (exclusively) by upgrade steps are not available
+  anymore because of the upgrade cleanup performed for this version. See MDL-51580 for more info:
+    - portfolio_picasa_admin_upgrade_notification()
+    - portfolio_googledocs_admin_upgrade_notification()
+    - portfolio_boxnet_admin_upgrade_notification()
+
 === 2.4 ===
 
 The set_callback_options function's third parameter has been changed from a file path

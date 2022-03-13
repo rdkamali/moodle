@@ -26,8 +26,15 @@ require('../config.php');
 require_once("$CFG->libdir/formslib.php");
 
 $id = required_param('id', PARAM_INT);
+$returnurl = optional_param('returnurl', 0, PARAM_LOCALURL);
 
 if (!isloggedin()) {
+    $referer = get_local_referer();
+    if (empty($referer)) {
+        // A user that is not logged in has arrived directly on this page,
+        // they should be redirected to the course page they are trying to enrol on after logging in.
+        $SESSION->wantsurl = "$CFG->wwwroot/course/view.php?id=$id";
+    }
     // do not use require_login here because we are usually coming from it,
     // it would also mess up the SESSION->wantsurl
     redirect(get_login_url());
@@ -52,6 +59,11 @@ $PAGE->set_url('/enrol/index.php', array('id'=>$course->id));
 // do not allow enrols when in login-as session
 if (\core\session\manager::is_loggedinas() and $USER->loginascontext->contextlevel == CONTEXT_COURSE) {
     print_error('loginasnoenrol', '', $CFG->wwwroot.'/course/view.php?id='.$USER->loginascontext->instanceid);
+}
+
+// Check if user has access to the category where the course is located.
+if (!core_course_category::can_view_course_info($course) && !is_enrolled($context, $USER, '', true)) {
+    print_error('coursehidden', '', $CFG->wwwroot . '/');
 }
 
 // get all enrol forms available in this course
@@ -98,8 +110,14 @@ foreach ($forms as $form) {
 if (!$forms) {
     if (isguestuser()) {
         notice(get_string('noguestaccess', 'enrol'), get_login_url());
+    } else if ($returnurl) {
+        notice(get_string('notenrollable', 'enrol'), $returnurl);
     } else {
-        notice(get_string('notenrollable', 'enrol'), "$CFG->wwwroot/index.php");
+        $url = get_local_referer(false);
+        if (empty($url)) {
+            $url = new moodle_url('/index.php');
+        }
+        notice(get_string('notenrollable', 'enrol'), $url);
     }
 }
 
