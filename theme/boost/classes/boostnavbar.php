@@ -67,7 +67,6 @@ class boostnavbar implements \renderable {
                 $this->remove('permissions');
             }
         }
-
         if ($this->page->context->contextlevel == CONTEXT_COURSE) {
             // Remove any duplicate navbar nodes.
             $this->remove_duplicate_items();
@@ -94,6 +93,9 @@ class boostnavbar implements \renderable {
                 case 'course-reset':
                     // Remove the 'Import' navbar node in the Backup, Restore, Copy course and Reset pages.
                     $this->remove('import');
+                case 'course-user':
+                    $this->remove('mygrades');
+                    $this->remove('grades');
             }
         }
 
@@ -110,9 +112,7 @@ class boostnavbar implements \renderable {
                 $courseformat->coursedisplay != COURSE_DISPLAY_MULTIPAGE;
         }
 
-        if (!is_null($this->get_item('root'))) { // We are in site administration.
-            // Remove the 'Site administration' navbar node as it already exists in the primary navigation menu.
-            $this->remove('root');
+        if ($this->page->context->contextlevel == CONTEXT_SYSTEM) {
             // Remove the navbar nodes that already exist in the secondary navigation menu.
             $this->remove_items_that_exist_in_navigation($PAGE->secondarynav);
         }
