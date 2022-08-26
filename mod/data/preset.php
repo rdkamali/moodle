@@ -28,21 +28,28 @@
  * @package mod_data
  */
 
+use mod_data\manager;
+use mod_data\preset;
+
 require_once('../../config.php');
 require_once($CFG->dirroot.'/mod/data/lib.php');
 require_once($CFG->dirroot.'/mod/data/preset_form.php');
 
-$id = optional_param('id', 0, PARAM_INT); // The course module id.
+// The course module id.
+$id = optional_param('id', 0, PARAM_INT);
 
+$manager = null;
 if ($id) {
-    $cm = get_coursemodule_from_id('data', $id, null, null, MUST_EXIST);
-    $course = $DB->get_record('course', array('id' => $cm->course), '*', MUST_EXIST);
-    $data = $DB->get_record('data', array('id' => $cm->instance), '*', MUST_EXIST);
+    list($course, $cm) = get_course_and_cm_from_cmid($id, manager::MODULE);
+    $manager = manager::create_from_coursemodule($cm);
+    $data = $manager->get_instance();
 } else {
-    $d = required_param('d', PARAM_INT);     // database activity id
-    $data = $DB->get_record('data', array('id' => $d), '*', MUST_EXIST);
-    $course = $DB->get_record('course', array('id' => $data->course), '*', MUST_EXIST);
-    $cm = get_coursemodule_from_instance('data', $data->id, $course->id, null, MUST_EXIST);
+    // We must have the database activity id.
+    $d = required_param('d', PARAM_INT);
+    $data = $DB->get_record('data', ['id' => $d], '*', MUST_EXIST);
+    $manager = manager::create_from_instance($data);
+    $cm = $manager->get_coursemodule();
+    $course = get_course($cm->course);
 }
 
 $action = optional_param('action', 'view', PARAM_ALPHA); // The page action.
@@ -52,7 +59,8 @@ if (!in_array($action, $allowedactions)) {
     throw new moodle_exception('invalidaccess');
 }
 
-$context = context_module::instance($cm->id, MUST_EXIST);
+$context = $manager->get_context();
+
 require_login($course, false, $cm);
 require_capability('mod/data:managetemplates', $context);
 
@@ -70,14 +78,15 @@ $data->cmidnumber = $cm->idnumber;
 $data->instance   = $cm->instance;
 
 $renderer = $PAGE->get_renderer('mod_data');
-$presets = data_get_available_presets($context);
+$presets = $manager->get_available_presets();
 
 if ($action === 'export') {
     if (headers_sent()) {
-        print_error('headersent');
+        throw new \moodle_exception('headersent');
     }
 
-    $exportfile = data_presets_export($course, $cm, $data);
+    $preset = preset::create_from_instance($manager, $data->name);
+    $exportfile = $preset->export();
     $exportfilename = basename($exportfile);
     header("Content-Type: application/download\n");
     header("Content-Disposition: attachment; filename=\"$exportfilename\"");
@@ -147,7 +156,7 @@ if (in_array($action, ['confirmdelete', 'delete', 'finishimport'])) {
             }
         }
         if (!isset($selectedpreset->shortname) || !data_user_can_delete_preset($context, $selectedpreset)) {
-            print_error('invalidrequest');
+            throw new \moodle_exception('invalidrequest');
         }
 
         data_delete_site_preset($shortname);
@@ -161,7 +170,7 @@ if (in_array($action, ['confirmdelete', 'delete', 'finishimport'])) {
         if (!$fullname) {
             $presetdir = $CFG->tempdir.'/forms/'.required_param('directory', PARAM_FILE);
             if (!file_exists($presetdir) || !is_dir($presetdir)) {
-                print_error('cannotimport');
+                throw new \moodle_exception('cannotimport');
             }
             $importer = new data_preset_upload_importer($course, $cm, $data, $presetdir);
         } else {

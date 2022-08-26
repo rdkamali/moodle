@@ -117,7 +117,8 @@ class award_criteria_profile extends award_criteria {
                 if (in_array($field->id, $existing)) {
                     $checked = true;
                 }
-                $this->config_options($mform, array('id' => $field->id, 'checked' => $checked, 'name' => $field->name, 'error' => false));
+                $this->config_options($mform, array('id' => $field->id, 'checked' => $checked,
+                    'name' => format_string($field->name), 'error' => false));
                 $none = false;
             }
         }
@@ -202,8 +203,8 @@ class award_criteria_profile extends award_criteria {
                 $join .= " LEFT JOIN {user_info_data} uid{$idx} ON uid{$idx}.userid = u.id AND uid{$idx}.fieldid = :fieldid{$idx} ";
                 $sqlparams["fieldid{$idx}"] = $param['field'];
                 $whereparts[] = "uid{$idx}.id IS NOT NULL";
-            } else {
-                // This is a field from {user} table.
+            } else if (in_array($param['field'], $this->allowed_default_fields)) {
+                // This is a valid field from {user} table.
                 if ($param['field'] == 'picture') {
                     // The picture field is numeric and requires special handling.
                     $whereparts[] = "u.{$param['field']} != 0";

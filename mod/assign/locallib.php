@@ -776,13 +776,13 @@ class assign {
             // Call save_settings hook for submission plugins.
             foreach ($this->submissionplugins as $plugin) {
                 if (!$this->update_plugin_instance($plugin, $formdata)) {
-                    print_error($plugin->get_error());
+                    throw new \moodle_exception($plugin->get_error());
                     return false;
                 }
             }
             foreach ($this->feedbackplugins as $plugin) {
                 if (!$this->update_plugin_instance($plugin, $formdata)) {
-                    print_error($plugin->get_error());
+                    throw new \moodle_exception($plugin->get_error());
                     return false;
                 }
             }
@@ -836,13 +836,13 @@ class assign {
 
         foreach ($this->submissionplugins as $plugin) {
             if (!$plugin->delete_instance()) {
-                print_error($plugin->get_error());
+                throw new \moodle_exception($plugin->get_error());
                 $result = false;
             }
         }
         foreach ($this->feedbackplugins as $plugin) {
             if (!$plugin->delete_instance()) {
-                print_error($plugin->get_error());
+                throw new \moodle_exception($plugin->get_error());
                 $result = false;
             }
         }
@@ -1300,7 +1300,7 @@ class assign {
             if (!empty($formdata->$enabledname)) {
                 $plugin->enable();
                 if (!$plugin->save_settings($formdata)) {
-                    print_error($plugin->get_error());
+                    throw new \moodle_exception($plugin->get_error());
                     return false;
                 }
             } else {
@@ -1542,13 +1542,13 @@ class assign {
         // Call save_settings hook for submission plugins.
         foreach ($this->submissionplugins as $plugin) {
             if (!$this->update_plugin_instance($plugin, $formdata)) {
-                print_error($plugin->get_error());
+                throw new \moodle_exception($plugin->get_error());
                 return false;
             }
         }
         foreach ($this->feedbackplugins as $plugin) {
             if (!$this->update_plugin_instance($plugin, $formdata)) {
-                print_error($plugin->get_error());
+                throw new \moodle_exception($plugin->get_error());
                 return false;
             }
         }
@@ -2638,6 +2638,17 @@ class assign {
     }
 
     /**
+     * Is user id filtered by user filters and table preferences.
+     *
+     * @param int $userid User id that needs to be checked.
+     * @return bool
+     */
+    public function is_userid_filtered($userid) {
+        $users = $this->get_grading_userid_list();
+        return in_array($userid, $users);
+    }
+
+    /**
      * Finds all assignment notifications that have yet to be mailed out, and mails them.
      *
      * Cron function to be run periodically according to the moodle cron.
@@ -3277,7 +3288,7 @@ class assign {
 
         $plugin = $this->get_plugin_by_type($pluginsubtype, $plugintype);
         if (!$plugin) {
-            print_error('invalidformdata', '');
+            throw new \moodle_exception('invalidformdata', '');
             return;
         }
 
@@ -4452,7 +4463,7 @@ class assign {
         $userid = optional_param('userid', $USER->id, PARAM_INT);
 
         if (!$this->can_edit_submission($userid, $USER->id)) {
-            print_error('nopermission');
+            throw new \moodle_exception('nopermission');
         }
         $user = core_user::get_user($userid, '*', MUST_EXIST);
 
@@ -4758,6 +4769,8 @@ class assign {
 
         $PAGE->set_pagelayout('embedded');
 
+        $PAGE->activityheader->disable();
+
         $courseshortname = $this->get_context()->get_course_context()->get_context_name(false, true);
         $args = [
             'contextname' => $this->get_context()->get_context_name(false, true),
@@ -4775,6 +4788,10 @@ class assign {
         if (!$userid && $blindid) {
             $userid = $this->get_user_id_for_uniqueid($blindid);
         }
+
+        // Instantiate table object to apply table preferences.
+        $gradingtable = new assign_grading_table($this, 10, '', 0, false);
+        $gradingtable->setup();
 
         $currentgroup = groups_get_activity_group($this->get_course_module(), true);
         $framegrader = new grading_app($userid, $currentgroup, $this);
@@ -4913,7 +4930,7 @@ class assign {
 
         if ($userid == $USER->id) {
             if (!$this->can_edit_submission($userid, $USER->id)) {
-                print_error('nopermission');
+                throw new \moodle_exception('nopermission');
             }
             // User is editing their own submission.
             require_capability('mod/assign:submit', $this->context);
@@ -4921,7 +4938,7 @@ class assign {
         } else {
             // User is editing another user's submission.
             if (!$this->can_edit_submission($userid, $USER->id)) {
-                print_error('nopermission');
+                throw new \moodle_exception('nopermission');
             }
 
             $name = $this->fullname($user);
@@ -5103,7 +5120,7 @@ class assign {
                 return;
             }
         }
-        print_error('invalidformdata', '');
+        throw new \moodle_exception('invalidformdata', '');
     }
 
     /**
@@ -6801,7 +6818,7 @@ class assign {
             require_capability('mod/assign:submit', $this->context);
         } else {
             if (!$this->can_edit_submission($userid, $USER->id)) {
-                print_error('nopermission');
+                throw new \moodle_exception('nopermission');
             }
         }
 
@@ -7647,7 +7664,7 @@ class assign {
         } else {
             $user = $DB->get_record('user', array('id'=>$userid), '*', MUST_EXIST);
             if (!$this->can_edit_submission($userid, $USER->id)) {
-                print_error('nopermission');
+                throw new \moodle_exception('nopermission');
             }
         }
         $instance = $this->get_instance();
@@ -7683,7 +7700,7 @@ class assign {
 
         // Get the flags to check if it is locked.
         if ($flags && $flags->locked) {
-            print_error('submissionslocked', 'assign');
+            throw new \moodle_exception('submissionslocked', 'assign');
             return true;
         }
 
@@ -8668,7 +8685,7 @@ class assign {
                 if ($gradingmodified) {
                     if (!$plugin->save($grade, $formdata)) {
                         $result = false;
-                        print_error($plugin->get_error());
+                        throw new \moodle_exception($plugin->get_error());
                     }
                     // If $feedbackmodified is true, keep it true.
                     $feedbackmodified = $feedbackmodified || $gradingmodified;

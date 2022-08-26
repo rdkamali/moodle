@@ -1085,7 +1085,7 @@ EOF;
      * the Behat result look ugly.
      *
      * Note: Most of the code relating to running a task is based on
-     * admin/tool/task/cli/schedule_task.php.
+     * admin/cli/scheduled_task.php.
      *
      * @Given /^I run the scheduled task "(?P<task_name>[^"]+)"$/
      * @param string $taskname Name of task e.g. 'mod_whatever\task\do_something'
@@ -1986,6 +1986,21 @@ EOF;
         }
 
         throw new \Moodle\BehatExtension\Exception\SkippedException();
+    }
+
+    /**
+     * Checks if given plugin is installed, and skips the current scenario if not.
+     *
+     * @Given the :plugin plugin is installed
+     * @param string $plugin frankenstyle plugin name, e.g. 'filter_embedquestion'.
+     * @throws \Moodle\BehatExtension\Exception\SkippedException
+     */
+    public function plugin_is_installed(string $plugin): void {
+        $path = core_component::get_component_directory($plugin);
+        if (!is_readable($path . '/version.php')) {
+            throw new \Moodle\BehatExtension\Exception\SkippedException(
+                    'Skipping this scenario because the ' . $plugin . ' is not installed.');
+        }
     }
 
     /**

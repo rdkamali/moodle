@@ -38,6 +38,7 @@ $string['activityiscurrentlyhidden'] = 'Sorry, this activity is currently hidden
 $string['activityheader'] = 'Activity menu';
 $string['activitymodule'] = 'Activity module';
 $string['activitymodules'] = 'Activity modules';
+$string['activitynotready'] = 'Activity not ready yet';
 $string['activityreport'] = 'Activity report';
 $string['activityreports'] = 'Activity reports';
 $string['activityselect'] = 'Select this activity to be moved elsewhere';
@@ -267,6 +268,7 @@ $string['closebuttontitle'] = 'Close';
 $string['collapse'] = 'Collapse';
 $string['collapseall'] = 'Collapse all';
 $string['collapsecategory'] = 'Collapse {$a}';
+$string['comebacklater'] = 'Please come back later.';
 $string['commentincontext'] = 'Find this comment in context';
 $string['comments'] = 'Comments';
 $string['commentscount'] = 'Comments ({$a})';
@@ -2367,10 +2369,6 @@ $string['yourteacher'] = 'your {$a}';
 $string['yourwordforx'] = 'Your word for \'{$a}\'';
 $string['zippingbackup'] = 'Zipping backup';
 $string['deprecatedeventname'] = '{$a} (no longer in use)';
-
-// Deprecated since Moodle 3.9.
-$string['participantscount'] = 'Number of participants: {$a}';
-$string['userfilterplaceholder'] = 'Search keyword or select filter';
 
 // Deprecated since Moodle 3.11.
 $string['hidepicture'] = 'Hide picture';

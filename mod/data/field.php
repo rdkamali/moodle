@@ -23,6 +23,8 @@
  * @package mod_data
  */
 
+use mod_data\manager;
+
 require_once('../../config.php');
 require_once('lib.php');
 require_once($CFG->dirroot.'/mod/data/preset_form.php');
@@ -69,32 +71,33 @@ if ($id) {
     $url->param('id', $id);
     $PAGE->set_url($url);
     if (! $cm = get_coursemodule_from_id('data', $id)) {
-        print_error('invalidcoursemodule');
+        throw new \moodle_exception('invalidcoursemodule');
     }
     if (! $course = $DB->get_record('course', array('id'=>$cm->course))) {
-        print_error('coursemisconf');
+        throw new \moodle_exception('coursemisconf');
     }
     if (! $data = $DB->get_record('data', array('id'=>$cm->instance))) {
-        print_error('invalidcoursemodule');
+        throw new \moodle_exception('invalidcoursemodule');
     }
 
 } else {
     $url->param('d', $d);
     $PAGE->set_url($url);
     if (! $data = $DB->get_record('data', array('id'=>$d))) {
-        print_error('invalidid', 'data');
+        throw new \moodle_exception('invalidid', 'data');
     }
     if (! $course = $DB->get_record('course', array('id'=>$data->course))) {
-        print_error('invalidcoursemodule');
+        throw new \moodle_exception('invalidcoursemodule');
     }
     if (! $cm = get_coursemodule_from_instance('data', $data->id, $course->id)) {
-        print_error('invalidcoursemodule');
+        throw new \moodle_exception('invalidcoursemodule');
     }
 }
 
 require_login($course, true, $cm);
 
-$context = context_module::instance($cm->id);
+$manager = manager::create_from_coursemodule($cm);
+$context = $manager->get_context();
 require_capability('mod/data:managetemplates', $context);
 
 $formimportzip = new data_import_preset_zip_form();
@@ -315,10 +318,10 @@ switch ($mode) {
             }
         } else {
             echo $OUTPUT->heading(get_string('presets', 'data'), 2, 'mb-4');
-            $presets = data_get_available_presets($context);
-            $presetstable = new \mod_data\output\presets($data->id, $presets,
+            $presets = $manager->get_available_presets();
+            $presetsdata = new \mod_data\output\presets($data->id, $presets,
                 new \moodle_url('/mod/data/field.php'));
-            echo $renderer->render_presets($presetstable, false);
+            echo $renderer->render_presets($presetsdata);
         }
         echo $OUTPUT->footer();
         exit;
@@ -463,4 +466,3 @@ if (($mode == 'new') && (!empty($newtype))) { // Adding a new field.
 
 /// Finish the page
 echo $OUTPUT->footer();
-

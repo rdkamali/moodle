@@ -543,12 +543,13 @@ class quiz {
         $qcategories = array();
 
         foreach ($this->get_questions() as $questiondata) {
-            if ($questiondata->qtype == 'random' and $includepotential) {
+            if ($questiondata->qtype === 'random' && $includepotential) {
                 if (!isset($qcategories[$questiondata->category])) {
                     $qcategories[$questiondata->category] = false;
                 }
-                if ($questiondata->includingsubcategories) {
-                    $qcategories[$questiondata->category] = true;
+                if (!empty($questiondata->filtercondition)) {
+                    $filtercondition = json_decode($questiondata->filtercondition);
+                    $qcategories[$questiondata->category] = !empty($filtercondition->includingsubcategories);
                 }
             } else {
                 if (!in_array($questiondata->qtype, $questiontypes)) {
@@ -1648,7 +1649,7 @@ class quiz_attempt {
      * @return bool whether show all on one page should be on by default.
      */
     public function get_default_show_all($script) {
-        return $script == 'review' && count($this->questionpages) < self::MAX_SLOTS_FOR_DEFAULT_REVIEW_SHOW_ALL;
+        return $script === 'review' && count($this->questionpages) < self::MAX_SLOTS_FOR_DEFAULT_REVIEW_SHOW_ALL;
     }
 
     // Bits of content =========================================================
@@ -1848,7 +1849,7 @@ class quiz_attempt {
      */
     public function render_question_for_commenting($slot) {
         $options = $this->get_display_options(true);
-        $options->hide_all_feedback();
+        $options->generalfeedback = question_display_options::HIDDEN;
         $options->manualcomment = question_display_options::EDITABLE;
         return $this->quba->render_question($slot, $options,
                 $this->get_question_number($slot));
@@ -1900,8 +1901,7 @@ class quiz_attempt {
         $bc = new block_contents();
         $bc->attributes['id'] = 'mod_quiz_navblock';
         $bc->attributes['role'] = 'navigation';
-        $bc->attributes['aria-labelledby'] = 'mod_quiz_navblock_title';
-        $bc->title = html_writer::span(get_string('quiznavigation', 'quiz'), '', array('id' => 'mod_quiz_navblock_title'));
+        $bc->title = get_string('quiznavigation', 'quiz');
         $bc->content = $output->navigation_panel($panel);
         return $bc;
     }
@@ -2409,7 +2409,7 @@ class quiz_attempt {
         $becomingoverdue = false;
         $becomingabandoned = false;
         if ($timeup) {
-            if ($this->get_quiz()->overduehandling == 'graceperiod') {
+            if ($this->get_quiz()->overduehandling === 'graceperiod') {
                 if (is_null($graceperiodmin)) {
                     $graceperiodmin = get_config('quiz', 'graceperiodmin');
                 }
@@ -2469,7 +2469,15 @@ class quiz_attempt {
             if ($becomingabandoned) {
                 $this->process_abandon($timenow, true);
             } else {
-                $this->process_finish($timenow, !$toolate, $toolate ? $timeclose : $timenow, true);
+                if (!$toolate || $this->get_quiz()->overduehandling === 'graceperiod') {
+                    // Normally, we record the accurate finish time when the student is online.
+                    $finishtime = $timenow;
+                } else {
+                    // But, if there is no grade period, and the final responses were too
+                    // late to be processed, record the close time, to reduce confusion.
+                    $finishtime = $timeclose;
+                }
+                $this->process_finish($timenow, !$toolate, $finishtime, true);
             }
 
         } catch (question_out_of_sequence_exception $e) {
@@ -2494,19 +2502,25 @@ class quiz_attempt {
     }
 
     /**
-     * Check a page access to see if is an out of sequence access.
+     * Check a page read access to see if is an out of sequence access.
      *
-     * @param  int $page page number.
-     * @return boolean false is is an out of sequence access, true otherwise.
+     * If allownext is set then we also check whether access to the page
+     * after the current one should be permitted.
+     *
+     * @param int $page page number.
+     * @param bool $allownext in case of a sequential navigation, can we go to next page ?
+     * @return boolean false is an out of sequence access, true otherwise.
      * @since Moodle 3.1
      */
-    public function check_page_access($page) {
-        if ($this->get_currentpage() != $page) {
-            if ($this->get_navigation_method() == QUIZ_NAVMETHOD_SEQ && $this->get_currentpage() > $page) {
-                return false;
-            }
+    public function check_page_access(int $page, bool $allownext = true): bool {
+        if ($this->get_navigation_method() != QUIZ_NAVMETHOD_SEQ) {
+            return true;
         }
-        return true;
+        // Sequential access: allow access to the summary, current page or next page.
+        // Or if the user review his/her attempt, see MDLQA-1523.
+        return $page == -1
+            || $page == $this->get_currentpage()
+            || $allownext && ($page == $this->get_currentpage() + 1);
     }
 
     /**
@@ -2795,7 +2809,7 @@ abstract class quiz_nav_panel_base {
             $button->number      = $this->attemptobj->get_question_number($slot);
             $button->stateclass  = $qa->get_state_class($showcorrectness);
             $button->navmethod   = $this->attemptobj->get_navigation_method();
-            if (!$showcorrectness && $button->stateclass == 'notanswered') {
+            if (!$showcorrectness && $button->stateclass === 'notanswered') {
                 $button->stateclass = 'complete';
             }
             $button->statestring = $this->get_state_string($qa, $showcorrectness);

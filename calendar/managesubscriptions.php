@@ -48,7 +48,7 @@ if ($courseid != SITEID && !empty($courseid)) {
         new moodle_url('/calendar/view.php', ['view' => 'month', 'category' => $categoryid])
     );
 } else {
-    navigation_node::override_active_url(new moodle_url('/calendar/view.php', ['view' => 'month']));
+    $PAGE->navbar->add(get_string('calendar', 'calendar'), new moodle_url('/calendar/view.php', ['view' => 'month']));
 }
 
 $PAGE->set_url($url);
@@ -66,7 +66,7 @@ if ($courseid != SITEID && !empty($courseid)) {
 require_login($course, false);
 
 if (!calendar_user_can_add_event($course)) {
-    print_error('errorcannotimport', 'calendar');
+    throw new \moodle_exception('errorcannotimport', 'calendar');
 }
 $PAGE->navbar->add(get_string('managesubscriptions', 'calendar'), $PAGE->url);
 

@@ -391,12 +391,13 @@ function course_integrity_check($courseid, $rawmods = null, $sections = null, $f
  * and the value is a lang_string object with a human-readable string.
  *
  * @param bool $plural If true, the function returns the plural forms of the names.
+ * @param bool $resetcache If true, the static cache will be reset
  * @return lang_string[] Localised human-readable names of all used modules.
  */
-function get_module_types_names($plural = false) {
+function get_module_types_names($plural = false, $resetcache = false) {
     static $modnames = null;
     global $DB, $CFG;
-    if ($modnames === null) {
+    if ($modnames === null || $resetcache) {
         $modnames = array(0 => array(), 1 => array());
         if ($allmods = $DB->get_records("modules")) {
             foreach ($allmods as $mod) {
@@ -2469,9 +2470,7 @@ function update_course($data, $editoroptions = NULL) {
 function average_number_of_participants(bool $onlyactive = false, int $lastloginsince = null): float {
     global $DB;
 
-    $params = [
-        'siteid' => SITEID,
-    ];
+    $params = [];
 
     $sql = "SELECT DISTINCT ue.userid, e.courseid
               FROM {user_enrolments} ue
@@ -2482,8 +2481,7 @@ function average_number_of_participants(bool $onlyactive = false, int $lastlogin
         $sql .= "JOIN {user} u ON u.id = ue.userid ";
     }
 
-    $sql .= "WHERE e.courseid <> :siteid
-               AND c.visible = 1 ";
+    $sql .= "WHERE e.courseid <> " . SITEID . " AND c.visible = 1 ";
 
     if ($onlyactive) {
         $sql .= "AND ue.status = :active
@@ -2693,7 +2691,7 @@ class course_request {
         }
         if (empty($properties->requester)) {
             if (!($this->properties = $DB->get_record('course_request', array('id' => $properties->id)))) {
-                print_error('unknowncourserequest');
+                throw new \moodle_exception('unknowncourserequest');
             }
         } else {
             $this->properties = $properties;
@@ -3665,7 +3663,7 @@ function course_get_tagged_courses($tag, $exclusivemode = false, $fromctx = 0, $
  */
 function core_course_inplace_editable($itemtype, $itemid, $newvalue) {
     if ($itemtype === 'activityname') {
-        return \core_courseformat\output\local\content\cm\cmname::update($itemid, $newvalue);
+        return \core_courseformat\output\local\content\cm\title::update($itemid, $newvalue);
     }
 }
 
@@ -4108,14 +4106,22 @@ function course_classify_for_timeline($course, $user = null, $completioninfo = n
         $user = $USER;
     }
 
+    if ($completioninfo == null) {
+        $completioninfo = new completion_info($course);
+    }
+
+    // Let plugins override data for timeline classification.
+    $pluginsfunction = get_plugins_with_function('extend_course_classify_for_timeline', 'lib.php');
+    foreach ($pluginsfunction as $plugintype => $plugins) {
+        foreach ($plugins as $pluginfunction) {
+            $pluginfunction($course, $user, $completioninfo);
+        }
+    }
+
     $today = time();
     // End date past.
     if (!empty($course->enddate) && (course_classify_end_date($course) < $today)) {
         return COURSE_TIMELINE_PAST;
-    }
-
-    if ($completioninfo == null) {
-        $completioninfo = new completion_info($course);
     }
 
     // Course was completed.

@@ -1152,7 +1152,7 @@ function grade_regrade_final_grades($courseid, $userid=null, $updated_item=null,
     if ($userid) {
         // one raw grade updated for one user
         if (empty($updated_item)) {
-            print_error("cannotbenull", 'debug', '', "updated_item");
+            throw new \moodle_exception("cannotbenull", 'debug', '', "updated_item");
         }
         if ($course_item->needsupdate) {
             $updated_item->force_regrading();
@@ -1352,7 +1352,7 @@ function grade_grab_course_grades($courseid, $modname=null, $userid=0) {
     }
 
     if (!$mods = core_component::get_plugin_list('mod') ) {
-        print_error('nomodules', 'debug');
+        throw new \moodle_exception('nomodules', 'debug');
     }
 
     foreach ($mods as $mod => $fullmod) {
@@ -1586,14 +1586,14 @@ function grade_course_reset($courseid) {
 }
 
 /**
- * Convert a number to 5 decimal point float, an empty string or a null db compatible format
+ * Convert a number to 5 decimal point float, null db compatible format
  * (we need this to decide if db value changed)
  *
  * @param float|null $number The number to convert
  * @return float|null float or null
  */
 function grade_floatval(?float $number) {
-    if (is_null($number) or $number === '') {
+    if (is_null($number)) {
         return null;
     }
     // we must round to 5 digits to get the same precision as in 10,5 db fields

@@ -101,13 +101,41 @@ Feature: Run tests over my courses.
       | Default region   | Right                              |
     And I press "Save changes"
     And I should see "This is visible on all pages"
-    And "Move Text on all pages block" "button" should exist in the "Text on all pages" "block"
+    And "Move Text on all pages block" "menuitem" should exist in the "Text on all pages" "block"
     When I am on the "My courses" page
     # Check blocks visible but are "locked" in place.
     Then "Course overview" "text" should exist in the "region-main" "region"
     And I should not see "Add a block"
     And I should see "This is visible on all pages"
-    And "Move Text on all pages block" "button" should not exist in the "Text on all pages" "block"
-    And "Move Course overview block" "button" should not exist in the "Course overview" "block"
+    And "Move Text on all pages block" "menuitem" should not exist in the "Text on all pages" "block"
+    And "Move Course overview block" "menuitem" should not exist in the "Course overview" "block"
     And I click on "Actions menu" "icon" in the "Course overview" "block"
     And I should not see "Delete Course overview block"
+
+  @javascript
+  Scenario: User with creating a course permission can't see the Request course link
+    Given the following "permission overrides" exist:
+      | capability            | permission | role  | contextlevel | reference |
+      | moodle/course:request | Allow      | user  | System       |           |
+    When I am on the "My courses" page logged in as "admin"
+    And I click on "Course management options" "link"
+    And I should see "New course"
+    Then I should not see "Request a course"
+
+  @javascript
+  Scenario: User without creating a course but with course request permission could see the Request course link
+    Given the following "permission overrides" exist:
+      | capability            | permission | role  | contextlevel | reference |
+      | moodle/course:request | Allow      | user  | System       |           |
+    When I am on the "My courses" page logged in as "user1"
+    And I click on "Course management options" "link"
+    And I should not see "New course"
+    Then I should see "Request a course"
+    And the following config values are set as admin:
+      | enablecourserequests | 0 |
+    And I am on the "My courses" page logged in as "user1"
+    And "Course management options" "link" should not exist
+
+  Scenario: User without creating nor course request permission shouldn't see any Request course link
+    Given I am on the "My courses" page logged in as "user1"
+    Then "Course management options" "link" should not exist

@@ -168,7 +168,7 @@ class renderer extends \plugin_renderer_base {
             $fullname = fullname($summary->user, $summary->viewfullnames);
             $extrainfo = array();
             foreach ($summary->extrauserfields as $extrafield) {
-                $extrainfo[] = $summary->user->$extrafield;
+                $extrainfo[] = s($summary->user->$extrafield);
             }
             if (count($extrainfo)) {
                 $fullname .= ' (' . implode(', ', $extrainfo) . ')';
@@ -246,7 +246,7 @@ class renderer extends \plugin_renderer_base {
 
         $description = $header->preface;
         if ($header->showintro || $header->activity) {
-            $description = $this->output->box_start('generalbox boxaligncenter', 'intro');
+            $description = $this->output->box_start('generalbox boxaligncenter');
             if ($header->showintro) {
                 $description .= format_module_intro('assign', $header->assign, $header->coursemoduleid);
             }

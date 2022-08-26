@@ -39,6 +39,26 @@ require_once(__DIR__ . '/fixtures/task_fixtures.php');
 class core_adhoc_task_testcase extends advanced_testcase {
 
     /**
+     * Test getting name of task that implements it's own get_name method
+     *
+     * @covers \core\task\adhoc_task::get_name
+     */
+    public function test_get_name(): void {
+        $task = new \core\task\adhoc_test_task();
+        $this->assertEquals('Test adhoc class', $task->get_name());
+    }
+
+    /**
+     * Test getting name of task that uses the default implementation of get_name
+     *
+     * @covers \core\task\adhoc_task::get_name
+     */
+    public function test_get_name_default(): void {
+        $task = new \mod_fake\task\adhoc_component_task();
+        $this->assertEquals('Adhoc component task', $task->get_name());
+    }
+
+    /**
      * Test basic adhoc task execution.
      */
     public function test_get_next_adhoc_task_now() {
@@ -121,7 +141,7 @@ class core_adhoc_task_testcase extends advanced_testcase {
     public function test_queue_adhoc_task_for_component(): void {
         $this->resetAfterTest();
 
-        $task = new \mod_forum\task\refresh_forum_post_counts();
+        $task = new \mod_forum\task\send_user_digests();
         $task->set_component('mod_test');
 
         \core\task\manager::queue_adhoc_task($task);
@@ -135,7 +155,7 @@ class core_adhoc_task_testcase extends advanced_testcase {
     public function test_queue_task_for_component_without_set_component(): void {
         $this->resetAfterTest();
 
-        $task = new \mod_forum\task\refresh_forum_post_counts();
+        $task = new \mod_forum\task\send_user_digests();
 
         \core\task\manager::queue_adhoc_task($task);
         $this->assertDebuggingNotCalled();
